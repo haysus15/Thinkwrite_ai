@@ -7,19 +7,25 @@ import { NextResponse, type NextRequest } from "next/server";
 // Routes that require authentication
 const PROTECTED_ROUTES = [
   "/career-studio",
+  "/academic-studio",
   "/mirror-mode",
 ];
 
 // Routes that are always public
 const PUBLIC_ROUTES = [
   "/",
-  "/select-studio",
   "/api/auth",
+  "/academic-studio/landing",
 ];
 
 // API routes that require authentication
 const PROTECTED_API_ROUTES = [
+  "/api/academic",
   "/api/applications",
+  "/api/quiz",
+  "/api/study",
+  "/api/travis",
+  "/api/victor",
   "/api/resumes",
   "/api/resume-builder",
   "/api/cover-letter",
@@ -32,6 +38,11 @@ const PROTECTED_API_ROUTES = [
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (pathname === "/academic-studio") {
+    const redirectUrl = new URL("/academic-studio/landing", request.url);
+    return NextResponse.redirect(redirectUrl);
+  }
 
   // Skip public routes
   if (PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(route + "/"))) {

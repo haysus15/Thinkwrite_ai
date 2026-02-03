@@ -67,6 +67,7 @@ export async function POST(request: NextRequest) {
       .from('user_documents')
       .insert({
         ...dbData,
+        extracted_text: body.rawImportedText || dbData.extracted_text || null,
         file_name: body.title || 'Untitled Resume',
         file_type: 'builder',
         is_active: true,

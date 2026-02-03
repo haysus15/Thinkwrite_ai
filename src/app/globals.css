@@ -1,26 +1,1484 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import "katex/dist/katex.min.css";
 
+/* ============================================================
+   Landing Page: Dark Futuristic Theme
+============================================================ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #000000;
+  --foreground: #ffffff;
+  
+  /* Dark, eerie color palette */
+  --cosmic-black: #0a0a0f;
+  --deep-purple: #1a0b2e;
+  --neon-blue: #00f5ff;
+  --neon-purple: #a855f7;
+  --electric-pink: #ec4899;
+  --void-gray: #1f1f23;
+  
+  /* Mirror Mode - Pure cosmic (no purple) */
+  --mirror-black: #000000;
+  --mirror-silver: #C0C0C0;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer utilities {
+  .text-glow {
+    text-shadow: 0 0 20px currentColor, 0 0 40px currentColor;
+  }
+  
+  .neon-glow {
+    box-shadow: 0 0 20px var(--neon-blue), 0 0 40px var(--neon-blue);
+  }
+  
+  .particle-glow {
+    filter: drop-shadow(0 0 10px currentColor);
+  }
+  
+  /* Mirror Mode - transparent background utility */
+  .cosmic-transparent {
+    background: transparent !important;
+    background-color: transparent !important;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Cybertruck-style geometric font */
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+
+/* ============================================================
+   MirrorMode: Haunted Lab + Alive Orb (hydration-safe)
+   - CSS-only animation (no Date.now / randomness required)
+============================================================ */
+@layer utilities {
+  /* --- Orb animation helpers --- */
+  .orbAlive {
+    animation: orbPulse 3.8s ease-in-out infinite;
+  }
+
+  .orbNeedle {
+    animation: orbSpin 10s linear infinite;
+  }
+  .orbNeedleFast {
+    animation: orbSpin 6.5s linear infinite;
+  }
+  .orbNeedleSlow {
+    animation: orbSpin 14s linear infinite;
+  }
+
+  .orbShimmer {
+    animation: orbShimmer 6.2s ease-in-out infinite;
+    transform: skewX(-12deg);
+    opacity: 0.55;
+    mix-blend-mode: screen;
+  }
+
+  .orbScanlines {
+    background-image: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.06),
+      rgba(255, 255, 255, 0.00)
+    );
+    background-size: 100% 10px;
+    animation: scanlines 9s linear infinite;
+    mix-blend-mode: overlay;
+  }
+
+  /* --- Lab background helpers --- */
+  .labGridMask {
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 64px 64px;
+
+    /* fade grid towards edges */
+    mask-image: radial-gradient(
+      closest-side,
+      rgba(0,0,0,0.9),
+      rgba(0,0,0,0.2),
+      transparent
+    );
+    -webkit-mask-image: radial-gradient(
+      closest-side,
+      rgba(0,0,0,0.9),
+      rgba(0,0,0,0.2),
+      transparent
+    );
+  }
+
+  .labScanShimmer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.9), transparent);
+    animation: labScan 7s linear infinite;
+    opacity: 1;
+  }
+
+  /* lightweight "film grain" */
+  .labNoise {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
+    mix-blend-mode: overlay;
+  }
+}
+
+/* ============================================================
+   Keyframes (global, consistent across pages)
+============================================================ */
+@keyframes orbSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes orbPulse {
+  0%   { filter: brightness(1) saturate(1); transform: scale(1); }
+  50%  { filter: brightness(1.06) saturate(1.15); transform: scale(1.01); }
+  100% { filter: brightness(1) saturate(1); transform: scale(1); }
+}
+
+@keyframes orbShimmer {
+  0%   { transform: translateX(-30%) skewX(-12deg); opacity: 0; }
+  20%  { opacity: 0.35; }
+  50%  { opacity: 0.55; }
+  80%  { opacity: 0.25; }
+  100% { transform: translateX(260%) skewX(-12deg); opacity: 0; }
+}
+
+@keyframes scanlines {
+  0% { background-position-y: 0px; }
+  100% { background-position-y: 220px; }
+}
+
+@keyframes labScan {
+  0% { transform: translateY(-120%); }
+  100% { transform: translateY(120%); }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ============================================================
+   Cowboy Bebop Studio Selection Animations
+============================================================ */
+@keyframes cowboyGlow {
+  0%, 100% {
+    text-shadow: 0 0 20px rgba(234, 170, 0, 0.6),
+                 0 0 40px rgba(234, 170, 0, 0.4);
+  }
+  50% {
+    text-shadow: 0 0 30px rgba(234, 170, 0, 0.8),
+                 0 0 60px rgba(234, 170, 0, 0.6),
+                 0 0 90px rgba(234, 170, 0, 0.4);
+  }
+}
+
+/* ============================================================
+   Base Styles
+============================================================ */
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  html,
+  body {
+    max-width: 100vw;
+    overflow-x: hidden;
+    overflow-y: auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
+      "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
+      sans-serif;
+    height: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Landing page specific background */
+  body.landing-page {
+    background: radial-gradient(ellipse at top, var(--deep-purple), var(--cosmic-black) 50%);
+    background-attachment: fixed;
+    color: var(--foreground);
+  }
+}
+
+/* ============================================================
+   Mirror Mode: Cosmic Three.js Background Support
+   - Makes all containers transparent so stars show through
+   - The CosmicParticleBackground component handles the actual bg
+============================================================ */
+body.mirror-mode-page,
+body.mirror-mode-page html,
+.mirror-mode-container,
+.mirror-mode-container * {
+  background: transparent;
+}
+
+/* When body has this class, force transparency on common wrappers */
+body.mirror-mode-page #__next,
+body.mirror-mode-page main,
+body.mirror-mode-page .main {
+  background: transparent !important;
+}
+
+/* Ensure app container fills the viewport for Career Studio */
+#__next,
+main,
+.main {
+  min-height: 100vh;
+  height: auto;
+}
+
+/* ============================================================
+   Utility Classes
+============================================================ */
+.animate-fadeIn {
+  animation: fadeIn 1s ease-in forwards;
+}
+
+.bebop-text-glow {
+  text-shadow: 0 0 30px rgba(234, 170, 0, 0.8);
+  animation: cowboyGlow 3s ease-in-out infinite;
+}
+
+/* Film grain for Bebop aesthetic */
+.bebop-grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' /%3E%3C/svg%3E");
+  opacity: 0.08;
+  mix-blend-mode: overlay;
+}
+
+/* Particle trail glow effect */
+.particle-trail {
+  filter: drop-shadow(0 0 8px currentColor) 
+          drop-shadow(0 0 16px currentColor);
+}
+
+/* ============================================================
+   Career Studio Sigil Animations - Add to globals.css
+============================================================ */
+
+/* Rotating aura ring - slow elegant spin */
+@keyframes auraSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Fast spin during unlock */
+@keyframes auraSpinFast {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(720deg); }
+}
+
+/* Sigil bloom - glow surge during unlock */
+@keyframes sigilBloom {
+  0% { 
+    filter: drop-shadow(0 0 30px rgba(234,170,0,0.45)); 
+    transform: scale(1); 
+  }
+  60% { 
+    filter: drop-shadow(0 0 90px rgba(234,170,0,0.85)); 
+    transform: scale(1.03); 
+  }
+  100% { 
+    filter: drop-shadow(0 0 60px rgba(234,170,0,0.55)); 
+    transform: scale(1); 
+  }
+}
+
+/* Inner pulse animation */
+@keyframes innerPulse {
+  0% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.04); }
+  100% { opacity: 0.35; transform: scale(1); }
+}
+
+/* Chromatic split - RGB separation effect */
+@keyframes chromaSplit {
+  0% { box-shadow: none; opacity: 0; }
+  20% {
+    opacity: 1;
+    box-shadow:
+      10px 0 0 rgba(120,210,255,0.12),
+      -10px 0 0 rgba(175,120,255,0.10),
+      0 0 0 rgba(234,170,0,0);
+  }
+  60% {
+    opacity: 1;
+    box-shadow:
+      6px 0 0 rgba(120,210,255,0.10),
+      -6px 0 0 rgba(175,120,255,0.08);
+  }
+  100% { opacity: 0; box-shadow: none; }
+}
+
+/* Full-screen flash on unlock */
+@keyframes gateFlash {
+  0% { opacity: 0; }
+  12% { opacity: 0.9; }
+  26% { opacity: 0.25; }
+  100% { opacity: 0; }
+}
+
+/* Apply animations */
+.animate-auraSpin { 
+  animation: auraSpin 12s linear infinite; 
+}
+
+.animate-auraSpinFast { 
+  animation: auraSpinFast 1.2s ease-in-out 1; 
+}
+
+.animate-sigilBloom { 
+  animation: sigilBloom 900ms ease-out 1; 
+}
+
+.animate-innerPulse { 
+  animation: innerPulse 900ms ease-in-out 1; 
+}
+
+.animate-chromaSplit { 
+  animation: chromaSplit 520ms ease-out 1; 
+}
+
+.animate-gateFlash {
+  animation: gateFlash 540ms ease-out 1;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(234,170,0,0.28), transparent 55%),
+    radial-gradient(circle at 30% 30%, rgba(120,210,255,0.16), transparent 58%),
+    radial-gradient(circle at 70% 35%, rgba(175,120,255,0.14), transparent 60%);
+  mix-blend-mode: screen;
+}
+
+/* ============================================================
+   Academic Studio: Deep Space Theme with Floating Panels
+   - Tengri-inspired infinite sky aesthetic
+   - Glass morphism floating cards
+   - Ma principle (breathing room)
+============================================================ */
+
+math-field {
+  width: 100%;
+  font-size: 1.25rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  color: #f8fafc;
+}
+
+math-field::part(content) {
+  color: #f8fafc;
+}
+
+/* Deep space gradient background */
+.academic-studio-container,
+.academic-studio-root,
+.academic-landing-root {
+  --academic-sky-start: #070912;
+  --academic-sky-mid: #13284c;
+  --academic-sky-end: #1a447d;
+
+  background: linear-gradient(
+    180deg,
+    var(--academic-sky-start) 0%,
+    var(--academic-sky-mid) 50%,
+    var(--academic-sky-end) 100%
+  );
+  background-attachment: fixed;
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Sky layer - stars + nebula behind everything */
+.academic-particles-layer,
+.sky-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.stars {
+  position: absolute;
+  inset: 0;
+  animation: academicStarDrift 180s linear infinite;
+  background-image:
+    radial-gradient(1px 1px at 8% 12%, rgba(255,255,255,0.85) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 16% 36%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 22% 68%, rgba(255,255,255,0.92) 0%, transparent 100%),
+    radial-gradient(2px 2px at 28% 44%, rgba(255,255,255,0.95) 0%, transparent 100%),
+    radial-gradient(2.6px 2.6px at 34% 24%, rgba(255,255,255,1) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 40% 58%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(2.2px 2.2px at 46% 32%, rgba(255,255,255,0.96) 0%, transparent 100%),
+    radial-gradient(3.4px 3.4px at 52% 18%, rgba(255,255,255,1) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 58% 64%, rgba(255,255,255,0.86) 0%, transparent 100%),
+    radial-gradient(2.4px 2.4px at 64% 42%, rgba(255,255,255,0.95) 0%, transparent 100%),
+    radial-gradient(3.2px 3.2px at 70% 22%, rgba(255,255,255,1) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 76% 58%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(2.6px 2.6px at 82% 34%, rgba(255,255,255,0.98) 0%, transparent 100%),
+    radial-gradient(3.6px 3.6px at 88% 16%, rgba(255,255,255,1) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 92% 72%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(2.8px 2.8px at 12% 78%, rgba(255,255,255,0.96) 0%, transparent 100%),
+    radial-gradient(3.8px 3.8px at 38% 50%, rgba(255,255,255,1) 0%, transparent 100%),
+    radial-gradient(2px 2px at 56% 80%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(4px 4px at 74% 74%, rgba(255,255,255,1) 0%, transparent 100%),
+    radial-gradient(1px 1px at 6% 28%, rgba(255,255,255,0.85) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 10% 54%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 18% 10%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1px 1px at 22% 26%, rgba(255,255,255,0.86) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 26% 56%, rgba(255,255,255,0.92) 0%, transparent 100%),
+    radial-gradient(2px 2px at 30% 86%, rgba(255,255,255,0.94) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 34% 68%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 42% 8%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 48% 90%, rgba(255,255,255,0.92) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 52% 64%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 60% 12%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 66% 84%, rgba(255,255,255,0.92) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 72% 6%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 78% 88%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1px 1px at 84% 60%, rgba(255,255,255,0.86) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 90% 44%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 96% 24%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(2px 2px at 6% 72%, rgba(255,255,255,0.94) 0%, transparent 100%),
+    radial-gradient(2.2px 2.2px at 14% 92%, rgba(255,255,255,0.96) 0%, transparent 100%),
+    radial-gradient(2.4px 2.4px at 44% 72%, rgba(255,255,255,0.96) 0%, transparent 100%),
+    radial-gradient(2.2px 2.2px at 58% 28%, rgba(255,255,255,0.95) 0%, transparent 100%),
+    radial-gradient(2.4px 2.4px at 86% 12%, rgba(255,255,255,0.96) 0%, transparent 100%),
+    radial-gradient(1px 1px at 4% 18%, rgba(255,255,255,0.84) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 7% 36%, rgba(255,255,255,0.86) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 9% 58%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1px 1px at 11% 82%, rgba(255,255,255,0.84) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 15% 46%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1px 1px at 19% 30%, rgba(255,255,255,0.85) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 21% 90%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 27% 12%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1px 1px at 31% 36%, rgba(255,255,255,0.84) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 33% 58%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 37% 82%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 41% 26%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1px 1px at 47% 40%, rgba(255,255,255,0.84) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 51% 62%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 55% 10%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1px 1px at 59% 36%, rgba(255,255,255,0.84) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 63% 58%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 67% 82%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1px 1px at 71% 26%, rgba(255,255,255,0.84) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 73% 48%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 77% 70%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 81% 92%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1px 1px at 85% 30%, rgba(255,255,255,0.84) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 89% 54%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 93% 78%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1px 1px at 97% 46%, rgba(255,255,255,0.84) 0%, transparent 100%);
+  filter: drop-shadow(0 0 22px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 36px rgba(255, 255, 255, 0.9));
+}
+
+/* Generate subtle star field with radial gradients */
+/* Single-layer stars only */
+.academic-particles-layer::before,
+.stars::before,
+.academic-particles-layer::after,
+.stars::after {
+  content: none;
+}
+
+/* Subtle nebula glow overlay */
+.academic-nebula-layer,
+.nebula-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(ellipse 70% 45% at 15% 22%, rgba(14,165,233,0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 85% 70%, rgba(59,130,246,0.16) 0%, transparent 58%),
+    radial-gradient(ellipse 65% 45% at 55% 12%, rgba(56,189,248,0.14) 0%, transparent 60%),
+    radial-gradient(ellipse 55% 40% at 42% 82%, rgba(14,165,233,0.12) 0%, transparent 62%);
+  animation: academicNebulaDrift 40s ease-in-out infinite alternate;
+}
+
+.academic-landing-root .milky-way-band {
+  position: absolute;
+  top: calc(-6% - 275px);
+  left: -10%;
+  width: 120%;
+  height: 120%;
+  transform: rotate(-18deg);
+  z-index: 1;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  filter: blur(1.4px) saturate(1.25);
+  opacity: 0.78;
+  background:
+    radial-gradient(ellipse 46% 11% at 38% 49%, rgba(96, 165, 250, 0.38) 0%, transparent 72%),
+    radial-gradient(ellipse 34% 8% at 58% 55%, rgba(59, 130, 246, 0.4) 0%, transparent 74%),
+    radial-gradient(ellipse 26% 6% at 67% 57%, rgba(14, 165, 233, 0.35) 0%, transparent 76%),
+    radial-gradient(ellipse 22% 5% at 46% 52%, rgba(147, 197, 253, 0.32) 0%, transparent 78%),
+    radial-gradient(ellipse 18% 3% at 52% 52%, rgba(255, 255, 255, 0.52) 0%, transparent 80%),
+    radial-gradient(ellipse 30% 7% at 52% 50%, rgba(248, 113, 113, 0.22) 0%, transparent 74%),
+    radial-gradient(ellipse 26% 6% at 58% 53%, rgba(236, 72, 153, 0.2) 0%, transparent 76%),
+    radial-gradient(ellipse 22% 5% at 46% 54%, rgba(251, 146, 60, 0.22) 0%, transparent 78%),
+    radial-gradient(ellipse 24% 6% at 60% 56%, rgba(16, 185, 129, 0.18) 0%, transparent 78%),
+    radial-gradient(ellipse 22% 5% at 42% 50%, rgba(59, 130, 246, 0.2) 0%, transparent 78%),
+    radial-gradient(ellipse 30% 1% at 52% 52%, rgba(4, 8, 20, 0.95) 0%, transparent 74%),
+    linear-gradient(86deg, transparent 36%, rgba(6, 10, 22, 0.6) 46%, rgba(4, 8, 18, 0.9) 50%, rgba(6, 10, 22, 0.6) 54%, transparent 64%);
+  animation: academicMilkyWayDrift 55s ease-in-out infinite alternate;
+  mask-image: radial-gradient(ellipse 50% 32% at 50% 50%, #000 0%, #000 55%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 50% 32% at 50% 50%, #000 0%, #000 55%, transparent 100%);
+}
+
+.academic-landing-root .milky-way-band::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1px 1px at 28% 48%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 34% 52%, rgba(191,219,254,0.35) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 41% 50%, rgba(255,255,255,0.4) 0%, transparent 100%),
+    radial-gradient(1.1px 1.1px at 47% 55%, rgba(191,219,254,0.32) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 52% 50%, rgba(255,255,255,0.45) 0%, transparent 100%),
+    radial-gradient(1px 1px at 58% 53%, rgba(191,219,254,0.3) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 64% 56%, rgba(255,255,255,0.35) 0%, transparent 100%),
+    radial-gradient(1px 1px at 70% 58%, rgba(191,219,254,0.28) 0%, transparent 100%),
+    radial-gradient(1px 1px at 36% 46%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(1px 1px at 44% 58%, rgba(255,255,255,0.26) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 60% 49%, rgba(255,255,255,0.3) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 66% 53%, rgba(191,219,254,0.24) 0%, transparent 100%),
+    radial-gradient(1px 1px at 72% 50%, rgba(255,255,255,0.28) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 32% 53%, rgba(248, 113, 113, 0.65) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 40% 49%, rgba(236, 72, 153, 0.6) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 48% 57%, rgba(16, 185, 129, 0.52) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 56% 52%, rgba(59, 130, 246, 0.6) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 62% 50%, rgba(14, 165, 233, 0.58) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 36% 55%, rgba(251, 146, 60, 0.6) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 52% 49%, rgba(244, 114, 182, 0.55) 0%, transparent 100%);
+  opacity: 0.7;
+  filter: blur(0.7px) saturate(1.15);
+  mix-blend-mode: screen;
+  mask-image: radial-gradient(ellipse 45% 18% at 50% 52%, #000 0%, #000 60%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 45% 18% at 50% 52%, #000 0%, #000 60%, transparent 100%);
+}
+
+.academic-landing-root .milky-way-band::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(0.8px 0.8px at 30% 50%, rgba(255,255,255,0.22) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 33% 54%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 37% 49%, rgba(255,255,255,0.24) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 41% 52%, rgba(255,255,255,0.18) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 45% 54%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 49% 48%, rgba(255,255,255,0.24) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 53% 55%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 57% 50%, rgba(255,255,255,0.22) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 61% 56%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 65% 52%, rgba(255,255,255,0.22) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 69% 58%, rgba(255,255,255,0.18) 0%, transparent 100%),
+    radial-gradient(0.8px 0.8px at 73% 54%, rgba(255,255,255,0.2) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 35% 51%, rgba(248, 113, 113, 0.55) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 43% 56%, rgba(236, 72, 153, 0.5) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 50% 50%, rgba(14, 165, 233, 0.5) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 58% 55%, rgba(16, 185, 129, 0.45) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 66% 52%, rgba(59, 130, 246, 0.5) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 71% 57%, rgba(34, 197, 94, 0.4) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 60% 49%, rgba(251, 146, 60, 0.5) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 46% 52%, rgba(251, 146, 60, 0.65) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 54% 55%, rgba(244, 114, 182, 0.6) 0%, transparent 100%),
+    radial-gradient(1.6px 1.6px at 62% 53%, rgba(248, 113, 113, 0.6) 0%, transparent 100%);
+  opacity: 0.65;
+  filter: blur(0.9px) saturate(1.1);
+  mix-blend-mode: screen;
+  mask-image: radial-gradient(ellipse 48% 20% at 50% 52%, #000 0%, #000 60%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 48% 20% at 50% 52%, #000 0%, #000 60%, transparent 100%);
+}
+
+.academic-landing-root .milky-way-band::marker {
+  content: none;
+}
+
+.academic-landing-root .milky-way-band {
+  box-shadow:
+    0 0 210px rgba(251, 146, 60, 0.2),
+    0 0 280px rgba(236, 72, 153, 0.16);
+}
+
+.academic-landing-root .milky-way-band-warm-haze {
+  position: absolute;
+  top: calc(-6% - 275px);
+  left: -10%;
+  width: 120%;
+  height: 120%;
+  transform: rotate(-18deg);
+  z-index: 1;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(ellipse 42% 14% at 50% 52%, rgba(251, 146, 60, 0.3) 0%, transparent 70%),
+    radial-gradient(ellipse 38% 12% at 56% 54%, rgba(244, 114, 182, 0.22) 0%, transparent 72%),
+    radial-gradient(ellipse 34% 10% at 44% 50%, rgba(248, 113, 113, 0.2) 0%, transparent 74%),
+    radial-gradient(ellipse 30% 9% at 60% 55%, rgba(253, 186, 116, 0.18) 0%, transparent 74%);
+  filter: blur(24px);
+  opacity: 0.78;
+}
+
+.academic-landing-root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(14,165,233,0.05) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 120%, rgba(0,0,0,0.75) 0%, transparent 65%);
+}
+
+@keyframes academicStarTwinkle {
+  0% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+@keyframes academicStarSparkle {
+  0% {
+    opacity: 0.85;
+    filter: drop-shadow(0 0 34px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 56px rgba(147, 197, 253, 0.9)) drop-shadow(0 0 80px rgba(59, 130, 246, 0.7));
+  }
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 54px rgba(255, 255, 255, 1)) drop-shadow(0 0 92px rgba(147, 197, 253, 1)) drop-shadow(0 0 130px rgba(59, 130, 246, 0.85));
+  }
+}
+
+@keyframes academicStarDrift {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-0.35%, 0.25%, 0); }
+}
+
+@keyframes academicMilkyWayDrift {
+  0% {
+    opacity: 0.7;
+    transform: translate3d(-1%, -1%, 0) rotate(-18deg) scale(1);
+  }
+  100% {
+    opacity: 0.95;
+    transform: translate3d(1%, 1%, 0) rotate(-18deg) scale(1.04);
+  }
+}
+
+@keyframes academicNebulaDrift {
+  0% {
+    opacity: 0.7;
+    transform: translate3d(-1%, -1%, 0) scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(1%, 1%, 0) scale(1.03);
+  }
+}
+
+/* Content layer - sits above particles */
+.academic-content-layer,
+.content-layer,
+.academic-landing-content {
+  position: relative;
+  z-index: 10;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+@media (min-width: 1024px) {
+  .academic-content-layer,
+  .content-layer,
+  .academic-landing-content {
+    padding: 24px 32px;
+  }
+}
+
+/* Floating header card */
+.academic-studio-header {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 16px 24px;
+  margin-bottom: 16px;
+}
+
+/* Glass panel base */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 64px;
+  padding: 0 24px;
+}
+
+/* Floating panel base styles */
+.academic-floating-panel {
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 20px;
+  overflow: hidden;
+}
+
+/* Victor panel specific accent */
+.academic-victor-panel,
+.academic-studio-root .victor-sidebar {
+  position: relative;
+}
+
+.academic-victor-panel::before,
+.academic-studio-root .victor-sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(14,165,233,0.4), transparent);
+}
+
+/* Travis panel specific accent */
+.academic-travis-panel,
+.academic-studio-root .travis-sidebar {
+  position: relative;
+}
+
+.academic-travis-panel::before,
+.academic-studio-root .travis-sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(20,184,166,0.4), transparent);
+}
+
+/* Workspace panel specific accent */
+.academic-workspace-panel,
+.academic-studio-root .workspace {
+  position: relative;
+}
+
+.academic-workspace-panel::before,
+.academic-studio-root .workspace::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent);
+}
+
+/* Studio body grid with gaps */
+.academic-studio-body,
+.studio-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+@media (min-width: 1024px) {
+  .academic-studio-body,
+  .studio-grid {
+    grid-template-columns: 280px 1fr 320px;
+  }
+}
+
+.content-layer {
+  height: 100vh;
+  gap: 16px;
+}
+
+.academic-landing-content {
+  gap: 40px;
+}
+
+.academic-accordion-stack {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+
+.academic-accordion {
+  background: rgba(10, 18, 32, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 0 18px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.academic-accordion summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.academic-accordion summary::-webkit-details-marker {
+  display: none;
+}
+
+.academic-accordion summary::after {
+  content: '▾';
+  color: rgba(226, 232, 240, 0.6);
+  font-size: 0.8rem;
+  transition: transform 0.2s ease;
+}
+
+.academic-accordion[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.academic-accordion-body {
+  padding: 8px 0 18px;
+}
+
+/* Academic Studio unified layout (Career Studio structure) */
+.academic-unified-layout {
+  position: relative;
+  z-index: 10;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+@media (min-width: 1024px) {
+  .academic-unified-layout {
+    flex-direction: row;
+    height: 100vh;
+    padding: 24px 32px;
+  }
+}
+
+.academic-unified-panel {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.academic-unified-left {
+  flex: 0 0 auto;
+}
+
+.academic-unified-right {
+  flex: 0 0 auto;
+}
+
+.academic-unified-center {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .academic-unified-left {
+    flex-basis: 280px;
+  }
+
+  .academic-unified-right {
+    flex-basis: 320px;
+  }
+}
+
+.academic-unified-left::before,
+.academic-unified-right::before,
+.academic-unified-center::before {
+  content: '';
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 0;
+  height: 1px;
+  opacity: 0.7;
+}
+
+.academic-unified-left::before {
+  background: linear-gradient(90deg, transparent, rgba(14,165,233,0.45), transparent);
+}
+
+.academic-unified-right::before {
+  background: linear-gradient(90deg, transparent, rgba(20,184,166,0.45), transparent);
+}
+
+.academic-unified-center::before {
+  background: linear-gradient(90deg, transparent, rgba(59,130,246,0.35), transparent);
+}
+
+.academic-unified-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.academic-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@keyframes academicFadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.academic-reveal {
+  animation: academicFadeUp 900ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .academic-reveal {
+    animation: none;
+  }
+
+  .nebula-glow {
+    animation: none;
+  }
+}
+
+/* Nested card styles (for items within panels) */
+.academic-nested-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.academic-nested-card-interactive {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 12px 16px;
+  transition: all 0.2s ease;
+}
+
+.academic-nested-card-interactive:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Mode button card style */
+.academic-mode-button {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+  transition: all 0.2s ease;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.academic-mode-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.academic-mode-button.active {
+  background: rgba(14,165,233,0.12);
+  border-color: rgba(14,165,233,0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 20px rgba(14,165,233,0.15);
+}
+
+/* Chat message cards */
+.academic-chat-message {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.academic-chat-message-victor {
+  background: rgba(14,165,233,0.08);
+  border: 1px solid rgba(14,165,233,0.2);
+}
+
+.academic-chat-message-user {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Travis assignment card */
+.academic-assignment-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 14px;
+  transition: all 0.2s ease;
+}
+
+.academic-assignment-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(20,184,166,0.25);
+}
+
+.academic-assignment-card-overdue {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+/* Active mode glow indicator */
+.academic-glow-victor {
+  box-shadow: 0 0 20px rgba(14,165,233,0.3);
+}
+
+.academic-glow-travis {
+  box-shadow: 0 0 20px rgba(20,184,166,0.3);
+}
+
+/* ========================================================================
+   Career Studio Big Sky (Temujin)
+   ======================================================================== */
+
+.career-studio-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0a0e1f 0%, #121829 52%, #1a2438 100%);
+}
+
+.career-sky-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Temporarily hide problematic elements */
+.career-planets,
+.career-meteors {
+  display: none;
+}
+
+.career-stars-layer,
+.career-stars-layer::before,
+.career-stars-layer::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background-repeat: repeat;
+  opacity: 1;
+}
+
+.career-stars-layer {
+  background-image:
+    radial-gradient(1.5px 1.5px at 10% 20%, rgba(255,255,255,0.9) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(2px 2px at 30% 70%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1.5px 1.5px at 80% 40%, rgba(255,255,255,0.95) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1px 1px at 55% 15%, rgba(255,255,255,0.7) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(2px 2px at 75% 80%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1px 1px at 25% 45%, rgba(255,255,255,0.75) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1.5px 1.5px at 60% 25%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1px 1px at 85% 65%, rgba(255,255,255,0.7) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(2px 2px at 15% 85%, rgba(255,255,255,0.9) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1.5px 1.5px at 45% 90%, rgba(255,255,255,0.75) 0, rgba(255,255,255,0) 50%);
+  background-size: 180px 180px;
+  animation: careerStarTwinkle 16s ease-in-out infinite alternate, careerStarDrift 120s linear infinite;
+}
+
+.career-stars-layer::before {
+  background-image:
+    radial-gradient(1px 1px at 12% 65%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1.5px 1.5px at 45% 35%, rgba(255,255,255,0.7) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(2.5px 2.5px at 68% 55%, rgba(255,255,255,0.9) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1px 1px at 90% 20%, rgba(255,255,255,0.65) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1.5px 1.5px at 22% 42%, rgba(255,255,255,0.75) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1px 1px at 78% 88%, rgba(255,255,255,0.7) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(2px 2px at 52% 72%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0) 50%);
+  background-size: 220px 220px;
+  opacity: 0.9;
+  animation: careerStarTwinkle 22s ease-in-out infinite alternate, careerStarDrift 180s linear infinite reverse;
+}
+
+.career-stars-layer::after {
+  background-image:
+    radial-gradient(1px 1px at 20% 50%, rgba(255,255,255,0.7) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(2px 2px at 60% 30%, rgba(255,255,255,0.8) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1.5px 1.5px at 85% 75%, rgba(255,255,255,0.75) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1px 1px at 35% 12%, rgba(255,255,255,0.65) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1.5px 1.5px at 72% 58%, rgba(255,255,255,0.7) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(1px 1px at 8% 38%, rgba(255,255,255,0.6) 0, rgba(255,255,255,0) 50%),
+    radial-gradient(2px 2px at 92% 82%, rgba(255,255,255,0.85) 0, rgba(255,255,255,0) 50%);
+  background-size: 280px 280px;
+  opacity: 0.85;
+  animation: careerStarTwinkle 28s ease-in-out infinite alternate, careerStarDrift 240s linear infinite;
+}
+
+@keyframes careerStarDrift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 180px 180px;
+  }
+}
+
+.career-nebula-layer {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(50% 50% at 15% 25%, rgba(147, 51, 234, 0.25), transparent 70%),
+    radial-gradient(55% 55% at 80% 20%, rgba(219, 39, 119, 0.22), transparent 68%),
+    radial-gradient(60% 60% at 70% 75%, rgba(8, 145, 178, 0.25), transparent 70%),
+    radial-gradient(45% 45% at 30% 80%, rgba(147, 51, 234, 0.18), transparent 65%);
+  filter: blur(40px);
+  opacity: 0.8;
+  animation: careerNebulaDrift 36s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.career-milky-way {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(80% 25% at 30% 30%, rgba(255, 255, 255, 0.12), transparent 70%),
+    radial-gradient(70% 20% at 55% 50%, rgba(147, 197, 253, 0.15), transparent 70%),
+    radial-gradient(75% 22% at 75% 60%, rgba(236, 254, 255, 0.12), transparent 72%),
+    radial-gradient(60% 18% at 20% 70%, rgba(200, 220, 255, 0.10), transparent 68%);
+  filter: blur(12px);
+  opacity: 0.9;
+  transform: rotate(-15deg);
+  animation: careerMilkyWayDrift 48s ease-in-out infinite alternate;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.career-planets {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.career-planets::before,
+.career-planets::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(0.2px);
+  opacity: 0.85;
+}
+
+.career-planets::before {
+  width: 36px;
+  height: 36px;
+  top: 3%;
+  left: 86%;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.9), rgba(147, 197, 253, 0.25) 55%, rgba(59, 130, 246, 0.08) 70%, transparent 72%);
+  box-shadow: 0 0 12px rgba(147, 197, 253, 0.3);
+  opacity: 0.6;
+}
+
+.career-planets::after {
+  width: 20px;
+  height: 20px;
+  top: 9%;
+  left: 91%;
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.8), rgba(248, 113, 113, 0.25) 55%, rgba(185, 28, 28, 0.08) 70%, transparent 72%);
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.25);
+  opacity: 0.45;
+}
+
+.career-meteors {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.career-meteors::before,
+.career-meteors::after {
+  content: "";
+  position: absolute;
+  top: 18%;
+  left: -35%;
+  width: 180px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(191, 219, 254, 0.25) 30%, rgba(255,255,255,0.9) 52%, rgba(147, 197, 253, 0.35) 78%, rgba(255,255,255,0) 100%);
+  filter: blur(0.5px);
+  opacity: 0;
+  transform: rotate(-18deg);
+  animation: careerMeteorStreak 18s ease-in-out infinite;
+}
+
+.career-meteors::after {
+  width: 220px;
+  height: 1.5px;
+  top: 38%;
+  left: -45%;
+  animation-delay: 6s;
+  animation-duration: 22s;
+  opacity: 0;
+}
+
+.career-content-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  overflow: hidden;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.career-header-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(147,51,234,0.9), rgba(219,39,119,0.9));
+  box-shadow: 0 10px 24px rgba(147, 51, 234, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0a0e1f;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.career-header-title {
+  color: #f8fafc;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+  background: rgba(10, 14, 31, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
+.career-header-subtitle {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.career-panels-row {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.career-global-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-top: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(10, 14, 31, 0.4);
+  backdrop-filter: blur(10px);
+}
+
+.career-panel {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: 16px;
+  box-shadow: none;
+  backdrop-filter: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+
+.career-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: none;
+  opacity: 0;
+}
+
+.career-card {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.career-card:hover {
+  border: 1px solid rgba(147, 51, 234, 0.25);
+  box-shadow: 0 0 22px rgba(147, 51, 234, 0.12);
+  background: rgba(10, 14, 31, 0.08);
+}
+
+@keyframes careerStarTwinkle {
+  0% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0.95;
+  }
+}
+
+@keyframes careerNebulaDrift {
+  0% {
+    transform: translate3d(-2%, -1%, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(2%, 1%, 0) scale(1.02);
+  }
+}
+
+@keyframes careerMilkyWayDrift {
+  0% {
+    transform: rotate(-18deg) translate3d(-2%, -1%, 0) scale(1.05);
+    opacity: 0.45;
+  }
+  100% {
+    transform: rotate(-18deg) translate3d(2%, 1%, 0) scale(1.12);
+    opacity: 0.65;
+  }
+}
+
+.career-shooting-star {
+  position: absolute;
+  top: 10%;
+  left: -30%;
+  width: 240px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(219, 234, 254, 0.10) 20%, rgba(255,255,255,0.85) 50%, rgba(147, 197, 253, 0.22) 75%, rgba(255,255,255,0) 100%);
+  filter: blur(0.4px);
+  opacity: 0.45;
+  animation: careerShootingStar 55s linear infinite;
+}
+
+.career-shooting-star::after {
+  content: "";
+  position: absolute;
+  right: 32%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0) 70%);
+  box-shadow: 0 0 12px rgba(255,255,255,0.5);
+}
+
+@keyframes careerShootingStar {
+  0% {
+    transform: translate3d(-10vw, -6vh, 0) rotate(-18deg) scaleX(0.35);
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.6;
+  }
+  12% {
+    transform: translate3d(150vw, 42vh, 0) rotate(-18deg) scaleX(1.0);
+    opacity: 0;
+  }
+  100% {
+    transform: translate3d(150vw, 42vh, 0) rotate(-18deg) scaleX(1.0);
+    opacity: 0;
+  }
+}
+
+@keyframes careerMeteorStreak {
+  0% {
+    transform: translate3d(-20vw, -10vh, 0) rotate(-20deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.8;
+  }
+  20% {
+    transform: translate3d(135vw, 38vh, 0) rotate(-20deg);
+    opacity: 0;
+  }
+  100% {
+    transform: translate3d(135vw, 38vh, 0) rotate(-20deg);
+    opacity: 0;
+  }
 }

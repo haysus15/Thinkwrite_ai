@@ -9,7 +9,7 @@ import { getAuthUser, createSupabaseAdmin } from "@/lib/auth/getAuthUser";
 import { Errors } from "@/lib/api/errors";
 import { checkRateLimit } from "@/lib/api/rateLimiter";
 import { learnFromTextDirect } from "@/lib/mirror-mode/liveLearning";
-import { getVoiceForGeneration, type VoiceInjectionResult } from "@/lib/mirror-mode/voiceInjection";
+import { VoiceProfileService } from "@/services/voice-profile/VoiceProfileService";
 
 export const runtime = "nodejs";
 
@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 // ------------------------------------------------------------
 function getClaudeApiKey() {
   // You said you're using CLAUDE_API_KEY — we support it first.
-  return process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || null;
+  return process.env.CLAUDE_API_KEY || null;
 }
 
 function getAnthropicClient() {
@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error:
-            "Missing API key. Add CLAUDE_API_KEY (or ANTHROPIC_API_KEY) to .env.local and restart next dev.",
+            "Missing API key. Add CLAUDE_API_KEY to .env.local and restart next dev.",
         },
         { status: 500 }
       );
@@ -206,15 +206,29 @@ export async function POST(request: NextRequest) {
     // --------------------------------------------------------
     // 2) Fetch voice profile for personalized generation
     // --------------------------------------------------------
-    let voiceContext: VoiceInjectionResult | null = null;
+    let voiceContext = null;
     try {
-      voiceContext = await getVoiceForGeneration(userId, { minConfidence: 25 });
-      if (voiceContext.hasVoice) {
-        console.log(`🔮 Voice profile active: ${voiceContext.confidenceLabel} (${voiceContext.confidenceLevel}%)`);
-      }
+      voiceContext = await VoiceProfileService.getGenerationContext(userId, "career");
     } catch (e) {
       console.log('Voice profile fetch skipped:', e);
       // Continue without voice - don't break main feature
+      voiceContext = {
+        hasVoiceProfile: false,
+        readiness: {
+          tier: "none",
+          score: 0,
+          isReady: false,
+          canGenerate: true,
+          shouldWarn: true,
+          shouldEncourage: true,
+          message: "No voice profile yet. Content will use standard AI tone.",
+          lexMessage:
+            "I don't know your writing style yet, so this will sound like generic AI. Want to set up Mirror Mode first so I can write like you?",
+        },
+        profile: null,
+        promptInjection:
+          "Write in a professional, polished tone suitable for career documents. Be clear, confident, and action-oriented. Note: No personalized voice profile is available, so this will use standard professional formatting.",
+      };
     }
 
     // --------------------------------------------------------
@@ -242,8 +256,19 @@ export async function POST(request: NextRequest) {
       recipientTitle: body.recipientTitle,
       regenerateSection: body.regenerateSection,
       existingContent: body.existingContent,
-      voiceContext,
     });
+    const baseSystemPrompt =
+      "You are Lex, the HR & recruiting brain inside the ThinkWrite Career Studio. Follow the user's instructions and prioritize clarity, professionalism, and job-specific relevance.";
+    const systemPrompt = [baseSystemPrompt, voiceContext?.promptInjection || ""]
+      .filter(Boolean)
+      .join("\n\n");
+    const voiceMetadata = {
+      hasVoiceProfile: voiceContext?.hasVoiceProfile ?? false,
+      readiness: voiceContext?.readiness ?? null,
+      confidenceLevel: voiceContext?.profile?.confidenceLevel ?? 0,
+      confidenceLabel: voiceContext?.profile?.confidenceLabel ?? "none",
+      profileId: voiceContext?.profile?.profileId ?? null,
+    };
 
     // --------------------------------------------------------
     // 3) Generate with Claude (NO lost context)
@@ -255,6 +280,7 @@ export async function POST(request: NextRequest) {
       const response = await clientAny.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 2000,
+        system: systemPrompt,
         messages: [{ role: "user", content: prompt }],
       });
 
@@ -269,6 +295,7 @@ export async function POST(request: NextRequest) {
         jobTitle,
         recipientName,
         startTime,
+        voiceMetadata,
       });
     }
 
@@ -277,6 +304,7 @@ export async function POST(request: NextRequest) {
       const response = await clientAny.beta.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 2000,
+        system: systemPrompt,
         messages: [{ role: "user", content: prompt }],
       });
 
@@ -291,6 +319,7 @@ export async function POST(request: NextRequest) {
         jobTitle,
         recipientName,
         startTime,
+        voiceMetadata,
       });
     }
 
@@ -478,8 +507,15 @@ async function finishAndRespond(args: {
   jobTitle: string;
   recipientName: string;
   startTime: number;
+  voiceMetadata: {
+    hasVoiceProfile: boolean;
+    readiness: any;
+    confidenceLevel: number;
+    confidenceLabel: string;
+    profileId: string | null;
+  };
 }) {
-  const { response, body, userId, jobData, matchData, companyName, jobTitle, recipientName, startTime } = args;
+  const { response, body, userId, jobData, matchData, companyName, jobTitle, recipientName, startTime, voiceMetadata } = args;
   const supabase = createSupabaseAdmin();
 
   const generatedContent =
@@ -584,6 +620,7 @@ async function finishAndRespond(args: {
         generationTimeMs: Date.now() - startTime,
       },
     },
+    voiceMetadata,
   });
 }
 
@@ -605,7 +642,6 @@ function buildGenerationPrompt(params: {
   recipientTitle?: string;
   regenerateSection?: string;
   existingContent?: string;
-  voiceContext?: VoiceInjectionResult | null;
 }): string {
   const {
     resumeData,
@@ -621,7 +657,6 @@ function buildGenerationPrompt(params: {
     recipientTitle,
     regenerateSection,
     existingContent,
-    voiceContext,
   } = params;
 
   const toneGuide: Record<string, string> = {
@@ -667,12 +702,6 @@ ${lengthGuide[settings.length]}
 
 **Energy Level:** ${settings.energy}
 ${energyGuide[settings.energy]}
-${voiceContext?.hasVoice ? `
-## USER'S AUTHENTIC VOICE
-${voiceContext.promptSection}
-
-**Important:** While applying the user's voice characteristics, still respect the tone/energy settings above. The user's voice should inform HOW you write (sentence structure, vocabulary patterns), while the tone setting determines the overall formality level.
-` : ''}
 ## TARGET POSITION
 **Company:** ${companyName}
 **Position:** ${jobTitle}

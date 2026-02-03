@@ -1,0 +1,33 @@
+/* src/app/mirror-mode/dashboard/page.module.css */
+/* Mirror Mode - Pure Cosmic Theme */
+/* All backgrounds transparent to allow Three.js cosmic stars to show through */
+
+.mirrorModePage {
+  min-height: 100vh;
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+/* Override any default backgrounds - make everything transparent */
+:global(body),
+:global(html) {
+  background: transparent !important;
+  background-color: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* Ensure no white flashes or purple backgrounds */
+:global(#__next) {
+  background: transparent !important;
+}
+
+:global(.main),
+:global(main) {
+  background: transparent !important;
+}
+
+/* The CosmicParticleBackground component handles the actual background */
+/* It sets its own black background with stars on top */

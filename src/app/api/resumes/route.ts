@@ -201,30 +201,31 @@ export async function POST(request: NextRequest) {
       const analysisResults = await scoringEngine.analyzeResume(cleanedContent, file.name);
 
       // Store in database
-      const { data: newResume, error: insertError } = await supabase
-        .from('user_documents')
-        .insert({
-          user_id: userId,
-          file_name: file.name,
-          file_type: file.type,
-          file_size: file.size,
-          extracted_text: cleanedContent,
-          is_master_resume: isFirstResume,
-          is_active: true,
-          analysis_summary: JSON.stringify(analysisResults),
-          ats_score: analysisResults.overallScore,
-          recommendations: JSON.stringify(analysisResults.recommendations || []),
-          key_points: JSON.stringify({
-            resumeQuotes: analysisResults.resumeQuotes || [],
-            educationalInsights: analysisResults.educationalInsights || []
-          }),
-          upload_source: 'resume_manager'
-        })
-        .select()
-        .single();
+      const insertPayload = {
+        user_id: userId,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        extracted_text: cleanedContent,
+        is_master_resume: isFirstResume,
+        is_active: true,
+        analysis_summary: JSON.stringify(analysisResults),
+        ats_score: analysisResults.overallScore,
+        recommendations: JSON.stringify(analysisResults.recommendations || []),
+        key_points: JSON.stringify({
+          resumeQuotes: analysisResults.resumeQuotes || [],
+          educationalInsights: analysisResults.educationalInsights || []
+        }),
+        upload_source: 'resume_manager'
+      };
 
-      if (insertError) {
-        return Errors.databaseError(insertError.message);
+      const { data: newResume, error: insertError } = await insertResumeWithFallback(
+        supabase,
+        insertPayload
+      );
+
+      if (insertError || !newResume) {
+        return Errors.databaseError(insertError?.message || 'Insert failed');
       }
 
       return NextResponse.json({
@@ -247,25 +248,26 @@ export async function POST(request: NextRequest) {
 
     } catch (analysisError) {
       // Still save the resume without analysis
-      const { data: newResume, error: insertError } = await supabase
-        .from('user_documents')
-        .insert({
-          user_id: userId,
-          file_name: file.name,
-          file_type: file.type,
-          file_size: file.size,
-          extracted_text: cleanedContent,
-          is_master_resume: isFirstResume,
-          is_active: true,
-          analysis_summary: JSON.stringify({
-            error: 'Analysis failed',
-            errorDetails: analysisError instanceof Error ? analysisError.message : 'Unknown error'
-          }),
-          ats_score: 0,
-          upload_source: 'resume_manager'
-        })
-        .select()
-        .single();
+      const fallbackPayload = {
+        user_id: userId,
+        file_name: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        extracted_text: cleanedContent,
+        is_master_resume: isFirstResume,
+        is_active: true,
+        analysis_summary: JSON.stringify({
+          error: 'Analysis failed',
+          errorDetails: analysisError instanceof Error ? analysisError.message : 'Unknown error'
+        }),
+        ats_score: 0,
+        upload_source: 'resume_manager'
+      };
+
+      const { data: newResume, error: insertError } = await insertResumeWithFallback(
+        supabase,
+        fallbackPayload
+      );
 
       return NextResponse.json({
         success: true,
@@ -364,4 +366,49 @@ export async function PUT(request: NextRequest) {
     console.error('[Resumes PUT]:', error?.message);
     return Errors.internal();
   }
+}
+
+type SupabaseLike = ReturnType<typeof createSupabaseAdmin>;
+
+async function insertResumeWithFallback(
+  supabase: SupabaseLike,
+  payload: Record<string, any>
+) {
+  let currentPayload = { ...payload };
+  let result = await supabase.from('user_documents').insert(currentPayload).select().single();
+
+  if (!result.error) {
+    return result;
+  }
+
+  const errorMessage = result.error.message || '';
+  const missingColumn = errorMessage.includes('column') || errorMessage.includes('does not exist');
+
+  if (!missingColumn) {
+    return result;
+  }
+
+  const optionalKeys = [
+    'recommendations',
+    'key_points',
+    'upload_source',
+    'analysis_summary',
+    'ats_score',
+    'file_size',
+    'extracted_text',
+    'is_master_resume',
+    'is_active'
+  ];
+
+  for (const key of optionalKeys) {
+    if (!(key in currentPayload)) continue;
+    const { [key]: _removed, ...nextPayload } = currentPayload;
+    currentPayload = nextPayload;
+    result = await supabase.from('user_documents').insert(currentPayload).select().single();
+    if (!result.error) {
+      return result;
+    }
+  }
+
+  return result;
 }

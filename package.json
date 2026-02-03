@@ -1,26 +1,61 @@
 {
   "name": "thinkwrite-ai",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
+  "type": "module",
+  "description": "ThinkWrite AI - Voice-Aware Writing Assistant with Career Studio & Lex",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "16.0.3",
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@supabase/ssr": "^0.8.0",
+    "@supabase/supabase-js": "^2.79.0",
+    "@types/file-saver": "^2.0.7",
+    "@types/pdfmake": "^0.2.12",
+    "axios": "^1.13.2",
+    "cheerio": "^1.1.2",
+    "clsx": "^2.0.0",
+    "docx": "^9.5.1",
+    "file-saver": "^2.0.5",
+    "framer-motion": "^11.18.2",
+    "katex": "^0.16.27",
+    "lucide-react": "^0.263.1",
+    "mammoth": "^1.11.0",
+    "mathjs": "^15.1.0",
+    "mathlive": "^0.108.2",
+    "next": "^15.5.7",
+    "openai": "^4.104.0",
+    "pdf-parse": "^2.4.5",
+    "pdfmake": "^0.3.3",
+    "playwright": "^1.57.0",
+    "plotly.js-dist-min": "^3.3.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-plotly.js": "^2.6.0",
+    "tailwind-merge": "^2.0.0",
+    "three": "^0.160.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.3",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@types/node": "20.10.0",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "18.2.45",
+    "@types/react-dom": "18.2.18",
+    "@types/three": "^0.182.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.1",
+    "@typescript-eslint/parser": "^6.13.1",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.54.0",
+    "eslint-config-next": "15.5.6",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
