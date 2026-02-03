@@ -3,7 +3,7 @@
 
 import { Suspense } from 'react';
 import UnifiedCareerStudio from '@/components/career-studio/unified/UnifiedCareerStudio';
-import { CareerStudioSpinner } from '@/components/career-studio/CareerStudioSpinner';
+import CareerStudioSpinner from '@/components/career-studio/CareerStudioSpinner';
 
 export default function CareerStudioWorkspacePage() {
   return (
