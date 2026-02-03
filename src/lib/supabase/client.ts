@@ -1,5 +1,5 @@
 // src/lib/supabase/client.ts
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 
 function getSupabaseUrl() {
   return process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -13,16 +13,15 @@ function getSupabaseKey() {
   );
 }
 
-let browserClient: ReturnType<typeof createClient> | null = null;
+let browserClient: ReturnType<typeof createBrowserClient> | null = null;
 
 export function createSupabaseBrowserClient() {
   if (browserClient) return browserClient;
 
-  browserClient = createClient(getSupabaseUrl(), getSupabaseKey(), {
+  browserClient = createBrowserClient(getSupabaseUrl(), getSupabaseKey(), {
     auth: {
-      // Prevent noisy refresh attempts when offline/DNS fails.
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
       persistSession: true,
     },
   });
