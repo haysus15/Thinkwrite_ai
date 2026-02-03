@@ -8,7 +8,11 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string) => Promise<{ error?: string }>;
+  signUp: (
+    email: string,
+    password: string,
+    name: string
+  ) => Promise<{ error?: string; needsEmailConfirmation?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 }
@@ -54,7 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: error.message };
       }
 
-      return {};
+      return { needsEmailConfirmation: !data?.session };
     } catch (err) {
       return { error: "An unexpected error occurred" };
     }

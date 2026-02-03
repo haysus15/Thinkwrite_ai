@@ -10,12 +10,14 @@ import LexSidebarUnified from './LexSidebarUnified';
 import WorkspaceContainer from './WorkspaceContainer';
 import ContextPanelUnified from './ContextPanelUnified';
 import { WorkspaceState, WorkspaceView, WorkspaceContext } from '@/types/career-studio-workspace';
+import CareerStudioTour from '../CareerStudioTour';
 
 export default function UnifiedCareerStudio() {
   const searchParams = useSearchParams();
   const initialWorkspace = (searchParams.get('workspace') as WorkspaceView) || 'dashboard';
   const initialResumeId = searchParams.get('resumeId') || undefined;
   const initialJobId = searchParams.get('jobId') || undefined;
+  const [isFirstTime, setIsFirstTime] = useState(false);
 
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>({
     currentView: initialWorkspace,
@@ -33,6 +35,10 @@ export default function UnifiedCareerStudio() {
       switchWorkspace(workspace);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    setIsFirstTime(true);
+  }, []);
 
   // Sync resumeId/jobId query params into shared workspace context
   useEffect(() => {
@@ -125,6 +131,12 @@ export default function UnifiedCareerStudio() {
           </div>
         </div>
       </div>
+
+      <CareerStudioTour
+        isFirstTime={isFirstTime && workspaceState.currentView === 'dashboard'}
+        onComplete={() => {}}
+        onStartResumeManager={() => switchWorkspace('resume-manager')}
+      />
     </div>
   );
 }

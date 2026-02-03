@@ -1,0 +1,334 @@
+/* src/components/career-studio/CareerStudioTour.module.css */
+.tourOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(6, 0, 18, 0.92);
+  backdrop-filter: blur(12px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tourModal {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  background: linear-gradient(180deg, #120826 0%, #0b0616 100%);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 1.5rem;
+  padding: 2.5rem;
+  animation: slideUp 0.4s ease;
+  box-shadow: 0 30px 80px rgba(168, 85, 247, 0.15);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.skipBtn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  padding: 0.5rem 1rem;
+  background: transparent;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 0.5rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.skipBtn:hover {
+  background: rgba(168, 85, 247, 0.12);
+  color: #fff;
+}
+
+.progressDots {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.dot:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.dotActive {
+  width: 24px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #a855f7, #ec4899);
+}
+
+.dotCompleted {
+  background: rgba(168, 85, 247, 0.6);
+}
+
+.stepContainer {
+  text-align: center;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stepTitle {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 0.5rem;
+}
+
+.stepSubtitle {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.65);
+  margin: 0 0 1.5rem;
+}
+
+.stepContent {
+  width: 100%;
+}
+
+.mainText {
+  font-size: 1rem;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.8);
+  margin: 0 0 1.5rem;
+}
+
+.featureHighlight {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem 1.5rem;
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  border-radius: 0.75rem;
+  color: #e9d5ff;
+  font-weight: 500;
+}
+
+.hintText {
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 1.5rem 0 0;
+}
+
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.toolCard {
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 0.75rem;
+  text-align: left;
+}
+
+.toolTitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 0.2rem;
+}
+
+.toolDesc {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.processSteps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.processStep {
+  text-align: center;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 0.75rem;
+  min-width: 100px;
+}
+
+.processNumber {
+  width: 28px;
+  height: 28px;
+  background: rgba(168, 85, 247, 0.2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e9d5ff;
+  margin-bottom: 0.5rem;
+}
+
+.processLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 0.25rem;
+}
+
+.processDesc {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.processArrow {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 1.25rem;
+}
+
+.finalStep {
+  padding-top: 1rem;
+}
+
+.ctaSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+}
+
+.btnPrimary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, #a855f7, #ec4899);
+  color: #fff;
+  border: none;
+  border-radius: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btnPrimary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(168, 85, 247, 0.3);
+}
+
+.btnSecondary {
+  padding: 0.75rem 1.5rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btnSecondary:hover {
+  background: rgba(168, 85, 247, 0.12);
+  color: #fff;
+}
+
+.navButtons {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(168, 85, 247, 0.2);
+}
+
+.navBtn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.navBack {
+  background: transparent;
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.navBack:hover:not(:disabled) {
+  background: rgba(168, 85, 247, 0.1);
+  color: #fff;
+}
+
+.navBack:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.navNext {
+  background: linear-gradient(135deg, #a855f7, #ec4899);
+  border: none;
+  color: #fff;
+}
+
+.navNext:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);
+}
+
+@media (max-width: 540px) {
+  .tourModal {
+    padding: 2rem 1.5rem;
+  }
+
+  .stepTitle {
+    font-size: 1.5rem;
+  }
+
+  .processSteps {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .processArrow {
+    transform: rotate(90deg);
+  }
+
+  .processStep {
+    width: 100%;
+  }
+
+  .toolGrid {
+    grid-template-columns: 1fr;
+  }
+}

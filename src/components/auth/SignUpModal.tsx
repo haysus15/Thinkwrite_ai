@@ -10,9 +10,15 @@ interface SignUpModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSwitchToSignIn: () => void;
+  onEmailVerificationSent: (email: string) => void;
 }
 
-export default function SignUpModal({ isOpen, onClose, onSwitchToSignIn }: SignUpModalProps) {
+export default function SignUpModal({
+  isOpen,
+  onClose,
+  onSwitchToSignIn,
+  onEmailVerificationSent,
+}: SignUpModalProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,12 +35,20 @@ export default function SignUpModal({ isOpen, onClose, onSwitchToSignIn }: SignU
     setError("");
     setLoading(true);
 
-    const { error: signUpError } = await signUp(email, password, name);
+    const { error: signUpError, needsEmailConfirmation } = await signUp(email, password, name);
 
     if (signUpError) {
       setError(signUpError);
       setLoading(false);
     } else {
+      if (needsEmailConfirmation) {
+        onClose();
+        onEmailVerificationSent(email);
+        setLoading(false);
+        return;
+      }
+
+      onClose();
       const redirectTo = searchParams.get("redirect");
       router.push(redirectTo || "/select-studio");
     }

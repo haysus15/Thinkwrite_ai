@@ -326,7 +326,7 @@ export default function MirrorModeLanding() {
       {/* Top Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-black/20 backdrop-blur-md border-b border-[#C0C0C0]/20">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <Link href="/" className="inline-block hover:opacity-80 transition-opacity">
+          <Link href="/select-studio" className="inline-block hover:opacity-80 transition-opacity">
             <Image 
               src="/thinkwrite-logo-transparent.png" 
               alt="THINKWRITE AI" 

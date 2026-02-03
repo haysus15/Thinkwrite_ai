@@ -10,6 +10,7 @@ import { useSearchParams } from 'next/navigation';
 export default function LandingNav() {
   const [showSignUp, setShowSignUp] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const { user, signOut } = useAuth();
   const searchParams = useSearchParams();
 
@@ -21,8 +22,25 @@ export default function LandingNav() {
     }
   }, [searchParams, user]);
 
+  useEffect(() => {
+    if (user) {
+      setShowSignIn(false);
+      setShowSignUp(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timeout = setTimeout(() => setToastMessage(null), 4500);
+    return () => clearTimeout(timeout);
+  }, [toastMessage]);
+
   const handleSignOut = async () => {
     await signOut();
+  };
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
   };
 
   return (
@@ -104,6 +122,9 @@ export default function LandingNav() {
           setShowSignUp(false);
           setShowSignIn(true);
         }}
+        onEmailVerificationSent={(email) => {
+          showToast(`Profile created for ${email}. Check your email to verify your account.`);
+        }}
       />
       <SignInModal 
         isOpen={showSignIn} 
@@ -113,6 +134,12 @@ export default function LandingNav() {
           setShowSignUp(true);
         }}
       />
+
+      {toastMessage && (
+        <div className="fixed bottom-6 left-6 z-[200] rounded-full border border-white/15 bg-black/70 px-3 py-1.5 text-[11px] text-white/85 shadow-lg backdrop-blur">
+          {toastMessage}
+        </div>
+      )}
     </>
   );
 }

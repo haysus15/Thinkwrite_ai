@@ -530,7 +530,7 @@ export default function CareerStudioLandingPage() {
       {/* Top Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-black/20 backdrop-blur-md border-b border-purple-400/20">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <Link href="/" className="inline-block hover:opacity-80 transition-opacity">
+          <Link href="/select-studio" className="inline-block hover:opacity-80 transition-opacity">
             <Image
               src="/thinkwrite-logo-transparent.png"
               alt="THINKWRITE AI"
@@ -553,7 +553,7 @@ export default function CareerStudioLandingPage() {
           <div className="flex-[0.85]" />
 
           {/* Career Studio Inscription (dedication-sized, but legible) */}
-<div className="pointer-events-none mb-8s">
+<div className="pointer-events-none mb-8">
   <div
     className="mx-auto"
     style={{

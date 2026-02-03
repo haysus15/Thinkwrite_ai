@@ -15,6 +15,7 @@ import AssignmentsWorkspace from "./workspace/AssignmentsWorkspace";
 import AcademicContextPanel from "./workspace/AcademicContextPanel";
 import MathModeContainer from "./math-mode/MathModeContainer";
 import { useVictorChat } from "./victor-chat/VictorChatContext";
+import AcademicStudioTour from "./AcademicStudioTour";
 
 type AcademicWorkspaceView =
   | "dashboard"
@@ -67,6 +68,7 @@ function AcademicStudioLayout() {
   const searchParams = useSearchParams();
   const initialWorkspace =
     (searchParams.get("workspace") as AcademicWorkspaceView) || "dashboard";
+  const [isFirstTime, setIsFirstTime] = useState(false);
   const [workspaceState, setWorkspaceState] = useState<{
     currentView: AcademicWorkspaceView;
     history: AcademicWorkspaceView[];
@@ -81,6 +83,10 @@ function AcademicStudioLayout() {
       switchWorkspace(workspace);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    setIsFirstTime(true);
+  }, []);
 
   const switchWorkspace = (view: AcademicWorkspaceView) => {
     setWorkspaceState((prev) => ({
@@ -258,6 +264,12 @@ function AcademicStudioLayout() {
             </div>
           </aside>
         </div>
+
+      <AcademicStudioTour
+        isFirstTime={isFirstTime && workspaceState.currentView === "dashboard"}
+        onComplete={() => {}}
+        onStartPaperWorkflow={() => switchWorkspace("paper-workflow")}
+      />
     </div>
   );
 }

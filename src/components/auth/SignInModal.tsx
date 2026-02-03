@@ -34,6 +34,7 @@ export default function SignInModal({ isOpen, onClose, onSwitchToSignUp }: SignI
       setError(signInError);
       setLoading(false);
     } else {
+      onClose();
       const redirectTo = searchParams.get("redirect");
       router.push(redirectTo || "/select-studio");
     }

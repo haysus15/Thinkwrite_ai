@@ -83,6 +83,20 @@ export default function AcademicStudioLandingPage() {
 
   return (
     <div className="academic-landing-root text-slate-100">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-black/20 backdrop-blur-md border-b border-blue-400/20">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <Link href="/select-studio" className="inline-block hover:opacity-80 transition-opacity">
+            <img
+              src="/thinkwrite-logo-transparent.png"
+              alt="THINKWRITE AI"
+              width={180}
+              height={28}
+              className="h-auto w-auto max-h-5"
+            />
+          </Link>
+        </div>
+      </nav>
+
       <div className="sky-layer">
         <div className="stars" />
         <div className="milky-way-band" />
