@@ -511,7 +511,7 @@ export default function CareerStudioLandingPage() {
   const handleEnter = () => {
     setIsEntering(true);
     setTimeout(() => {
-      router.push("/career-studio/dashboard");
+      router.push("/career-studio/workspace");
     }, 800);
   };
 
