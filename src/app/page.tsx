@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, Suspense } from 'react';
 import ParticleHero from '@/components/landing/ParticleHero';
 import LandingNav from '@/components/landing/LandingNav';
 import FeaturesSection from '@/components/landing/FeaturesSection';
@@ -16,7 +16,9 @@ export default function LandingPage() {
 
   return (
     <main className="relative min-h-screen">
-      <LandingNav />
+      <Suspense fallback={null}>
+        <LandingNav />
+      </Suspense>
       <ParticleHero />
       
       {/* Features section blends into Milky Way background */}
