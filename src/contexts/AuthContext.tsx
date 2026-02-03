@@ -14,6 +14,7 @@ interface AuthContextType {
     name: string
   ) => Promise<{ error?: string; needsEmailConfirmation?: boolean }>;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  resendVerification: (email: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 }
 
@@ -77,7 +78,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) {
-        return { error: error.message };
+        const message = error.message.toLowerCase().includes("email not confirmed")
+          ? "Your email isn’t verified yet. Check your inbox for the verification link, then try again."
+          : error.message;
+        return { error: message };
       }
 
       return {};
@@ -89,12 +93,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const resendVerification = async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+      });
+
+      if (error) {
+        return { error: error.message };
+      }
+
+      return {};
+    } catch (err) {
+      return { error: "An unexpected error occurred" };
+    }
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, resendVerification, signOut }}>
       {children}
     </AuthContext.Provider>
   );

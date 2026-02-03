@@ -17,7 +17,10 @@ export default function SignInModal({ isOpen, onClose, onSwitchToSignUp }: SignI
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const [resendError, setResendError] = useState("");
+  const [resendSuccess, setResendSuccess] = useState("");
+  const [resendLoading, setResendLoading] = useState(false);
+  const { signIn, resendVerification } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -64,6 +67,16 @@ export default function SignInModal({ isOpen, onClose, onSwitchToSignUp }: SignI
               {error}
             </div>
           )}
+          {resendError && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
+              {resendError}
+            </div>
+          )}
+          {resendSuccess && (
+            <div className="mb-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-300 text-sm">
+              {resendSuccess}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -102,6 +115,29 @@ export default function SignInModal({ isOpen, onClose, onSwitchToSignUp }: SignI
               className="w-full px-6 py-3 bg-gradient-to-r from-[#00f5ff] to-[#a855f7] text-black font-['Orbitron'] font-semibold rounded-lg hover:scale-[1.02] transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? "Signing In..." : "Sign In"}
+            </button>
+            <button
+              type="button"
+              disabled={resendLoading || !email}
+              onClick={async () => {
+                if (!email) {
+                  setResendError("Enter your email first so we can resend the verification link.");
+                  return;
+                }
+                setResendError("");
+                setResendSuccess("");
+                setResendLoading(true);
+                const { error: resendErrorMessage } = await resendVerification(email);
+                if (resendErrorMessage) {
+                  setResendError(resendErrorMessage);
+                } else {
+                  setResendSuccess("Verification email resent. Check your inbox.");
+                }
+                setResendLoading(false);
+              }}
+              className="w-full px-6 py-3 border border-white/20 text-white/80 rounded-lg hover:text-white hover:border-white/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {resendLoading ? "Resending..." : "Resend Verification Email"}
             </button>
           </form>
 
