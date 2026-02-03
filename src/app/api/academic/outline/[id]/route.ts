@@ -5,8 +5,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -19,7 +20,7 @@ export async function GET(
   const { data, error: fetchError } = await supabase
     .from("academic_outlines")
     .select("*")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId)
     .single();
 
@@ -35,8 +36,9 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -72,7 +74,7 @@ export async function PUT(
   const { error: updateError } = await supabase
     .from("academic_outlines")
     .update(updates)
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId);
 
   if (updateError) {
@@ -87,8 +89,9 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -101,7 +104,7 @@ export async function DELETE(
   const { error: deleteError } = await supabase
     .from("academic_outlines")
     .delete()
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId);
 
   if (deleteError) {
