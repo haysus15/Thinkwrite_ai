@@ -8,6 +8,7 @@ interface ResumeAnalysisResult {
   educationalInsights: EducationalInsight[];
   hrPerspective: HRPerspective;
   resumeQuotes: ResumeQuote[];
+  ruleIssues: RuleIssue[];
   consistencyCheck: {
     analysisId: string;
     timestamp: string;
@@ -33,7 +34,13 @@ interface ResumeQuote {
   context: string;
   issue: string;
   suggestedImprovement: string;
-  category: 'weak_language' | 'missing_metrics' | 'passive_voice' | 'unclear_impact' | 'generic_description';
+  category:
+    | 'weak_language'
+    | 'missing_metrics'
+    | 'passive_voice'
+    | 'unclear_impact'
+    | 'responsibility_framing'
+    | 'generic_description';
 }
 
 interface ScoreBreakdown {
@@ -53,6 +60,7 @@ interface CategoryScore {
   positivePoints: string[];
   examplesFromResume: string[];
   rigorousAssessment: string;
+  deductions?: Array<{ reason: string; points: number }>;
 }
 
 interface EducationalInsight {
@@ -72,6 +80,14 @@ interface HRPerspective {
   overallAssessment: string;
   specificConcerns?: string[];
   brutallyHonestFeedback: string;
+}
+
+interface RuleIssue {
+  severity: 'high' | 'medium' | 'low';
+  category: 'structure' | 'format' | 'verbiage' | 'impact' | 'ats';
+  issue: string;
+  evidence?: string;
+  recommendation?: string;
 }
 
 export class RigorousConsistentScoringEngine {
@@ -97,13 +113,21 @@ export class RigorousConsistentScoringEngine {
     const atsCompatibility = this.scoreATSRigorously(resumeText, fileName, contentAnalysis);
     
     // NO GRADE INFLATION - Simple addition, harsh criteria
-    const overallScore = Math.max(0, formatting.score + keywords.score + content.score + atsCompatibility.score);
+    const baseScore = Math.max(0, formatting.score + keywords.score + content.score + atsCompatibility.score);
     
     const recommendations = this.generateRigorousRecommendations(
       { formatting, keywords, content, atsCompatibility },
       resumeQuotes,
       contentAnalysis
     );
+
+    const ruleIssues = this.generateRuleIssues(resumeText, contentAnalysis, resumeQuotes);
+    const rulePenalty = ruleIssues.reduce((sum, issue) => {
+      if (issue.severity === 'high') return sum + 4;
+      if (issue.severity === 'medium') return sum + 2;
+      return sum + 1;
+    }, 0);
+    const overallScore = Math.max(0, baseScore - rulePenalty);
     
     const educationalInsights = this.generateBrutallyHonestInsights(
       { formatting, keywords, content, atsCompatibility },
@@ -111,7 +135,7 @@ export class RigorousConsistentScoringEngine {
     );
     
     const hrPerspective = this.generateBrutallyHonestHRPerspective(
-      overallScore, 
+      overallScore,
       { formatting, keywords, content, atsCompatibility },
       resumeQuotes
     );
@@ -127,6 +151,7 @@ export class RigorousConsistentScoringEngine {
       educationalInsights,
       hrPerspective,
       resumeQuotes,
+      ruleIssues,
       consistencyCheck: {
         analysisId,
         timestamp: new Date().toISOString(),
@@ -213,59 +238,153 @@ export class RigorousConsistentScoringEngine {
   
   private extractQuotesRigorously(resumeText: string, contentAnalysis: any): ResumeQuote[] {
     const quotes: ResumeQuote[] = [];
+    const seen = new Set<string>();
+    const MAX_QUOTE_LENGTH = 240;
+    const rawBullets: string[] =
+      Array.isArray(contentAnalysis.bulletPoints) && contentAnalysis.bulletPoints.length > 0
+        ? contentAnalysis.bulletPoints
+        : [];
+    const sentenceFallback: string[] = contentAnalysis.sentences || [];
+    const candidates: string[] = [];
+
+    rawBullets.forEach((bullet) => {
+      if (!bullet || bullet.trim().length === 0) return;
+      const cleaned = bullet.trim();
+      candidates.push(cleaned);
+      if (cleaned.length > 160 || /[;|]/.test(cleaned) || /\s[-–—]\s/.test(cleaned)) {
+        cleaned
+          .split(/\s[-–—|;]\s/)
+          .map((part) => part.trim())
+          .filter((part) => part.length > 10)
+          .forEach((part) => candidates.push(part));
+      }
+    });
+
+    if (candidates.length === 0) {
+      candidates.push(...sentenceFallback);
+    }
     
     // STRICT weak language detection - no exceptions
     const weakPhrases = [
-      'responsible for', 'duties included', 'worked on', 'helped with', 
+      'responsible for', 'duties included', 'worked on', 'helped with',
       'involved in', 'participated in', 'assisted with', 'contributed to',
       'tasked with', 'assigned to', 'duties were', 'job involved',
       'was responsible', 'were responsible', 'my duties', 'my role',
-      'experience with', 'familiar with', 'knowledge of'
+      'experience with', 'familiar with', 'knowledge of',
+      'supported', 'handled', 'coordinated', 'oversaw', 'maintained'
     ];
     
-    // Check every sentence rigorously
-    contentAnalysis.sentences.forEach((sentence: string) => {
-      if (sentence.trim().length < 15) return;
-      
-      const lowerSentence = sentence.toLowerCase();
+    // Check every candidate (prefer bullets, then sentences)
+    candidates.forEach((sentence: string) => {
+      if (!sentence || sentence.trim().length < 12) return;
+      let added = false;
+      const trimmedSentence = sentence.trim();
+      const lowerSentence = trimmedSentence.toLowerCase();
       
       // Weak language detection - ZERO tolerance
       weakPhrases.forEach(weakPhrase => {
-        if (lowerSentence.includes(weakPhrase)) {
+        if (!added && lowerSentence.includes(weakPhrase)) {
+          const normalized = trimmedSentence.slice(0, MAX_QUOTE_LENGTH);
+          const key = `weak_language|${weakPhrase}|${normalized.toLowerCase()}`;
+          if (seen.has(key)) {
+            added = true;
+            return;
+          }
+          seen.add(key);
           quotes.push({
-            originalText: sentence.trim(),
+            originalText: normalized,
             context: 'Weak language detected',
             issue: `Uses weak, passive language: "${weakPhrase}"`,
-            suggestedImprovement: this.generateStrongerVersion(sentence, weakPhrase),
+            suggestedImprovement: this.generateStrongerVersion(trimmedSentence, weakPhrase),
             category: 'weak_language'
           });
+          added = true;
         }
       });
-      
-      // Missing metrics - harsh but fair
-      if (this.hasActionWord(sentence) && !this.hasMetrics(sentence) && sentence.length > 25) {
+
+      if (added) return;
+
+      // Passive voice
+      if (this.isPassiveVoice(trimmedSentence)) {
+        const normalized = trimmedSentence.slice(0, MAX_QUOTE_LENGTH);
+        const key = `passive_voice|${normalized.toLowerCase()}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         quotes.push({
-          originalText: sentence.trim(),
+          originalText: normalized,
+          context: 'Passive voice detected',
+          issue: 'Uses passive voice instead of direct ownership',
+          suggestedImprovement: this.convertToActiveVoice(trimmedSentence),
+          category: 'passive_voice'
+        });
+        return;
+      }
+
+      // Responsibility framing without outcomes
+      if (this.isResponsibilityFraming(trimmedSentence)) {
+        const normalized = trimmedSentence.slice(0, MAX_QUOTE_LENGTH);
+        const key = `responsibility_framing|${normalized.toLowerCase()}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        quotes.push({
+          originalText: normalized,
+          context: 'Responsibility framing without outcomes',
+          issue: 'Describes duties but not outcomes or impact',
+          suggestedImprovement: this.addOutcomeFocus(trimmedSentence),
+          category: 'responsibility_framing'
+        });
+        return;
+      }
+
+      // Missing metrics - action, but no numbers
+      if (this.hasActionWord(trimmedSentence) && !this.hasMetrics(trimmedSentence) && trimmedSentence.length > 20) {
+        const normalized = trimmedSentence.slice(0, MAX_QUOTE_LENGTH);
+        const key = `missing_metrics|${normalized.toLowerCase()}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        quotes.push({
+          originalText: normalized,
           context: 'Achievement without quantification',
           issue: 'Missing specific numbers, percentages, or measurable impact',
-          suggestedImprovement: this.addSpecificMetrics(sentence),
+          suggestedImprovement: this.addSpecificMetrics(trimmedSentence),
           category: 'missing_metrics'
         });
+        return;
+      }
+
+      // Unclear impact - action present but no outcome or numbers
+      if (this.hasActionWord(trimmedSentence) && !this.hasImpactOutcome(trimmedSentence) && !this.hasMetrics(trimmedSentence) && trimmedSentence.length > 20) {
+        const normalized = trimmedSentence.slice(0, MAX_QUOTE_LENGTH);
+        const key = `unclear_impact|${normalized.toLowerCase()}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        quotes.push({
+          originalText: normalized,
+          context: 'Action without stated impact',
+          issue: 'Unclear impact - the result of this action is not stated',
+          suggestedImprovement: this.addOutcomeFocus(trimmedSentence),
+          category: 'unclear_impact'
+        });
+        return;
       }
       
       // Generic descriptions
-      if (this.isGeneric(sentence)) {
+      if (this.isGeneric(trimmedSentence)) {
+        const normalized = trimmedSentence.slice(0, MAX_QUOTE_LENGTH);
+        const key = `generic_description|${normalized.toLowerCase()}`;
+        if (seen.has(key)) return;
+        seen.add(key);
         quotes.push({
-          originalText: sentence.trim(),
+          originalText: normalized,
           context: 'Generic, vague description',
           issue: 'Too vague - lacks specific details about your unique contributions',
-          suggestedImprovement: this.makeMoreSpecific(sentence),
+          suggestedImprovement: this.makeMoreSpecific(trimmedSentence),
           category: 'generic_description'
         });
       }
     });
     
-    return quotes.slice(0, 12); // Allow more quotes for comprehensive feedback
+    return quotes.slice(0, 20); // Allow more quotes for comprehensive feedback
   }
   
   private scoreFormattingRigorously(resumeText: string, fileName: string, contentAnalysis: any): CategoryScore {
@@ -273,12 +392,17 @@ export class RigorousConsistentScoringEngine {
     const issues: string[] = [];
     const positives: string[] = [];
     const examplesFromResume: string[] = [];
+    const deductions: Array<{ reason: string; points: number }> = [];
+    const addDeduction = (reason: string, points: number) => {
+      issues.push(reason);
+      deductions.push({ reason, points });
+      score -= points;
+    };
     
     // File format - strict requirements
     const fileExtension = fileName.toLowerCase().split('.').pop();
     if (!['pdf', 'docx'].includes(fileExtension || '')) {
-      issues.push("File format is not ATS-friendly - use PDF or DOCX only");
-      score -= 5; // Harsh penalty
+      addDeduction("File format is not ATS-friendly - use PDF or DOCX only", 5);
     } else {
       positives.push("Professional file format");
     }
@@ -291,12 +415,10 @@ export class RigorousConsistentScoringEngine {
     const hasPhone = phonePattern.test(resumeText);
     
     if (!hasEmail) {
-      issues.push("Missing or improperly formatted email address");
-      score -= 4;
+      addDeduction("Missing or improperly formatted email address", 4);
     }
     if (!hasPhone) {
-      issues.push("Missing or improperly formatted phone number");
-      score -= 4;
+      addDeduction("Missing or improperly formatted phone number", 4);
     }
     if (hasEmail && hasPhone) {
       positives.push("Contact information properly formatted");
@@ -308,11 +430,9 @@ export class RigorousConsistentScoringEngine {
     // Length requirements - strict standards
     const wordCount = contentAnalysis.wordCount;
     if (wordCount < 250) {
-      issues.push(`Resume too brief (${wordCount} words) - insufficient detail to assess qualifications`);
-      score -= 6;
+      addDeduction(`Resume too brief (${wordCount} words) - insufficient detail to assess qualifications`, 6);
     } else if (wordCount > 600) {
-      issues.push(`Resume too long (${wordCount} words) - HR managers will lose interest`);
-      score -= 3;
+      addDeduction(`Resume too long (${wordCount} words) - HR managers will lose interest`, 3);
     } else {
       positives.push(`Appropriate length (${wordCount} words)`);
     }
@@ -325,16 +445,14 @@ export class RigorousConsistentScoringEngine {
     );
     
     if (foundSections.length < 3) {
-      issues.push(`Missing required sections: ${requiredSections.filter(s => !foundSections.includes(s)).join(', ')}`);
-      score -= 4;
+      addDeduction(`Missing required sections: ${requiredSections.filter(s => !foundSections.includes(s)).join(', ')}`, 4);
     } else {
       positives.push("All standard sections present");
     }
     
     // Professional summary requirement
     if (contentAnalysis.sections.summary.length === 0) {
-      issues.push("Missing professional summary - critical for first impression");
-      score -= 3;
+      addDeduction("Missing professional summary - critical for first impression", 3);
     }
     
     const level = this.getScoreLevel(score, 25);
@@ -353,7 +471,8 @@ export class RigorousConsistentScoringEngine {
       specificIssues: issues,
       positivePoints: positives,
       examplesFromResume,
-      rigorousAssessment
+      rigorousAssessment,
+      deductions
     };
   }
   
@@ -362,6 +481,12 @@ export class RigorousConsistentScoringEngine {
     const issues: string[] = [];
     const positives: string[] = [];
     const examplesFromResume: string[] = [];
+    const deductions: Array<{ reason: string; points: number }> = [];
+    const addDeduction = (reason: string, points: number) => {
+      issues.push(reason);
+      deductions.push({ reason, points });
+      score -= points;
+    };
     
     // Action verbs - strict requirements
     const strongActionWords = ['managed', 'led', 'developed', 'created', 'implemented', 'improved', 'achieved', 'delivered', 'designed', 'optimized', 'increased', 'reduced', 'generated', 'established'];
@@ -371,15 +496,33 @@ export class RigorousConsistentScoringEngine {
     
     // HARSH penalty for weak language
     const weakLanguageCount = resumeQuotes.filter(q => q.category === 'weak_language').length;
+    const responsibilityCount = resumeQuotes.filter(q => q.category === 'responsibility_framing').length;
+    const unclearImpactCount = resumeQuotes.filter(q => q.category === 'unclear_impact').length;
+    const passiveVoiceCount = resumeQuotes.filter(q => q.category === 'passive_voice').length;
     if (weakLanguageCount > 5) {
-      issues.push(`Excessive weak language (${weakLanguageCount} instances) - shows lack of ownership`);
-      score -= 12; // Brutal penalty
+      addDeduction(`Excessive weak language (${weakLanguageCount} instances) - shows lack of ownership`, 12);
     } else if (weakLanguageCount > 2) {
-      issues.push(`Multiple instances of weak language (${weakLanguageCount}) - undermines impact`);
-      score -= 6;
+      addDeduction(`Multiple instances of weak language (${weakLanguageCount}) - undermines impact`, 6);
     } else if (weakLanguageCount > 0) {
-      issues.push(`Weak language detected (${weakLanguageCount}) - use stronger action verbs`);
-      score -= 3;
+      addDeduction(`Weak language detected (${weakLanguageCount}) - use stronger action verbs`, 3);
+    }
+
+    if (passiveVoiceCount > 2) {
+      addDeduction(`Passive voice appears frequently (${passiveVoiceCount}) - reduce passive constructions`, 4);
+    } else if (passiveVoiceCount > 0) {
+      addDeduction(`Passive voice detected (${passiveVoiceCount}) - use active voice`, 2);
+    }
+
+    if (responsibilityCount > 1) {
+      addDeduction(`Responsibility framing without outcomes (${responsibilityCount}) - show results`, 3);
+    } else if (responsibilityCount > 0) {
+      addDeduction(`Responsibility framing without outcomes detected`, 2);
+    }
+
+    if (unclearImpactCount > 1) {
+      addDeduction(`Unclear impact in multiple statements (${unclearImpactCount})`, 3);
+    } else if (unclearImpactCount > 0) {
+      addDeduction(`Unclear impact detected`, 2);
     }
     
     if (foundActionWords.length >= 6) {
@@ -387,11 +530,9 @@ export class RigorousConsistentScoringEngine {
       examplesFromResume.push(`Action verbs: ${foundActionWords.slice(0, 5).join(', ')}`);
     } else if (foundActionWords.length >= 3) {
       positives.push(`Adequate action verbs (${foundActionWords.length})`);
-      issues.push("Add more variety in action verbs for stronger impact");
-      score -= 4;
+      addDeduction("Add more variety in action verbs for stronger impact", 4);
     } else {
-      issues.push("Severely lacking strong action verbs - content appears passive");
-      score -= 8;
+      addDeduction("Severely lacking strong action verbs - content appears passive", 8);
     }
     
     // Quantified achievements - NO MERCY for missing metrics
@@ -399,19 +540,16 @@ export class RigorousConsistentScoringEngine {
     const missingMetricsCount = resumeQuotes.filter(q => q.category === 'missing_metrics').length;
     
     if (achievementCount === 0) {
-      issues.push("ZERO quantified achievements - impossible to assess impact");
-      score -= 10; // Devastating penalty
+      addDeduction("ZERO quantified achievements - impossible to assess impact", 10);
     } else if (achievementCount < 3) {
-      issues.push(`Insufficient quantified achievements (${achievementCount}) - cannot demonstrate value`);
-      score -= 6;
+      addDeduction(`Insufficient quantified achievements (${achievementCount}) - cannot demonstrate value`, 6);
     } else {
       positives.push(`Good quantification (${achievementCount} achievements)`);
       examplesFromResume.push(`Quantified results found`);
     }
     
     if (missingMetricsCount > 3) {
-      issues.push(`Many statements lack metrics (${missingMetricsCount}) - show measurable impact`);
-      score -= 4;
+      addDeduction(`Many statements lack metrics (${missingMetricsCount}) - show measurable impact`, 4);
     }
     
     // Technical skills presence
@@ -421,8 +559,7 @@ export class RigorousConsistentScoringEngine {
     ).length;
     
     if (skillCount < 3) {
-      issues.push("Insufficient technical skills keywords - may not match ATS requirements");
-      score -= 3;
+      addDeduction("Insufficient technical skills keywords - may not match ATS requirements", 3);
     }
     
     const level = this.getScoreLevel(score, 30);
@@ -441,7 +578,8 @@ export class RigorousConsistentScoringEngine {
       specificIssues: issues,
       positivePoints: positives,
       examplesFromResume,
-      rigorousAssessment
+      rigorousAssessment,
+      deductions
     };
   }
   
@@ -450,15 +588,19 @@ export class RigorousConsistentScoringEngine {
     const issues: string[] = [];
     const positives: string[] = [];
     const examplesFromResume: string[] = [];
+    const deductions: Array<{ reason: string; points: number }> = [];
+    const addDeduction = (reason: string, points: number) => {
+      issues.push(reason);
+      deductions.push({ reason, points });
+      score -= points;
+    };
     
     // Professional summary - strict evaluation
     const summaryContent = contentAnalysis.sections.summary.join(' ');
     if (summaryContent.length === 0) {
-      issues.push("Missing professional summary - critical first impression failure");
-      score -= 5;
+      addDeduction("Missing professional summary - critical first impression failure", 5);
     } else if (summaryContent.length < 80) {
-      issues.push("Professional summary too brief - fails to establish value proposition");
-      score -= 3;
+      addDeduction("Professional summary too brief - fails to establish value proposition", 3);
       examplesFromResume.push(`Brief summary: "${summaryContent}"`);
     } else {
       positives.push("Professional summary present");
@@ -468,22 +610,33 @@ export class RigorousConsistentScoringEngine {
     // Achievement vs. duty ratio - harsh evaluation
     const achievementCount = contentAnalysis.achievements.length;
     const weakLanguageCount = resumeQuotes.filter(q => q.category === 'weak_language').length;
+    const responsibilityCount = resumeQuotes.filter(q => q.category === 'responsibility_framing').length;
+    const unclearImpactCount = resumeQuotes.filter(q => q.category === 'unclear_impact').length;
     
     if (achievementCount === 0 && weakLanguageCount > 3) {
-      issues.push("Content focused entirely on duties rather than achievements - shows no impact");
-      score -= 8; // Brutal penalty
+      addDeduction("Content focused entirely on duties rather than achievements - shows no impact", 8);
     } else if (achievementCount < 2) {
-      issues.push("Minimal achievement focus - mostly job duties listed");
-      score -= 5;
+      addDeduction("Minimal achievement focus - mostly job duties listed", 5);
     } else {
       positives.push(`Achievement-focused content (${achievementCount} quantified results)`);
+    }
+
+    if (responsibilityCount > 1) {
+      addDeduction(`Too many duty-style statements (${responsibilityCount}) - rewrite as outcomes`, 3);
+    } else if (responsibilityCount > 0) {
+      addDeduction(`Duty-style statement detected - emphasize outcomes`, 2);
+    }
+
+    if (unclearImpactCount > 1) {
+      addDeduction(`Multiple statements lack clear impact (${unclearImpactCount})`, 3);
+    } else if (unclearImpactCount > 0) {
+      addDeduction(`Statement lacks clear impact`, 2);
     }
     
     // Work experience depth
     const experienceContent = contentAnalysis.sections.experience.join(' ');
     if (experienceContent.length < 200) {
-      issues.push("Work experience section lacks sufficient detail");
-      score -= 4;
+      addDeduction("Work experience section lacks sufficient detail", 4);
     } else {
       positives.push("Comprehensive work experience");
     }
@@ -491,8 +644,7 @@ export class RigorousConsistentScoringEngine {
     // Skills section quality
     const skillsContent = contentAnalysis.sections.skills.join(' ');
     if (skillsContent.length < 50) {
-      issues.push("Skills section inadequate - insufficient detail");
-      score -= 3;
+      addDeduction("Skills section inadequate - insufficient detail", 3);
     } else {
       positives.push("Skills section present");
       examplesFromResume.push(`Skills: "${skillsContent.substring(0, 60)}..."`);
@@ -501,8 +653,7 @@ export class RigorousConsistentScoringEngine {
     // Generic content penalty
     const genericCount = resumeQuotes.filter(q => q.category === 'generic_description').length;
     if (genericCount > 2) {
-      issues.push(`Content too generic (${genericCount} vague descriptions) - lacks specific contributions`);
-      score -= 3;
+      addDeduction(`Content too generic (${genericCount} vague descriptions) - lacks specific contributions`, 3);
     }
     
     const level = this.getScoreLevel(score, 25);
@@ -521,7 +672,8 @@ export class RigorousConsistentScoringEngine {
       specificIssues: issues,
       positivePoints: positives,
       examplesFromResume,
-      rigorousAssessment
+      rigorousAssessment,
+      deductions
     };
   }
   
@@ -530,12 +682,17 @@ export class RigorousConsistentScoringEngine {
     const issues: string[] = [];
     const positives: string[] = [];
     const examplesFromResume: string[] = [];
+    const deductions: Array<{ reason: string; points: number }> = [];
+    const addDeduction = (reason: string, points: number) => {
+      issues.push(reason);
+      deductions.push({ reason, points });
+      score -= points;
+    };
     
     // File format - strict
     const fileExtension = fileName.toLowerCase().split('.').pop();
     if (!['pdf', 'docx'].includes(fileExtension || '')) {
-      issues.push("File format incompatible with most ATS systems");
-      score -= 6;
+      addDeduction("File format incompatible with most ATS systems", 6);
     } else {
       positives.push("ATS-compatible file format");
     }
@@ -547,8 +704,7 @@ export class RigorousConsistentScoringEngine {
     );
     
     if (foundHeaders.length < 3) {
-      issues.push(`Missing standard headers: ${requiredHeaders.filter(h => !foundHeaders.includes(h)).join(', ')}`);
-      score -= 5;
+      addDeduction(`Missing standard headers: ${requiredHeaders.filter(h => !foundHeaders.includes(h)).join(', ')}`, 5);
     } else {
       positives.push("Standard section headers used");
       examplesFromResume.push(`Headers: ${foundHeaders.join(', ')}`);
@@ -559,8 +715,7 @@ export class RigorousConsistentScoringEngine {
     const phonePattern = /(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/;
     
     if (!emailPattern.test(resumeText) || !phonePattern.test(resumeText)) {
-      issues.push("Contact information not in ATS-parseable format");
-      score -= 4;
+      addDeduction("Contact information not in ATS-parseable format", 4);
     } else {
       positives.push("Contact information ATS-readable");
     }
@@ -568,8 +723,7 @@ export class RigorousConsistentScoringEngine {
     // Complex formatting check
     const specialChars = resumeText.match(/[^\w\s@.\-()]/g) || [];
     if (specialChars.length > 15) {
-      issues.push("Excessive special characters may confuse ATS parsing");
-      score -= 2;
+      addDeduction("Excessive special characters may confuse ATS parsing", 2);
     }
     
     const level = this.getScoreLevel(score, 20);
@@ -588,7 +742,8 @@ export class RigorousConsistentScoringEngine {
       specificIssues: issues,
       positivePoints: positives,
       examplesFromResume,
-      rigorousAssessment
+      rigorousAssessment,
+      deductions
     };
   }
   
@@ -610,7 +765,12 @@ export class RigorousConsistentScoringEngine {
       'involved in': 'led',
       'participated in': 'drove',
       'assisted with': 'enhanced',
-      'contributed to': 'delivered'
+      'contributed to': 'delivered',
+      'supported': 'strengthened',
+      'handled': 'executed',
+      'coordinated': 'orchestrated',
+      'oversaw': 'led',
+      'maintained': 'optimized'
     };
     
     const replacement = replacements[weakPhrase] || 'achieved';
@@ -625,18 +785,72 @@ export class RigorousConsistentScoringEngine {
     if (/report/i.test(sentence)) return sentence + ', reducing reporting time by 40%';
     return sentence + ', achieving 15% improvement in efficiency';
   }
+
+  private convertToActiveVoice(sentence: string): string {
+    // Simple deterministic conversion helper
+    return sentence
+      .replace(/\bwas\b/gi, 'led')
+      .replace(/\bwere\b/gi, 'led')
+      .replace(/\bbeen\b/gi, 'led')
+      .replace(/\bbeing\b/gi, 'leading');
+  }
+
+  private addOutcomeFocus(sentence: string): string {
+    if (/compliance|risk|audit/i.test(sentence)) return sentence + ', reducing compliance gaps and audit findings';
+    if (/process|workflow/i.test(sentence)) return sentence + ', cutting cycle time by 30%';
+    if (/report|analysis/i.test(sentence)) return sentence + ', improving decision speed by 25%';
+    return sentence + ', delivering measurable impact to business outcomes';
+  }
   
   private hasActionWord(sentence: string): boolean {
-    const actionWords = ['managed', 'led', 'developed', 'created', 'implemented', 'improved', 'achieved', 'delivered'];
+    const actionWords = [
+      'managed', 'led', 'developed', 'created', 'implemented', 'improved', 'achieved', 'delivered',
+      'designed', 'optimized', 'increased', 'reduced', 'generated', 'established', 'streamlined',
+      'executed', 'built', 'launched', 'drove', 'coordinated', 'oversaw', 'analyzed', 'resolved'
+    ];
     return actionWords.some(word => sentence.toLowerCase().includes(word));
   }
   
   private hasMetrics(sentence: string): boolean {
     return /\d+[%$]?/.test(sentence) || /\$[\d,]+/.test(sentence);
   }
+
+  private hasImpactOutcome(sentence: string): boolean {
+    const patterns = [
+      /resulted in/i,
+      /leading to/i,
+      /resulting in/i,
+      /improv(e|ed|ing)/i,
+      /reduc(e|ed|ing)/i,
+      /increas(e|ed|ing)/i,
+      /boost(ed|ing)?/i,
+      /saved/i,
+      /cut/i,
+      /delivered/i,
+      /achiev(ed|ing)?/i,
+      /revenue/i,
+      /cost/i,
+      /efficien/i,
+      /accuracy/i,
+      /compliance/i,
+      /risk/i,
+      /latency/i
+    ];
+    return patterns.some((p) => p.test(sentence));
+  }
+
+  private isPassiveVoice(sentence: string): boolean {
+    return /\b(was|were|is|are|been|be|being)\b\s+\b\w+(ed|en)\b/i.test(sentence);
+  }
+
+  private isResponsibilityFraming(sentence: string): boolean {
+    const verbs = ['managed', 'oversaw', 'supervised', 'coordinated', 'handled', 'administered', 'maintained'];
+    const lower = sentence.toLowerCase();
+    return verbs.some(v => lower.includes(v)) && !this.hasMetrics(sentence) && !this.hasImpactOutcome(sentence);
+  }
   
   private isGeneric(sentence: string): boolean {
-    const genericPhrases = ['various', 'different', 'multiple', 'several', 'many'];
+    const genericPhrases = ['various', 'different', 'multiple', 'several', 'many', 'numerous', 'diverse'];
     return genericPhrases.some(phrase => sentence.toLowerCase().includes(phrase));
   }
   
@@ -686,6 +900,165 @@ export class RigorousConsistentScoringEngine {
     });
     
     return insights;
+  }
+
+  private generateRuleIssues(
+    resumeText: string,
+    contentAnalysis: any,
+    resumeQuotes: ResumeQuote[]
+  ): RuleIssue[] {
+    const issues: RuleIssue[] = [];
+    const wordCount = contentAnalysis.wordCount || 0;
+    const bullets = contentAnalysis.bulletPoints || [];
+    const experienceLines = contentAnalysis.sections.experience || [];
+    const skillsLines = contentAnalysis.sections.skills || [];
+    const summaryLines = contentAnalysis.sections.summary || [];
+    const educationLines = contentAnalysis.sections.education || [];
+
+    if (summaryLines.length === 0) {
+      issues.push({
+        severity: 'high',
+        category: 'structure',
+        issue: 'Missing professional summary section',
+        recommendation: 'Add a 2–3 sentence summary that highlights role, domain, and measurable impact.'
+      });
+    }
+
+    if (skillsLines.length === 0) {
+      issues.push({
+        severity: 'high',
+        category: 'structure',
+        issue: 'Missing skills section',
+        recommendation: 'Add a skills section with tools, systems, and domain keywords.'
+      });
+    }
+
+    if (educationLines.length === 0) {
+      issues.push({
+        severity: 'medium',
+        category: 'structure',
+        issue: 'Missing education section',
+        recommendation: 'Add education, certifications, or relevant training.'
+      });
+    }
+
+    if (experienceLines.length < 2) {
+      issues.push({
+        severity: 'high',
+        category: 'structure',
+        issue: 'Experience section too thin',
+        recommendation: 'Expand experience with roles, dates, and measurable outcomes.'
+      });
+    }
+
+    if (wordCount < 220) {
+      issues.push({
+        severity: 'high',
+        category: 'format',
+        issue: `Resume too brief (${wordCount} words)`,
+        recommendation: 'Add more detail to experience and outcomes.'
+      });
+    } else if (wordCount < 280) {
+      issues.push({
+        severity: 'medium',
+        category: 'format',
+        issue: `Resume short (${wordCount} words)`,
+        recommendation: 'Add more measurable impact to key bullets.'
+      });
+    } else if (wordCount > 750) {
+      issues.push({
+        severity: 'high',
+        category: 'format',
+        issue: `Resume too long (${wordCount} words)`,
+        recommendation: 'Trim older roles and remove low-impact bullets.'
+      });
+    }
+
+    const bulletWordCount = (text: string) =>
+      text.split(/\s+/).filter((word) => word.trim().length > 0).length;
+    const overlongMedium = bullets.filter((b: string) => bulletWordCount(b) > 35);
+    const overlongHigh = bullets.filter((b: string) => bulletWordCount(b) > 45);
+    const overlongSample = (overlongHigh[0] || overlongMedium[0] || '').trim();
+    if (overlongHigh.length > 0) {
+      issues.push({
+        severity: 'high',
+        category: 'format',
+        issue: `Overlong bullets (${overlongHigh.length})`,
+        evidence: overlongSample ? `${overlongSample} (${bulletWordCount(overlongSample)} words)` : undefined,
+        recommendation: 'Split long bullets into two or trim to 45 words max.'
+      });
+    } else if (overlongMedium.length > 0) {
+      issues.push({
+        severity: 'medium',
+        category: 'format',
+        issue: `Overlong bullets (${overlongMedium.length})`,
+        evidence: overlongSample ? `${overlongSample} (${bulletWordCount(overlongSample)} words)` : undefined,
+        recommendation: 'Trim bullets to 35 words max or split into two.'
+      });
+    }
+
+    const brackets = resumeText.match(/\[[^\]]+\]/g) || [];
+    const placeholderMarkers = resumeText.match(/\b(TBD|TK|TKTK|XX+|N\/A|\?\?+)\b/gi) || [];
+    if (brackets.length > 0) {
+      issues.push({
+        severity: 'high',
+        category: 'format',
+        issue: 'Bracket placeholders found (unfinished metrics)',
+        evidence: brackets.slice(0, 3).join(', '),
+        recommendation: 'Replace placeholders with real numbers or remove.'
+      });
+    }
+    if (placeholderMarkers.length > 0) {
+      issues.push({
+        severity: 'high',
+        category: 'format',
+        issue: 'Placeholder markers found',
+        evidence: placeholderMarkers.slice(0, 4).join(', '),
+        recommendation: 'Remove placeholders and finalize missing values.'
+      });
+    }
+
+    const metricsCount = (resumeText.match(/\d+[%$]?/g) || []).length;
+    if (metricsCount < 5) {
+      issues.push({
+        severity: 'high',
+        category: 'impact',
+        issue: 'Low quantified impact across resume',
+        recommendation: 'Add metrics to key bullets (volume, speed, cost, accuracy, scale).'
+      });
+    }
+
+    const passiveCount = resumeQuotes.filter(q => q.category === 'passive_voice').length;
+    if (passiveCount > 2) {
+      issues.push({
+        severity: 'medium',
+        category: 'verbiage',
+        issue: 'Frequent passive voice',
+        recommendation: 'Rewrite passive constructions in active voice.'
+      });
+    }
+
+    const responsibilityCount = resumeQuotes.filter(q => q.category === 'responsibility_framing').length;
+    if (responsibilityCount > 2) {
+      issues.push({
+        severity: 'medium',
+        category: 'impact',
+        issue: 'Too many duty-framed statements',
+        recommendation: 'Convert responsibilities into outcomes with measurable impact.'
+      });
+    }
+
+    const unclearImpactCount = resumeQuotes.filter(q => q.category === 'unclear_impact').length;
+    if (unclearImpactCount > 2) {
+      issues.push({
+        severity: 'medium',
+        category: 'impact',
+        issue: 'Multiple statements lack clear impact',
+        recommendation: 'Add results to action statements (what changed, by how much).'
+      });
+    }
+
+    return issues;
   }
   
   private generateBrutallyHonestHRPerspective(

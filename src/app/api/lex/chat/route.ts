@@ -300,6 +300,65 @@ type SessionType =
 
 type LexIntent = "recruiter-review" | "quote-review" | "general" | undefined;
 
+function normalizeForMatch(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function enforceQuoteReviewConsistency(
+  text: string,
+  originals: Array<{ originalText?: string; issue?: string; suggestedImprovement?: string }>
+) {
+  const available = originals
+    .map((q) => q.originalText || "")
+    .filter((q) => q.trim().length > 0);
+  const availableNorm = available.map(normalizeForMatch);
+
+  const itemRegex = /(\d+)\)\s*Issue:\s*([^\n]+)\n\s*Original:\s*\"([\s\S]*?)\"\n\s*Rewrite:\s*\"([\s\S]*?)\"/g;
+  const items: Array<{ issue: string; original: string; rewrite: string }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = itemRegex.exec(text))) {
+    items.push({
+      issue: match[2].trim(),
+      original: match[3].trim(),
+      rewrite: match[4].trim()
+    });
+  }
+
+  const filtered = items.filter((item) => {
+    const norm = normalizeForMatch(item.original);
+    return availableNorm.some((a) => a.includes(norm) || norm.includes(a));
+  });
+
+  const fallbackItems =
+    filtered.length > 0
+      ? filtered
+      : originals
+          .filter((q) => q.originalText)
+          .map((q) => ({
+            issue: q.issue || "Quote-level issue",
+            original: q.originalText || "",
+            rewrite: q.suggestedImprovement || q.originalText || ""
+          }));
+
+  const desiredCount = Math.min(fallbackItems.length, available.length);
+  const finalItems = fallbackItems.slice(0, desiredCount);
+
+  const whyMatch = text.match(/WHY THESE FIRST[\s\S]*?(?=NEXT ACTIONS|$)/i);
+  const nextMatch = text.match(/NEXT ACTIONS[\s\S]*$/i);
+  const whySection = whyMatch ? whyMatch[0].trim() : "WHY THESE FIRST\n- Prioritized based on resume impact and clarity.";
+  const nextSection = nextMatch ? nextMatch[0].trim() : "NEXT ACTIONS\n- Apply the rewrites above.\n- Add measurable outcomes where possible.\n- Replace weak verbs with action verbs.";
+
+  const itemsBlock = finalItems
+    .map((item, index) => {
+      return `${index + 1}) Issue: ${item.issue}\n   Original: \"${item.original}\"\n   Rewrite:  \"${item.rewrite}\"`;
+    })
+    .join("\n");
+
+  const noMore = available.length > finalItems.length ? "\nNO ADDITIONAL QUOTES AVAILABLE" : "";
+
+  return `QUOTE-LEVEL PRIORITIES\n${itemsBlock}${noMore}\n\n${whySection}\n\n${nextSection}`;
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Authenticate user
@@ -337,6 +396,19 @@ export async function POST(request: NextRequest) {
       body.message;
 
     const messages = normalizeMessages(rawMessages);
+
+    if (process.env.NODE_ENV !== 'production') {
+      const quoteCount = Array.isArray(resumeAnalysisContext?.resumeQuotes)
+        ? resumeAnalysisContext.resumeQuotes.length
+        : 0;
+      console.log('[LexChat] resumeAnalysisContext', {
+        resumeId: resumeAnalysisContext?.resumeId || null,
+        quoteCount,
+        hasRecommendations: Array.isArray(resumeAnalysisContext?.recommendations),
+        intent,
+        sessionType,
+      });
+    }
 
     if (!messages || messages.length === 0) {
       return Errors.missingField('messages');
@@ -399,7 +471,14 @@ export async function POST(request: NextRequest) {
       }
 
       const data = await response.json();
-      const lexResponseText = data.content[0].text;
+      let lexResponseText = data.content[0].text;
+
+      if (intent === 'quote-review' && resumeAnalysisContext?.resumeQuotes?.length) {
+        lexResponseText = enforceQuoteReviewConsistency(
+          lexResponseText,
+          resumeAnalysisContext.resumeQuotes
+        );
+      }
 
       try {
         await updateLexMemoryAfterResponse(
@@ -536,7 +615,9 @@ QUOTE-LEVEL REVIEW MODE
 You are reviewing the resume using quote-level feedback and prioritizing fixes.
 
 RULES:
-- Use quote-level feedback context when available. If limited, still proceed without mentioning missing data.
+- Use ONLY the quote-level feedback context provided. Do NOT invent new quotes or issues.
+- If fewer than 3 quote-level items are provided, output only the available items and add a final line:
+  "NO ADDITIONAL QUOTES AVAILABLE".
 - Do NOT return a full rewritten resume.
 - Do not mention Resume Builder or any other tool.
 - Use the exact format below and nothing else.

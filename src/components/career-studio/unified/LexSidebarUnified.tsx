@@ -251,21 +251,47 @@ export default function LexSidebarUnified({
         const data = await response.json();
         if (!isActive || !data?.success || !data?.resume) return;
 
-        const automatedAnalysis = data.resume.automatedAnalysis || {};
-        const resumeQuotes = Array.isArray(automatedAnalysis.resumeQuotes)
+        const analysisSummary = data.resume.analysisSummary || {};
+        const keyPoints = data.resume.keyPoints || {};
+        const analysisResults = data.resume.analysisResults || null;
+        const automatedAnalysis = data.resume.automatedAnalysis || analysisSummary || {};
+        const resumeQuotes = Array.isArray(analysisResults?.resumeQuotes)
+          ? analysisResults.resumeQuotes
+          : Array.isArray(automatedAnalysis.resumeQuotes)
           ? automatedAnalysis.resumeQuotes
+          : Array.isArray(keyPoints.resumeQuotes)
+          ? keyPoints.resumeQuotes
           : [];
-        const recommendations = Array.isArray(automatedAnalysis.recommendations)
+        const recommendations = Array.isArray(analysisResults?.recommendations)
+          ? analysisResults.recommendations
+          : Array.isArray(automatedAnalysis.recommendations)
           ? automatedAnalysis.recommendations
+          : Array.isArray(analysisSummary.recommendations)
+          ? analysisSummary.recommendations
           : [];
 
-        setResumeAnalysisContext({
+        const nextContext = {
           resumeId,
           fileName: data.resume.fileName,
-          overallScore: automatedAnalysis.overallScore,
+          overallScore:
+            analysisResults?.overallScore ||
+            automatedAnalysis.overallScore ||
+            analysisSummary.overallScore,
           resumeQuotes: resumeQuotes.slice(0, 12),
           recommendations: recommendations.slice(0, 8),
-        });
+        };
+
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('[LexSidebar] resumeAnalysisContext', {
+            resumeId,
+            resumeQuotes: nextContext.resumeQuotes?.length || 0,
+            recommendations: nextContext.recommendations?.length || 0,
+            hasAnalysisSummary: Boolean(analysisSummary && Object.keys(analysisSummary).length),
+            hasKeyPoints: Boolean(keyPoints && Object.keys(keyPoints).length),
+          });
+        }
+
+        setResumeAnalysisContext(nextContext);
       } catch (error) {
         if (isActive) {
           setResumeAnalysisContext(null);
@@ -302,7 +328,9 @@ export default function LexSidebarUnified({
 
     try {
       const intendedWorkspace =
-        intentForRequest === 'recruiter-review' || intentForRequest === 'quote-review'
+        currentIntentRef.current
+          ? null
+          : intentForRequest === 'recruiter-review' || intentForRequest === 'quote-review'
           ? null
           : detectWorkspaceIntent(trimmed);
 

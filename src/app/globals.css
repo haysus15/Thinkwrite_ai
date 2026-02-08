@@ -1369,6 +1369,68 @@ math-field::part(content) {
   height: 100%;
 }
 
+.career-panel-right {
+  transition: width 0.28s ease, transform 0.28s ease, opacity 0.28s ease;
+}
+
+.career-resize-handle {
+  width: 6px;
+  cursor: col-resize;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  transition: background 0.2s ease;
+}
+
+.career-resize-handle:hover {
+  background: rgba(255, 211, 122, 0.35);
+}
+
+.career-panel-toggle {
+  position: absolute;
+  top: 12px;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+}
+
+.career-panel-toggle-right {
+  right: auto;
+  left: 8px;
+}
+
+.career-panel-toggle-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 211, 122, 0.45);
+  background: rgba(10, 14, 31, 0.95);
+  color: rgba(255, 211, 122, 0.9);
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.career-panel-toggle-button:hover {
+  transform: scale(1.05);
+  background: rgba(255, 211, 122, 0.2);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+
+.career-panel-toggle-button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
 
 .career-panel::before {
   content: "";

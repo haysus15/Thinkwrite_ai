@@ -11,7 +11,7 @@ export default function LandingNav() {
   const [showSignUp, setShowSignUp] = useState(false);
   const [showSignIn, setShowSignIn] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const { user, signOut } = useAuth();
+  const { user, signOut, loading } = useAuth();
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -74,7 +74,12 @@ export default function LandingNav() {
           
           {/* CTA Buttons */}
           <div className="flex items-center space-x-4">
-            {user ? (
+            {loading ? (
+              <div className="flex items-center space-x-4">
+                <div className="h-4 w-16 rounded bg-white/10" />
+                <div className="h-9 w-20 rounded bg-white/10" />
+              </div>
+            ) : user ? (
               <>
                 <a 
                   href="/select-studio"

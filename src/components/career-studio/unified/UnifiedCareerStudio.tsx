@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import LexSidebarUnified from './LexSidebarUnified';
@@ -11,13 +11,19 @@ import WorkspaceContainer from './WorkspaceContainer';
 import ContextPanelUnified from './ContextPanelUnified';
 import { WorkspaceState, WorkspaceView, WorkspaceContext } from '@/types/career-studio-workspace';
 import CareerStudioTour from '../CareerStudioTour';
+import ResumeManagerResultsPanel from '../resume-manager/ResumeManagerResultsPanel';
+import { ResumeManagerPanelProvider, useResumeManagerPanel } from '../resume-manager/ResumeManagerPanelContext';
 
-export default function UnifiedCareerStudio() {
+function UnifiedCareerStudioContent() {
   const searchParams = useSearchParams();
   const initialWorkspace = (searchParams.get('workspace') as WorkspaceView) || 'dashboard';
   const initialResumeId = searchParams.get('resumeId') || undefined;
   const initialJobId = searchParams.get('jobId') || undefined;
   const [isFirstTime, setIsFirstTime] = useState(false);
+  const panelsRef = useRef<HTMLDivElement | null>(null);
+  const rightTouchedRef = useRef(false);
+  const leftTouchedRef = useRef(false);
+  const { panel } = useResumeManagerPanel();
 
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>({
     currentView: initialWorkspace,
@@ -27,6 +33,12 @@ export default function UnifiedCareerStudio() {
     },
     history: [initialWorkspace]
   });
+
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(320);
+  const [rightWidth, setRightWidth] = useState(520);
+  const [resizing, setResizing] = useState<'left' | 'right' | null>(null);
 
   // Update workspace when URL changes
   useEffect(() => {
@@ -39,6 +51,88 @@ export default function UnifiedCareerStudio() {
   useEffect(() => {
     setIsFirstTime(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedLeftCollapsed = window.localStorage.getItem('careerStudioLeftCollapsed');
+    const storedRightCollapsed = window.localStorage.getItem('careerStudioRightCollapsed');
+    const storedLeftWidth = window.localStorage.getItem('careerStudioLeftWidth');
+    const storedRightWidth = window.localStorage.getItem('careerStudioRightWidth');
+
+    if (storedLeftCollapsed !== null) {
+      setLeftCollapsed(storedLeftCollapsed === 'true');
+      leftTouchedRef.current = true;
+    }
+    if (storedRightCollapsed !== null) {
+      setRightCollapsed(storedRightCollapsed === 'true');
+      rightTouchedRef.current = true;
+    }
+    if (storedLeftWidth) {
+      const next = Number(storedLeftWidth);
+      if (!Number.isNaN(next)) setLeftWidth(next);
+    }
+    if (storedRightWidth) {
+      const next = Number(storedRightWidth);
+      if (!Number.isNaN(next)) setRightWidth(Math.max(420, next));
+    }
+  }, [initialWorkspace]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('careerStudioLeftCollapsed', String(leftCollapsed));
+    window.localStorage.setItem('careerStudioRightCollapsed', String(rightCollapsed));
+  }, [leftCollapsed, rightCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('careerStudioLeftWidth', String(leftWidth));
+    window.localStorage.setItem('careerStudioRightWidth', String(rightWidth));
+  }, [leftWidth, rightWidth]);
+
+  useEffect(() => {
+    if (workspaceState.currentView !== 'resume-manager') return;
+    if (!panel?.active) return;
+    if (rightTouchedRef.current) return;
+    setRightCollapsed(false);
+  }, [workspaceState.currentView, panel?.active]);
+
+  useEffect(() => {
+    if (workspaceState.currentView !== 'resume-manager') return;
+    if (panel?.active) return;
+    setRightCollapsed(true);
+  }, [workspaceState.currentView, panel?.active]);
+
+  useEffect(() => {
+    if (workspaceState.currentView !== 'resume-manager') return;
+    if (!panel?.active) return;
+    if (!panel?.openDraftEditorSignal) return;
+    setRightCollapsed(false);
+  }, [workspaceState.currentView, panel?.active, panel?.openDraftEditorSignal]);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const handleMouseMove = (event: MouseEvent) => {
+      if (!panelsRef.current) return;
+      const rect = panelsRef.current.getBoundingClientRect();
+      if (resizing === 'left') {
+        const raw = event.clientX - rect.left;
+        const clamped = Math.min(420, Math.max(220, raw));
+        setLeftWidth(clamped);
+      } else {
+        const raw = rect.right - event.clientX;
+        const clamped = Math.min(720, Math.max(320, raw));
+        setRightWidth(clamped);
+      }
+    };
+    const handleMouseUp = () => setResizing(null);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizing]);
 
   // Sync resumeId/jobId query params into shared workspace context
   useEffect(() => {
@@ -103,15 +197,42 @@ export default function UnifiedCareerStudio() {
           </Link>
         </header>
 
-        <div className="career-panels-row">
+        <div className="career-panels-row" ref={panelsRef}>
           {/* Left: Lex Sidebar (Always Visible) */}
-          <div className="career-panel w-80 flex-shrink-0">
-            <LexSidebarUnified
-              workspaceState={workspaceState}
-              onWorkspaceSwitch={switchWorkspace}
-              onContextUpdate={updateContext}
-            />
+          <div
+            className="career-panel flex-shrink-0"
+            style={{ width: leftCollapsed ? 36 : leftWidth }}
+          >
+            <div className="career-panel-toggle">
+              <button
+                type="button"
+                className="career-panel-toggle-button"
+                onClick={() => {
+                  leftTouchedRef.current = true;
+                  setLeftCollapsed((prev) => !prev);
+                }}
+                aria-label={leftCollapsed ? 'Expand Lex panel' : 'Collapse Lex panel'}
+              >
+                {leftCollapsed ? '›' : '‹'}
+              </button>
+            </div>
+            {!leftCollapsed && (
+              <LexSidebarUnified
+                workspaceState={workspaceState}
+                onWorkspaceSwitch={switchWorkspace}
+                onContextUpdate={updateContext}
+              />
+            )}
           </div>
+
+          <div
+            className="career-resize-handle"
+            onMouseDown={() => {
+              if (leftCollapsed) return;
+              leftTouchedRef.current = true;
+              setResizing('left');
+            }}
+          />
 
           {/* Center: Dynamic Workspace */}
           <div className="career-panel flex-1">
@@ -122,13 +243,64 @@ export default function UnifiedCareerStudio() {
             />
           </div>
 
-          {/* Right: Context Panel */}
-          <div className="career-panel w-72 flex-shrink-0">
-            <ContextPanelUnified
-              workspaceState={workspaceState}
-              onWorkspaceSwitch={switchWorkspace}
-            />
-          </div>
+          {workspaceState.currentView === 'resume-manager' ? (
+            <>
+              <div
+                className="career-resize-handle"
+                onMouseDown={() => {
+                  if (rightCollapsed || !panel?.active) return;
+                  rightTouchedRef.current = true;
+                  setResizing('right');
+                }}
+              />
+
+              <div
+                className="career-panel career-panel-right flex-shrink-0"
+                style={{ width: rightCollapsed ? 36 : rightWidth }}
+              >
+                {!rightCollapsed && panel?.active && panel && (
+                  <ResumeManagerResultsPanel data={panel} />
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                className="career-resize-handle"
+                onMouseDown={() => {
+                  if (rightCollapsed) return;
+                  rightTouchedRef.current = true;
+                  setResizing('right');
+                }}
+              />
+
+              {/* Right: Context Panel */}
+              <div
+                className="career-panel flex-shrink-0"
+                style={{ width: rightCollapsed ? 36 : rightWidth }}
+              >
+                <div className="career-panel-toggle career-panel-toggle-right">
+                  <button
+                    type="button"
+                    className="career-panel-toggle-button"
+                    onClick={() => {
+                      rightTouchedRef.current = true;
+                      setRightCollapsed((prev) => !prev);
+                    }}
+                    aria-label={rightCollapsed ? 'Expand documents panel' : 'Collapse documents panel'}
+                  >
+                    {rightCollapsed ? '‹' : '›'}
+                  </button>
+                </div>
+                {!rightCollapsed && (
+                  <ContextPanelUnified
+                    workspaceState={workspaceState}
+                    onWorkspaceSwitch={switchWorkspace}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -138,5 +310,13 @@ export default function UnifiedCareerStudio() {
         onStartResumeManager={() => switchWorkspace('resume-manager')}
       />
     </div>
+  );
+}
+
+export default function UnifiedCareerStudio() {
+  return (
+    <ResumeManagerPanelProvider>
+      <UnifiedCareerStudioContent />
+    </ResumeManagerPanelProvider>
   );
 }

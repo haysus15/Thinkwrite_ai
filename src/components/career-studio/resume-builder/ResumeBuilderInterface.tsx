@@ -42,6 +42,7 @@ import CertificationsSection from "./sections/CertificationsSection";
 import LexFeedbackPanel from "./LexFeedbackPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAuthRequiredUrl } from "@/lib/auth/redirects";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 /* ============================================================
    TYPES & CONSTANTS
@@ -126,6 +127,8 @@ export default function ResumeBuilderInterface({
   const [activeSection, setActiveSection] = useState<SectionKey>("contact");
 
   const [showOnboarding, setShowOnboarding] = useState(!resumeId);
+  const supabase = createSupabaseBrowserClient();
+  const [remoteOnboardingResolved, setRemoteOnboardingResolved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -303,6 +306,32 @@ export default function ResumeBuilderInterface({
   ) => {
     updateResume({ targetRole, targetIndustry });
     setShowOnboarding(false);
+    if (user) {
+      const now = new Date().toISOString();
+      supabase
+        .from("user_onboarding")
+        .upsert({
+          user_id: user.id,
+          resume_builder_onboarding_completed_at: now,
+          updated_at: now,
+        })
+        .then(() => {});
+    }
+  };
+
+  const handleOnboardingSkip = () => {
+    setShowOnboarding(false);
+    if (user) {
+      const now = new Date().toISOString();
+      supabase
+        .from("user_onboarding")
+        .upsert({
+          user_id: user.id,
+          resume_builder_onboarding_skipped_at: now,
+          updated_at: now,
+        })
+        .then(() => {});
+    }
   };
 
   const completion = calculateCompletion(resume);
@@ -323,6 +352,34 @@ export default function ResumeBuilderInterface({
   };
 
   const canRequestFeedback = hasSectionContent(activeSection, resume);
+
+  useEffect(() => {
+    if (!user || resumeId) {
+      setRemoteOnboardingResolved(true);
+      return;
+    }
+    let isMounted = true;
+
+    supabase
+      .from("user_onboarding")
+      .select("resume_builder_onboarding_completed_at,resume_builder_onboarding_skipped_at")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!isMounted) return;
+        const alreadyHandled =
+          Boolean(data?.resume_builder_onboarding_completed_at) ||
+          Boolean(data?.resume_builder_onboarding_skipped_at);
+        if (alreadyHandled) {
+          setShowOnboarding(false);
+        }
+        setRemoteOnboardingResolved(true);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.id, resumeId, supabase]);
 
   /* ============================================================
      APPLY REWRITE HANDLER
@@ -350,10 +407,21 @@ export default function ResumeBuilderInterface({
   ============================================================ */
 
   if (showOnboarding) {
+    if (!remoteOnboardingResolved) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="flex items-center gap-3 rounded-full border border-white/15 bg-black/70 px-4 py-2 text-sm text-white/80 shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Checking onboarding…
+          </div>
+        </div>
+      );
+    }
+
     return (
       <OnboardingModal
         onComplete={handleOnboardingComplete}
-        onSkip={() => setShowOnboarding(false)}
+        onSkip={handleOnboardingSkip}
       />
     );
   }

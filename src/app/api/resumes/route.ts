@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
         is_master_resume,
         created_at,
         analysis_summary,
+        key_points,
         ats_score,
         recommendations,
         extracted_text
@@ -77,6 +78,7 @@ export async function GET(request: NextRequest) {
           overallScore: resume.ats_score || 0,
           error: 'Legacy analysis format - re-analyze for detailed insights'
         });
+        const parsedKeyPoints = safeJsonParse(resume.key_points, {});
 
         if (parsedAnalysis) {
           analysisResults = {
@@ -96,8 +98,13 @@ export async function GET(request: NextRequest) {
               concerningElements: ['Legacy analysis format - needs re-analysis for detailed insights'],
               overallAssessment: "Re-analyze with current AI system for detailed content-specific feedback"
             },
-            resumeQuotes: parsedAnalysis.resumeQuotes || [],
-            educationalInsights: parsedAnalysis.educationalInsights || []
+            resumeQuotes: Array.isArray(parsedKeyPoints.resumeQuotes)
+              ? parsedKeyPoints.resumeQuotes
+              : parsedAnalysis.resumeQuotes || [],
+            educationalInsights: Array.isArray(parsedKeyPoints.educationalInsights)
+              ? parsedKeyPoints.educationalInsights
+              : parsedAnalysis.educationalInsights || [],
+            ruleIssues: Array.isArray(parsedAnalysis.ruleIssues) ? parsedAnalysis.ruleIssues : []
           };
         }
       }

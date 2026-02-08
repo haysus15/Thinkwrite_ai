@@ -4,6 +4,8 @@
 
 import { useState, useEffect, type ReactNode } from 'react';
 import styles from './OnboardingTour.module.css';
+import { useAuth } from '@/contexts/AuthContext';
+import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 
 type Props = {
   isFirstTime: boolean;
@@ -20,17 +22,56 @@ type Step = {
 export default function OnboardingTour({ isFirstTime, onComplete, onUploadClick }: Props) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [remoteCompleted, setRemoteCompleted] = useState<boolean | null>(null);
+  const { user } = useAuth();
+  const supabase = createSupabaseBrowserClient();
 
   useEffect(() => {
     const dismissed = localStorage.getItem('mm-tour-dismissed');
-    if (isFirstTime && !dismissed) {
+    if (isFirstTime && !dismissed && remoteCompleted !== true) {
       setIsVisible(true);
     }
-  }, [isFirstTime]);
+  }, [isFirstTime, remoteCompleted]);
+
+  useEffect(() => {
+    if (!isFirstTime || !user) return;
+    let isMounted = true;
+
+    supabase
+      .from('user_onboarding')
+      .select('mirror_tour_completed_at')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!isMounted) return;
+        if (data?.mirror_tour_completed_at) {
+          localStorage.setItem('mm-tour-dismissed', 'true');
+          setRemoteCompleted(true);
+          setIsVisible(false);
+        } else {
+          setRemoteCompleted(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isFirstTime, user?.id, supabase]);
 
   const handleDismiss = () => {
     localStorage.setItem('mm-tour-dismissed', 'true');
     setIsVisible(false);
+    setRemoteCompleted(true);
+    if (user) {
+      supabase
+        .from('user_onboarding')
+        .upsert({
+          user_id: user.id,
+          mirror_tour_completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .then(() => {});
+    }
     onComplete();
   };
 
