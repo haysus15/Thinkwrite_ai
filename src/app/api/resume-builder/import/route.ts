@@ -3,6 +3,7 @@ import { getAuthUser, createSupabaseAdmin } from "@/lib/auth/getAuthUser";
 import { Errors } from "@/lib/api/errors";
 import { transformResumeToDB, generateId } from "@/types/resume-builder";
 import type { ResumeBuilderData } from "@/types/resume-builder";
+import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
 import {
   extractSections,
   extractContactInfo,
@@ -316,6 +317,25 @@ export async function POST(request: NextRequest) {
 
     if (error || !data) {
       return Errors.databaseError(error?.message || "Failed to create resume draft");
+    }
+
+    // Mirror Mode: Learn + archive imported resume text in career chamber
+    try {
+      await ingestStudioWriting({
+        supabase,
+        userId,
+        sourceStudio: "career",
+        text: resumeText,
+        sessionId: data.id,
+        context: "resume_builder_import",
+        fileName: draft.title || resume.file_name || "Imported Resume",
+        mimeType: "text/plain",
+        fileSize: resumeText.length,
+        writingType: "professional",
+        registerInArchive: true,
+      });
+    } catch {
+      // Silent fail
     }
 
     return NextResponse.json({

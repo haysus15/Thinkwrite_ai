@@ -3,6 +3,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import BlendConsentModal from "@/components/mirror-mode/BlendConsentModal";
 import { useRouter } from "next/navigation";
 import {
   FileText,
@@ -132,6 +133,14 @@ export default function ResumeBuilderInterface({
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [guardrails, setGuardrails] = useState<{
+    sufficientData: boolean;
+    warnings: string[];
+    blendRequired?: boolean;
+    blendDenied?: string[];
+    primaryChamber?: string;
+  } | null>(null);
+  const [showBlendConsent, setShowBlendConsent] = useState(false);
 
   const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
   const [currentFeedback, setCurrentFeedback] =
@@ -381,6 +390,69 @@ export default function ResumeBuilderInterface({
     };
   }, [user?.id, resumeId, supabase]);
 
+  const fetchGuardrails = async () => {
+      try {
+        const response = await fetch('/api/voice-profile/gatekeeper', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requesting_studio: 'career',
+            context: 'resume_builder',
+            requested_chambers: ['career', 'general', 'overall'],
+          }),
+        });
+        const data = await response.json();
+        if (!active) return;
+        if (data?.warnings && data?.sufficient_data !== undefined) {
+          setGuardrails({
+            sufficientData: Boolean(data.sufficient_data),
+            warnings: data.warnings || [],
+            blendRequired: Boolean(data?.blend?.required),
+            blendDenied: data?.blend?.denied || [],
+            primaryChamber: data?.voice_profile?.primary_chamber || null,
+          });
+        }
+      } catch {
+        setGuardrails(null);
+      }
+    };
+
+  useEffect(() => {
+    fetchGuardrails();
+  }, []);
+
+  const handleApproveBlend = async () => {
+    if (!guardrails?.blendDenied?.length || !guardrails.primaryChamber) return;
+    try {
+      await Promise.all(
+        guardrails.blendDenied.map((from) =>
+          fetch("/api/mirror-mode/consent/blending", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from_chamber: from,
+              to_chamber: guardrails.primaryChamber,
+              scope: "session",
+              expires_in_days: 1,
+            }),
+          })
+        )
+      );
+      setGuardrails((prev) =>
+        prev
+          ? {
+              ...prev,
+              blendRequired: false,
+              blendDenied: [],
+            }
+          : prev
+      );
+      fetchGuardrails();
+    } catch {
+      // Silent fail
+    }
+  };
+
   /* ============================================================
      APPLY REWRITE HANDLER
   ============================================================ */
@@ -400,6 +472,23 @@ export default function ResumeBuilderInterface({
         updatedAt: new Date().toISOString(),
       };
     });
+
+    if (resume.id) {
+      fetch("/api/mirror-mode/lineage/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          document_id: resume.id,
+          version_type: "user_modified",
+          changes_made: {
+            source: "resume_builder_feedback",
+            section: activeSection,
+            original,
+            suggested,
+          },
+        }),
+      }).catch(() => {});
+    }
   };
 
   /* ============================================================
@@ -457,6 +546,27 @@ export default function ResumeBuilderInterface({
               placeholder="e.g., Product Manager – Tech"
               className="w-full bg-black/40 border border-white/15 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/35 focus:outline-none focus:border-[#9333EA]/80"
             />
+            {guardrails && guardrails.blendRequired && (
+              <div className="mt-2 rounded-lg border border-purple-400/40 bg-purple-500/10 px-3 py-2 text-[11px] text-purple-100">
+                Cross-chamber blending needs explicit consent.
+                <div className="mt-1 text-[10px] text-purple-100/80">
+                  Ursie will only blend voices when you say yes.
+                </div>
+                <a
+                  href="/mirror-mode"
+                  className="mt-2 inline-flex text-[10px] uppercase tracking-[0.2em] text-purple-100/80 underline underline-offset-4"
+                >
+                  Open Mirror Mode
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setShowBlendConsent(true)}
+                  className="mt-2 w-full rounded-md border border-purple-300/40 bg-purple-500/20 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-purple-100 hover:bg-purple-500/30"
+                >
+                  Review consent
+                </button>
+              </div>
+            )}
 
             {resume.targetRole && (
               <div className="mt-3 flex items-center gap-2 text-[11px] text-white/65">
@@ -774,6 +884,18 @@ export default function ResumeBuilderInterface({
           )}
         </section>
       </div>
+
+      {showBlendConsent && guardrails?.blendDenied?.length && guardrails.primaryChamber && (
+        <BlendConsentModal
+          fromChambers={guardrails.blendDenied}
+          toChamber={guardrails.primaryChamber}
+          onClose={() => setShowBlendConsent(false)}
+          onApprove={async () => {
+            await handleApproveBlend();
+            setShowBlendConsent(false);
+          }}
+        />
+      )}
     </Shell>
   );
 }

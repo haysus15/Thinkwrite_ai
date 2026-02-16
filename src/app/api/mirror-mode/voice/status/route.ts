@@ -50,11 +50,21 @@ export async function GET(req: NextRequest) {
     }
 
     // ---- FETCH DOCUMENT STATS ----
-    const { data: documents, error: docsError } = await supabase
+    let { data: documents, error: docsError } = await supabase
       .from("mirror_documents")
-      .select("id, file_name, word_count, file_size, learned_at, created_at, writing_type")
+      .select("id, file_name, word_count, file_size, learned_at, created_at, writing_type, visibility_status, deleted_at")
       .eq("user_id", userId)
+      .eq("visibility_status", "active")
       .order("created_at", { ascending: false });
+
+    // If schema isn't upgraded yet, retry without visibility filters
+    if (docsError?.message?.includes("column") || docsError?.message?.includes("visibility_status")) {
+      ({ data: documents, error: docsError } = await supabase
+        .from("mirror_documents")
+        .select("id, file_name, word_count, file_size, learned_at, created_at, writing_type")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false }));
+    }
 
     if (docsError) {
       return NextResponse.json(
@@ -66,6 +76,59 @@ export async function GET(req: NextRequest) {
     const totalDocuments = documents?.length || 0;
     const learnedDocuments = documents?.filter((d) => d.learned_at)?.length || 0;
     const pendingDocuments = totalDocuments - learnedDocuments;
+
+    // ---- FETCH CHAMBER SUMMARIES (BEST EFFORT) ----
+    let chamberSummaries: any = null;
+    let chamberWarnings: any[] = [];
+    try {
+      const { data: chamberRows } = await supabase
+        .from("voice_profiles_chambers")
+        .select("chamber, confidence_level, document_count, last_trained_at, updated_at")
+        .eq("user_id", userId)
+        .in("chamber", ["career", "academic", "creative", "general", "overall"]);
+
+      const byChamber: Record<string, any> = {};
+      (chamberRows || []).forEach((row: any) => {
+        byChamber[row.chamber] = {
+          confidenceLabel: getConfidenceLabel(row.confidence_level || 0),
+          confidenceLevel: row.confidence_level || 0,
+          documentCount: row.document_count || 0,
+          lastTrainedAt: row.last_trained_at || null,
+          updatedAt: row.updated_at || null,
+        };
+      });
+
+      chamberSummaries = {
+        career: byChamber.career || null,
+        academic: byChamber.academic || null,
+        creative: byChamber.creative || null,
+        general: byChamber.general || null,
+        overall: byChamber.overall || null,
+      };
+
+      const minDocs = 3;
+      const chambersToCheck: Array<keyof typeof chamberSummaries> = [
+        "career",
+        "academic",
+        "creative",
+        "general",
+      ];
+      chamberWarnings = chambersToCheck
+        .map((key) => {
+          const count = chamberSummaries?.[key]?.documentCount || 0;
+          if (count >= minDocs) return null;
+          return {
+            chamber: key,
+            message: `${key} chamber needs at least ${minDocs} documents for reliable voice capture.`,
+            documentCount: count,
+            minimum: minDocs,
+          };
+        })
+        .filter(Boolean) as any[];
+    } catch {
+      chamberSummaries = null;
+      chamberWarnings = [];
+    }
 
     // No profile yet
     if (!profile) {
@@ -88,7 +151,7 @@ export async function GET(req: NextRequest) {
             learned: learnedDocuments,
             pending: pendingDocuments,
             recentUploads:
-              documents?.slice(0, 5).map((d) => ({
+              documents?.slice(0, 200).map((d) => ({
                 id: d.id,
                 fileName: d.file_name,
                 wordCount: d.word_count,
@@ -155,7 +218,7 @@ export async function GET(req: NextRequest) {
           learned: learnedDocuments,
           pending: pendingDocuments,
           recentUploads:
-            documents?.slice(0, 5).map((d) => ({
+            documents?.slice(0, 200).map((d) => ({
               id: d.id,
               fileName: d.file_name,
               wordCount: d.word_count,
@@ -182,6 +245,8 @@ export async function GET(req: NextRequest) {
           totalDocuments: e.totalDocuments || 0,
         })),
 
+        chamberSummaries,
+        chamberWarnings,
         recommendations: getRecommendations(confidenceLevel, fingerprint, documents || []),
       },
       { status: 200, headers: noStoreHeaders }

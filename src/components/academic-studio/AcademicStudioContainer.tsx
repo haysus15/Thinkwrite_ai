@@ -16,6 +16,8 @@ import AcademicContextPanel from "./workspace/AcademicContextPanel";
 import MathModeContainer from "./math-mode/MathModeContainer";
 import { useVictorChat } from "./victor-chat/VictorChatContext";
 import AcademicStudioTour from "./AcademicStudioTour";
+import StudioConsentModal from "@/components/mirror-mode/StudioConsentModal";
+import CodingReviewPanel from "./coding-review/CodingReviewPanel";
 
 type AcademicWorkspaceView =
   | "dashboard"
@@ -23,7 +25,8 @@ type AcademicWorkspaceView =
   | "study-materials"
   | "study-library"
   | "assignments"
-  | "math-mode";
+  | "math-mode"
+  | "coding-review";
 
 const workspaceConfig: Record<
   AcademicWorkspaceView,
@@ -53,6 +56,10 @@ const workspaceConfig: Record<
     title: "Math mode",
     description: "Step-by-step math verification workspace.",
   },
+  "coding-review": {
+    title: "Coding review",
+    description: "Run code, see output, and get Victor’s review.",
+  },
 };
 
 export default function AcademicStudioContainer() {
@@ -64,11 +71,15 @@ export default function AcademicStudioContainer() {
 }
 
 function AcademicStudioLayout() {
-  const { setMode } = useVictorChat();
+  const { mode, setMode } = useVictorChat();
   const searchParams = useSearchParams();
   const initialWorkspace =
     (searchParams.get("workspace") as AcademicWorkspaceView) || "dashboard";
   const [isFirstTime, setIsFirstTime] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentRecorded, setConsentRecorded] = useState(false);
+  const [tourCompleted, setTourCompleted] = useState(false);
   const [workspaceState, setWorkspaceState] = useState<{
     currentView: AcademicWorkspaceView;
     history: AcademicWorkspaceView[];
@@ -85,8 +96,62 @@ function AcademicStudioLayout() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (workspaceState.currentView === "coding-review") {
+      setMode("coding_review");
+    } else if (mode === "coding_review") {
+      setMode("default");
+    }
+  }, [workspaceState.currentView, mode, setMode]);
+
+  useEffect(() => {
     setIsFirstTime(true);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/mirror-mode/consent?studio=academic")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        setConsentRecorded(Boolean(data?.consented));
+        setConsentChecked(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        setConsentChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const dismissed = window.localStorage.getItem("academic-tour-dismissed") === "true";
+    if (dismissed) {
+      setTourCompleted(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!consentChecked) return;
+    if (consentRecorded) {
+      setShowConsent(false);
+      return;
+    }
+    const shouldBlockForTour = isFirstTime && !tourCompleted;
+    setShowConsent(!shouldBlockForTour);
+  }, [consentChecked, consentRecorded, isFirstTime, tourCompleted]);
+
+  const handleConsentAcknowledge = () => {
+    fetch("/api/mirror-mode/consent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ studio: "academic" }),
+    })
+      .then(() => setShowConsent(false))
+      .catch(() => setShowConsent(false));
+  };
 
   const switchWorkspace = (view: AcademicWorkspaceView) => {
     setWorkspaceState((prev) => ({
@@ -133,6 +198,12 @@ function AcademicStudioLayout() {
             }}
           />
         );
+      case "coding-review":
+        return (
+          <div className="text-slate-300">
+            Coding review is active in the center panel.
+          </div>
+        );
       case "dashboard":
       default:
         return <AcademicDashboard onNavigate={switchWorkspace} />;
@@ -160,6 +231,12 @@ function AcademicStudioLayout() {
         } as CSSProperties
       }
     >
+      {consentChecked && showConsent ? (
+        <StudioConsentModal
+          studioLabel="Academic Studio"
+          onAcknowledge={handleConsentAcknowledge}
+        />
+      ) : null}
       {/* Sky background layer */}
       <div className="sky-layer">
         <div className="stars" />
@@ -191,83 +268,96 @@ function AcademicStudioLayout() {
             </div>
           </aside>
 
-          <section className="academic-unified-panel academic-unified-center">
-            <header className="academic-unified-header">
-              <div className="flex w-full flex-wrap items-center gap-4">
-                <div className="flex flex-1 items-center gap-3">
-                  {canGoBack && (
-                    <button
-                      type="button"
-                      onClick={goBack}
-                      className="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:bg-white/10"
-                      title="Go back"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
-                  )}
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-300">
-                      Academic Studio
-                    </p>
-                    <h1 className="mt-2 text-xl font-semibold text-slate-100 lg:text-2xl">
-                      {activeConfig.title}
-                    </h1>
-                    <p className="mt-2 text-sm text-slate-400">
-                      {activeConfig.description}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300">
-                  <span className="h-2 w-2 rounded-full bg-[var(--academic-primary)] shadow-[0_0_12px_rgba(59,130,246,0.6)]" />
-                  Mirror Mode active
+          {mode === "coding_review" ? (
+            <section className="academic-unified-panel academic-unified-center">
+              <div className="academic-panel-scroll p-0">
+                <div className="h-full min-h-0">
+                  <CodingReviewPanel />
                 </div>
               </div>
-              <div className="flex w-full flex-wrap items-center gap-2 text-xs text-slate-300">
-                {(
-                  [
-                    { id: "dashboard", label: "Workspace" },
-                    { id: "paper-workflow", label: "Paper workflow" },
-                    { id: "study-materials", label: "Study materials" },
-                    { id: "study-library", label: "Study library" },
+            </section>
+          ) : (
+            <>
+              <section className="academic-unified-panel academic-unified-center">
+                <header className="academic-unified-header">
+                  <div className="flex w-full flex-wrap items-center gap-4">
+                    <div className="flex flex-1 items-center gap-3">
+                      {canGoBack && (
+                        <button
+                          type="button"
+                          onClick={goBack}
+                          className="rounded-lg border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:bg-white/10"
+                          title="Go back"
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </button>
+                      )}
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-300">
+                          Academic Studio
+                        </p>
+                        <h1 className="mt-2 text-xl font-semibold text-slate-100 lg:text-2xl">
+                          {activeConfig.title}
+                        </h1>
+                        <p className="mt-2 text-sm text-slate-400">
+                          {activeConfig.description}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300">
+                      <span className="h-2 w-2 rounded-full bg-[var(--academic-primary)] shadow-[0_0_12px_rgba(59,130,246,0.6)]" />
+                      Mirror Mode active
+                    </div>
+                  </div>
+                  <div className="flex w-full flex-wrap items-center gap-2 text-xs text-slate-300">
+                    {(
+                      [
+                        { id: "dashboard", label: "Workspace" },
+                        { id: "paper-workflow", label: "Paper workflow" },
+                        { id: "study-materials", label: "Study materials" },
+                        { id: "study-library", label: "Study library" },
                     { id: "assignments", label: "Assignments" },
                     { id: "math-mode", label: "Math mode" },
+                    { id: "coding-review", label: "Coding review" },
                   ] as const
                 ).map((item) => {
-                  const isActive = workspaceState.currentView === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() =>
-                        switchWorkspace(item.id as AcademicWorkspaceView)
-                      }
-                      className={`rounded-full border px-4 py-2 transition ${
-                        isActive
-                          ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
-                          : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </header>
-            <div className="academic-panel-scroll p-5">
-              {renderWorkspace()}
-            </div>
-          </section>
+                      const isActive = workspaceState.currentView === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() =>
+                            switchWorkspace(item.id as AcademicWorkspaceView)
+                          }
+                          className={`rounded-full border px-4 py-2 transition ${
+                            isActive
+                              ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
+                              : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </header>
+                <div className="academic-panel-scroll p-5">
+                  {renderWorkspace()}
+                </div>
+              </section>
 
-          <aside className="academic-unified-panel academic-unified-right">
-            <div className="academic-panel-scroll p-5">
-              <AcademicContextPanel view={workspaceState.currentView} />
-            </div>
-          </aside>
+              <aside className="academic-unified-panel academic-unified-right">
+                <div className="academic-panel-scroll p-5">
+                  <AcademicContextPanel view={workspaceState.currentView} />
+                </div>
+              </aside>
+            </>
+          )}
         </div>
 
       <AcademicStudioTour
         isFirstTime={isFirstTime && workspaceState.currentView === "dashboard"}
-        onComplete={() => {}}
+        onComplete={() => setTourCompleted(true)}
         onStartPaperWorkflow={() => switchWorkspace("paper-workflow")}
       />
     </div>

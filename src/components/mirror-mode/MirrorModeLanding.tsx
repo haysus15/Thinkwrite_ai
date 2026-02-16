@@ -432,7 +432,7 @@ export default function MirrorModeLanding() {
                     <p className="text-base text-white/70 leading-relaxed">
                       Upload writing samples, write naturally across studios, and let Ursie
                       analyze what matters: clarity, rhythm, consistency, and authority.
-                      When your readiness is high, Mirror Mode can generate and rewrite in your exact voice.
+                      When your readiness is high, Mirror Mode can preserve and reflect your exact voice across studios.
                     </p>
                   </div>
                 </div>

@@ -45,6 +45,7 @@
 
 /* Cybertruck-style geometric font */
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap');
 
 /* ============================================================
    MirrorMode: Haunted Lab + Alive Orb (hydration-safe)
@@ -993,6 +994,70 @@ math-field::part(content) {
   overflow-y: auto;
 }
 
+/* Coding Review split layout */
+.coding-review-layout {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  gap: 0;
+  transition: all 250ms ease;
+}
+
+.coding-review-editor,
+.coding-review-output {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  transition: transform 250ms ease, opacity 250ms ease;
+}
+
+@media (max-width: 1024px) {
+  .coding-review-layout {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 768px) {
+  .coding-review-layout {
+    gap: 12px;
+  }
+}
+
+.coding-review-entrance {
+  animation: codingReviewFade 350ms ease-out both;
+}
+
+@keyframes codingReviewFade {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.coding-review-sticky-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  background: rgba(15, 23, 42, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 10px 16px;
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .coding-review-sticky-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+  }
+}
+
 @keyframes academicFadeUp {
   0% {
     opacity: 0;
@@ -1369,6 +1434,165 @@ math-field::part(content) {
   height: 100%;
 }
 
+.career-panel-middle {
+  font-family: 'Source Sans 3', sans-serif;
+  font-size: 1.08rem;
+  line-height: 1.7;
+}
+
+.career-panel-middle p,
+.career-panel-middle li {
+  line-height: 1.7;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.career-panel-middle span,
+.career-panel-middle label,
+.career-panel-middle small {
+  font-weight: 400;
+}
+
+.career-panel-middle .text-xs {
+  font-size: 0.98rem !important;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.career-panel-middle .text-sm {
+  font-size: 1.04rem !important;
+  line-height: 1.7;
+  font-weight: 400;
+}
+
+.career-panel-middle .text-base {
+  font-size: 1.16rem !important;
+  line-height: 1.75;
+  font-weight: 500;
+}
+
+.career-panel-middle [class*="text-\\[10px\\]"] {
+  font-size: 0.98rem !important;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.career-panel-middle [class*="text-\\[11px\\]"] {
+  font-size: 1rem !important;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.career-panel-middle [class*="text-\\[12px\\]"] {
+  font-size: 1.02rem !important;
+  line-height: 1.65;
+  font-weight: 400;
+}
+
+.career-panel-middle [class*="text-\\[13px\\]"] {
+  font-size: 1.06rem !important;
+  line-height: 1.65;
+  font-weight: 400;
+}
+
+.career-panel-middle [class*="text-\\[14px\\]"] {
+  font-size: 1.08rem !important;
+  line-height: 1.65;
+  font-weight: 400;
+}
+
+.career-panel-middle .text-white\\/60,
+.career-panel-middle .text-white\\/70,
+.career-panel-middle .text-white\\/80 {
+  color: rgba(255, 255, 255, 1) !important;
+  font-weight: 500;
+}
+
+.career-panel-middle .text-white\\/50,
+.career-panel-middle .text-white\\/40 {
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 500;
+}
+
+.career-panel-middle .text-white\\/50.text-sm,
+.career-panel-middle .text-white\\/50.text-xs,
+.career-panel-middle .text-white\\/50.text-base,
+.career-panel-middle .text-white\\/40.text-sm,
+.career-panel-middle .text-white\\/40.text-xs,
+.career-panel-middle .text-white\\/40.text-base {
+  color: rgba(255, 255, 255, 0.78) !important;
+  font-weight: 400;
+}
+
+.career-panel-middle .engine-text-large {
+  font-size: 1.12rem;
+  line-height: 1.75;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.career-panel-middle .engine-text-large [class*="text-\\[8px\\]"],
+.career-panel-middle .engine-text-large [class*="text-\\[9px\\]"],
+.career-panel-middle .engine-text-large [class*="text-\\[10px\\]"],
+.career-panel-middle .engine-text-large [class*="text-\\[11px\\]"],
+.career-panel-middle .engine-text-large [class*="text-\\[12px\\]"] {
+  font-size: 1.02rem !important;
+  line-height: 1.65;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+.career-panel-middle .engine-text-large .text-white\\/60,
+.career-panel-middle .engine-text-large .text-white\\/70,
+.career-panel-middle .engine-text-large .text-white\\/80,
+.career-panel-middle .engine-text-large .text-white\\/50,
+.career-panel-middle .engine-text-large .text-white\\/40 {
+  color: rgba(255, 255, 255, 0.95) !important;
+  font-weight: 500;
+}
+
+.career-panel-middle .engine-text-detail {
+  font-size: 1.06rem !important;
+  line-height: 1.7;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.96) !important;
+}
+
+.career-panel-middle .engine-card {
+  text-align: left;
+}
+
+.career-panel-middle .engine-card .engine-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.career-panel-middle .engine-card .engine-row + .engine-row {
+  margin-top: 4px;
+}
+
+.career-panel-middle .engine-card .engine-row > *:first-child {
+  flex: 1;
+  text-align: left;
+}
+
+.career-panel-middle .engine-card .engine-row > *:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.career-panel-middle .engine-card .engine-label {
+  text-align: left;
+  letter-spacing: 0.01em;
+}
+
+.career-panel-middle .engine-card .engine-value {
+  text-align: right;
+  letter-spacing: 0.01em;
+}
+
 .career-panel-right {
   transition: width 0.28s ease, transform 0.28s ease, opacity 0.28s ease;
 }
@@ -1543,4 +1767,10 @@ math-field::part(content) {
     transform: translate3d(135vw, 38vh, 0) rotate(-20deg);
     opacity: 0;
   }
+}
+mark.tw-inline-suggestion {
+  background: rgba(236, 72, 153, 0.2);
+  color: rgba(248, 113, 113, 1);
+  padding: 0.05rem 0.15rem;
+  border-radius: 0.2rem;
 }

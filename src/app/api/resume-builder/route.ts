@@ -4,9 +4,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
-import { learnFromTextDirect } from '@/lib/mirror-mode/liveLearning';
 import { transformResumeToDB } from '@/types/resume-builder';
 import type { ResumeBuilderData } from '@/types/resume-builder';
+import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
 
 // GET: List all resumes built by user
 export async function GET(request: NextRequest) {
@@ -81,28 +81,55 @@ export async function POST(request: NextRequest) {
       return Errors.databaseError(error.message);
     }
 
-    // Mirror Mode: Learn from resume builder content (fire-and-forget)
+    // Mirror Mode: Learn + archive user-authored builder input in career chamber
     try {
-      const textForLearning = [
+      const textForCapture = [
         body.summary,
         ...(body.experience?.map((exp: any) =>
           [exp.description, ...(exp.bullets || [])].filter(Boolean).join('\n')
         ) || [])
       ].filter(Boolean).join('\n\n');
 
-      if (textForLearning.length > 100) {
-        await learnFromTextDirect({
+      if (textForCapture.length > 50) {
+        await ingestStudioWriting({
+          supabase,
           userId,
-          text: textForLearning,
-          source: 'resume-builder',
-          metadata: {
-            documentId: data.id,
-            title: body.title || 'Resume from Builder'
-          }
+          sourceStudio: 'career',
+          text: textForCapture,
+          sessionId: data.id,
+          context: 'resume_builder_input',
+          fileName: body.title || 'Untitled Resume',
+          mimeType: 'text/plain',
+          fileSize: textForCapture.length,
+          writingType: 'professional',
+          registerInArchive: true,
         });
       }
     } catch (e) {
-      // Don't throw - learning failure shouldn't break main feature
+      // Silent fail
+    }
+
+    // Mirror Mode: Register lineage (best effort)
+    try {
+      await supabase
+        .from('document_lineage')
+        .insert({
+          user_id: userId,
+          original_document_id: data.id,
+          studio_origin: 'career',
+          current_version_id: data.id,
+          version_history: [
+            {
+              version_type: 'original',
+              document_id: data.id,
+              source_studio: 'career',
+              document_type: 'resume_builder',
+              created_at: new Date().toISOString(),
+            },
+          ],
+        });
+    } catch (e) {
+      // Silent fail
     }
 
     return NextResponse.json({

@@ -60,6 +60,49 @@ export type VoiceStatus = {
   voiceDescription: string | null;
   voiceHighlights: VoiceHighlight[] | null;
   evolutionHistory?: VoiceEvolution[];
+  chamberSummaries?: {
+    career?: {
+      confidenceLabel: string;
+      confidenceLevel: number;
+      documentCount: number;
+      lastTrainedAt: string | null;
+      updatedAt: string | null;
+    } | null;
+    academic?: {
+      confidenceLabel: string;
+      confidenceLevel: number;
+      documentCount: number;
+      lastTrainedAt: string | null;
+      updatedAt: string | null;
+    } | null;
+    creative?: {
+      confidenceLabel: string;
+      confidenceLevel: number;
+      documentCount: number;
+      lastTrainedAt: string | null;
+      updatedAt: string | null;
+    } | null;
+    general?: {
+      confidenceLabel: string;
+      confidenceLevel: number;
+      documentCount: number;
+      lastTrainedAt: string | null;
+      updatedAt: string | null;
+    } | null;
+    overall?: {
+      confidenceLabel: string;
+      confidenceLevel: number;
+      documentCount: number;
+      lastTrainedAt: string | null;
+      updatedAt: string | null;
+    } | null;
+  } | null;
+  chamberWarnings?: Array<{
+    chamber: string;
+    message: string;
+    documentCount: number;
+    minimum: number;
+  }>;
   recommendations?: string[];
 };
 

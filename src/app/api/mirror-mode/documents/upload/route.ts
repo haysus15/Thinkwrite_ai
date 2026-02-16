@@ -11,7 +11,7 @@ import {
   getConfidenceLabel,
   type VoiceProfile 
 } from '@/lib/mirror-mode/voiceAggregation';
-import { isWritingType } from '@/lib/mirror-mode/writingTypes';
+import { isWritingType, mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
 
 export const runtime = 'nodejs';
 
@@ -96,10 +96,46 @@ export async function POST(req: NextRequest) {
 
     // ---- UPLOAD FILE TO STORAGE ----
     const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    // ---- DETERMINE CURRENT EPOCH (BEST EFFORT) ----
+    let currentEpochNumber = 1;
+    try {
+      const { data: epochRow } = await supabase
+        .from('voice_profile_epochs')
+        .select('epoch_number')
+        .eq('user_id', userId)
+        .is('ended_at', null)
+        .order('epoch_number', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (epochRow?.epoch_number) currentEpochNumber = epochRow.epoch_number;
+    } catch (err) {
+      // If epochs table isn't present yet, default to epoch 1
+    }
+
     // ---- CREATE DOCUMENT RECORD ----
-    const { data: document, error: docError } = await supabase
+    let insertPayload: Record<string, any> = {
+      user_id: userId,
+      file_name: file.name,
+      mime_type: file.type || 'application/octet-stream',
+      file_size: file.size,
+      storage_path: null,
+      writing_type: writingType,
+      word_count: wordCount,
+      status: 'uploaded',
+      training_allowed: true,
+      visibility_status: 'active',
+      epoch_number: currentEpochNumber,
+    };
+
+    let { data: document, error: docError } = await supabase
       .from('mirror_documents')
-      .insert({
+      .insert(insertPayload)
+      .select('id')
+      .single();
+
+    // If schema isn't upgraded yet, retry without new fields
+    if (docError?.message?.includes('column') || docError?.message?.includes('visibility_status') || docError?.message?.includes('epoch_number')) {
+      insertPayload = {
         user_id: userId,
         file_name: file.name,
         mime_type: file.type || 'application/octet-stream',
@@ -109,9 +145,13 @@ export async function POST(req: NextRequest) {
         word_count: wordCount,
         status: 'uploaded',
         training_allowed: true,
-      })
-      .select('id')
-      .single();
+      };
+      ({ data: document, error: docError } = await supabase
+        .from('mirror_documents')
+        .insert(insertPayload)
+        .select('id')
+        .single());
+    }
 
     if (docError || !document) {
       return NextResponse.json(
@@ -203,7 +243,7 @@ export async function POST(req: NextRequest) {
         );
         updatedProfile.userId = userId;
 
-        // Save updated profile
+        // Save updated profile (overall)
         await supabase
           .from('voice_profiles')
           .upsert({
@@ -218,6 +258,76 @@ export async function POST(req: NextRequest) {
           }, {
             onConflict: 'user_id',
           });
+
+        // Save chamber profile (best effort; table may not exist yet)
+        try {
+          const chamber = mapWritingTypeToChamber(writingType);
+          const { data: existingChamberRow } = await supabase
+            .from('voice_profiles_chambers')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('chamber', chamber)
+            .maybeSingle();
+
+          let existingChamberProfile: VoiceProfile | null = null;
+          if (existingChamberRow) {
+            existingChamberProfile = {
+              userId: existingChamberRow.user_id,
+              aggregateFingerprint: existingChamberRow.aggregate_fingerprint,
+              confidenceLevel: existingChamberRow.confidence_level || 0,
+              documentCount: existingChamberRow.document_count || 0,
+              totalWordCount: existingChamberRow.total_word_count || 0,
+              lastTrainedAt: existingChamberRow.last_trained_at || new Date().toISOString(),
+              evolutionHistory: existingChamberRow.evolution_history || [],
+            };
+          }
+
+          const updatedChamberProfile = aggregateFingerprints(
+            existingChamberProfile,
+            newFingerprint,
+            documentId,
+            { fileName: file.name, writingType, wordCount }
+          );
+          updatedChamberProfile.userId = userId;
+
+          await supabase
+            .from('voice_profiles_chambers')
+            .upsert({
+              user_id: userId,
+              chamber,
+              aggregate_fingerprint: updatedChamberProfile.aggregateFingerprint,
+              confidence_level: updatedChamberProfile.confidenceLevel,
+              document_count: updatedChamberProfile.documentCount,
+              total_word_count: updatedChamberProfile.totalWordCount,
+              last_trained_at: updatedChamberProfile.lastTrainedAt,
+              evolution_history: updatedChamberProfile.evolutionHistory,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'user_id,chamber',
+            });
+
+          // Optional: store overall in chamber table as well
+          await supabase
+            .from('voice_profiles_chambers')
+            .upsert({
+              user_id: userId,
+              chamber: 'overall',
+              aggregate_fingerprint: updatedProfile.aggregateFingerprint,
+              confidence_level: updatedProfile.confidenceLevel,
+              document_count: updatedProfile.documentCount,
+              total_word_count: updatedProfile.totalWordCount,
+              last_trained_at: updatedProfile.lastTrainedAt,
+              evolution_history: updatedProfile.evolutionHistory,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'user_id,chamber',
+            });
+        } catch (err: any) {
+          // If table doesn't exist yet, skip chamber writes
+          if (!String(err?.message || '').includes('does not exist')) {
+            console.warn('Chamber profile update skipped:', err?.message || err);
+          }
+        }
 
         // Mark document as learned
         await supabase

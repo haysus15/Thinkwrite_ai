@@ -4,7 +4,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { VoiceProfileService } from "@/services/voice-profile/VoiceProfileService";
-import { learnFromTextDirect } from "@/lib/mirror-mode/liveLearning";
 
 export const runtime = "nodejs";
 
@@ -143,6 +142,12 @@ export async function POST(request: NextRequest) {
           "Mirror Mode has not learned enough of your voice yet. Upload more writing samples to continue.",
         redirectTo: "/mirror-mode",
         confidence: voiceContext.readiness.score,
+        guardrails: {
+          sufficientData: voiceContext.gatekeeper?.sufficientData ?? true,
+          warnings: voiceContext.gatekeeper?.warnings || [],
+          counts: voiceContext.gatekeeper?.counts || null,
+          thresholds: voiceContext.gatekeeper?.thresholds || null,
+        },
       },
       { status: 400 }
     );
@@ -247,20 +252,7 @@ CRITICAL INSTRUCTIONS:
     );
   }
 
-  try {
-    await learnFromTextDirect({
-      userId,
-      text: content,
-      source: "other",
-      metadata: {
-        documentId: paper.id,
-        title: outline.topic,
-        context: "academic-paper",
-      },
-    });
-  } catch (err) {
-    console.log("Mirror Mode learning skipped:", err);
-  }
+  // Mirror Mode: Do NOT learn from AI-generated output (spec compliant)
 
   return NextResponse.json(
     {
@@ -270,6 +262,12 @@ CRITICAL INSTRUCTIONS:
       wordCount: requirementCheck.wordCount,
       citationCount: requirementCheck.citationCount,
       travis_message: "Looks good. Victor, all set?",
+      guardrails: {
+        sufficientData: voiceContext.gatekeeper?.sufficientData ?? true,
+        warnings: voiceContext.gatekeeper?.warnings || [],
+        counts: voiceContext.gatekeeper?.counts || null,
+        thresholds: voiceContext.gatekeeper?.thresholds || null,
+      },
     },
     { status: 200 }
   );

@@ -1,9 +1,17 @@
 // src/components/academic-studio/victor-chat/VictorChatContext.tsx
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState, useEffect } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  useEffect,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import type { VictorMode } from "@/types/academic-studio";
+import { createCodingReviewSession } from "@/lib/academic/codingReviewApi";
 
 export interface VictorMessage {
   role: "user" | "assistant";
@@ -31,6 +39,8 @@ interface VictorChatState {
   suggestedMode: VictorMode | null;
   setSuggestedMode: (mode: VictorMode | null) => void;
   loadSession: (id: string) => Promise<void>;
+  codingReviewSessionId: string | null;
+  setCodingReviewSessionId: (id: string | null) => void;
 }
 
 const VictorChatContext = createContext<VictorChatState | undefined>(undefined);
@@ -41,6 +51,9 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
   const [messages, setMessages] = useState<VictorMessage[]>([]);
   const [savedSessions, setSavedSessions] = useState<SavedSession[]>([]);
   const [suggestedMode, setSuggestedMode] = useState<VictorMode | null>(null);
+  const [codingReviewSessionId, setCodingReviewSessionId] = useState<string | null>(
+    null
+  );
   const searchParams = useSearchParams();
 
   const refreshSavedSessions = useCallback(() => {
@@ -73,6 +86,19 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
     }
   }, [searchParams, conversationId, loadSession]);
 
+  useEffect(() => {
+    if (mode !== "coding_review") return;
+    if (codingReviewSessionId) return;
+    const assignmentId = searchParams.get("assignmentId");
+    if (assignmentId) return;
+    createCodingReviewSession({
+      language: "python",
+      entry_type: "sandbox",
+    })
+      .then((session) => setCodingReviewSessionId(session.id))
+      .catch(() => null);
+  }, [mode, codingReviewSessionId, searchParams]);
+
   const value = useMemo(
     () => ({
       mode,
@@ -84,10 +110,12 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
       savedSessions,
       setSavedSessions,
       refreshSavedSessions,
-      suggestedMode,
-      setSuggestedMode,
-      loadSession,
-    }),
+    suggestedMode,
+    setSuggestedMode,
+    loadSession,
+    codingReviewSessionId,
+    setCodingReviewSessionId,
+  }),
     [
       mode,
       conversationId,
@@ -96,6 +124,8 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
       refreshSavedSessions,
       suggestedMode,
       loadSession,
+      codingReviewSessionId,
+      setCodingReviewSessionId,
     ]
   );
 

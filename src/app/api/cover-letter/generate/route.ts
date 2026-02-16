@@ -8,7 +8,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser, createSupabaseAdmin } from "@/lib/auth/getAuthUser";
 import { Errors } from "@/lib/api/errors";
 import { checkRateLimit } from "@/lib/api/rateLimiter";
-import { learnFromTextDirect } from "@/lib/mirror-mode/liveLearning";
 import { VoiceProfileService } from "@/services/voice-profile/VoiceProfileService";
 
 export const runtime = "nodejs";
@@ -263,11 +262,18 @@ export async function POST(request: NextRequest) {
       .filter(Boolean)
       .join("\n\n");
     const voiceMetadata = {
+      usedVoiceProfile: !!(voiceContext?.hasVoiceProfile && voiceContext?.readiness?.isReady),
       hasVoiceProfile: voiceContext?.hasVoiceProfile ?? false,
       readiness: voiceContext?.readiness ?? null,
       confidenceLevel: voiceContext?.profile?.confidenceLevel ?? 0,
       confidenceLabel: voiceContext?.profile?.confidenceLabel ?? "none",
       profileId: voiceContext?.profile?.profileId ?? null,
+      guardrails: {
+        sufficientData: voiceContext?.gatekeeper?.sufficientData ?? true,
+        warnings: voiceContext?.gatekeeper?.warnings || [],
+        counts: voiceContext?.gatekeeper?.counts || null,
+        thresholds: voiceContext?.gatekeeper?.thresholds || null,
+      },
     };
 
     // --------------------------------------------------------
@@ -587,22 +593,7 @@ async function finishAndRespond(args: {
     console.warn("⚠️ [cover-letter:POST] log insert failed:", e);
   }
 
-  // Mirror Mode: Live voice learning from generated cover letter
-  try {
-    await learnFromTextDirect({
-      userId: userId,
-      text: parsedContent.fullText,
-      source: 'cover-letter',
-      metadata: {
-        documentId: savedCoverLetter?.id,
-        title: `Cover letter for ${companyName} - ${jobTitle}`,
-        context: `tone:${body.toneSetting || 'professional'}, energy:${body.energyLevel || 'confident'}`,
-      },
-    });
-  } catch (e) {
-    // Silent fail - learning shouldn't break cover letter generation
-    console.log("Mirror Mode learning skipped:", e);
-  }
+  // Mirror Mode: Do NOT learn from AI-generated output (spec compliant)
 
   return NextResponse.json({
     success: true,

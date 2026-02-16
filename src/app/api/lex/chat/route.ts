@@ -5,7 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import { checkRateLimit } from '@/lib/api/rateLimiter';
-import { learnFromTextDirect } from '@/lib/mirror-mode/liveLearning';
 
 const LEX_CORE_IDENTITY = `You are Lex, a 30-year-old career strategist and HR professional. This is who you ARE - not a role you're playing.
 
@@ -206,7 +205,8 @@ interface UserMemoryContext {
 }
 
 interface JobContext {
-  id: string;
+  jobId?: string;
+  id?: string;
   jobTitle: string;
   company: string;
   location?: string;
@@ -436,6 +436,48 @@ export async function POST(request: NextRequest) {
 
     const contextualMessages = await buildContextualMessages(messages, memoryContext, conversationId);
 
+    const resumeId =
+      resumeAnalysisContext?.resumeId ||
+      resumeContext?.masterResume?.id ||
+      null;
+    const jobId =
+      (jobContext as any)?.jobId ||
+      jobContext?.id ||
+      null;
+
+    let resumeText: string | null = null;
+    let jobAnalysisData: any = null;
+
+    if (resumeId) {
+      const { data: resumeRecord } = await supabase
+        .from('user_documents')
+        .select('full_text, extracted_text, automated_analysis')
+        .eq('id', resumeId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (resumeRecord) {
+        resumeText =
+          resumeRecord.extracted_text ||
+          resumeRecord.full_text ||
+          resumeRecord.automated_analysis?.extractedText ||
+          null;
+      }
+    }
+
+    if (jobId) {
+      const { data: jobRecord } = await supabase
+        .from('job_analyses')
+        .select(
+          'id, job_title, company_name, location, job_description, requirements, responsibilities, ats_keywords, hidden_insights, industry_intelligence'
+        )
+        .eq('id', jobId)
+        .eq('user_id', userId)
+        .maybeSingle();
+      if (jobRecord) {
+        jobAnalysisData = jobRecord;
+      }
+    }
+
     const systemPrompt = buildFullSystemPrompt(
       memoryContext, 
       resumeContext, 
@@ -445,7 +487,9 @@ export async function POST(request: NextRequest) {
       tailoredResumeContext,
       strategyModeData,
       sessionType as SessionType,
-      intent as LexIntent
+      intent as LexIntent,
+      resumeText,
+      jobAnalysisData
     );
 
     try {
@@ -499,16 +543,18 @@ export async function POST(request: NextRequest) {
         const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user');
         if (lastUserMessage?.text) {
           try {
-            await learnFromTextDirect({
-              userId,
-              text: lastUserMessage.text,
-              source: 'lex-chat',
-              metadata: {
+            await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/mirror-mode/capture`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_text: lastUserMessage.text,
+                source_studio: 'career',
+                session_id: sessionId || null,
                 context: sessionType || 'general',
-              },
+              }),
             });
           } catch (e) {
-            // Silent fail - learning shouldn't break chat
+            // Silent fail - capture shouldn't break chat
           }
         }
       }
@@ -565,11 +611,40 @@ function buildFullSystemPrompt(
   tailoredResumeContext?: TailoredResumeContext,
   strategyModeData?: StrategyModeData,
   sessionType?: SessionType,
-  intent?: LexIntent
+  intent?: LexIntent,
+  resumeText?: string | null,
+  jobAnalysisData?: any
 ): string {
   let prompt = LEX_CORE_IDENTITY;
 
   prompt += buildMemoryContext(memory);
+  const normalizedResume = (resumeText || '').toLowerCase();
+  let keywordOverlapRatio: number | null = null;
+  let roleMismatch = false;
+
+  if (jobAnalysisData && resumeText) {
+    const ats = jobAnalysisData.ats_keywords || {};
+    const keywordPool = [
+      ...(ats.hardSkills || []),
+      ...(ats.technologies || []),
+      ...(ats.industryKeywords || []),
+      ...(ats.experienceKeywords || []),
+      ...(ats.certifications || [])
+    ]
+      .map((k: string) => String(k || '').toLowerCase().trim())
+      .filter(Boolean);
+
+    const uniqueKeywords = Array.from(new Set(keywordPool));
+    const hitCount = uniqueKeywords.filter((kw) => normalizedResume.includes(kw)).length;
+    keywordOverlapRatio = uniqueKeywords.length > 0 ? hitCount / uniqueKeywords.length : null;
+
+    const jobTitle = String(jobAnalysisData.job_title || jobAnalysisData.jobTitle || '').toLowerCase();
+    const brokerageTerms = ['broker', 'brokerage', 'freight broker', 'freight'];
+    const resumeBrokerageTerms = ['broker', 'brokerage', 'freight', 'carrier', 'load', 'lane'];
+    const jobIsBrokerage = brokerageTerms.some((t) => jobTitle.includes(t));
+    const resumeHasBrokerage = resumeBrokerageTerms.some((t) => normalizedResume.includes(t));
+    roleMismatch = jobIsBrokerage && !resumeHasBrokerage;
+  }
 
   if (intent === 'recruiter-review') {
     prompt += `\n\n═══════════════════════════════════════════════════════════════
@@ -868,6 +943,20 @@ You can DISCUSS these topics, but you can't PERFORM the actual tailoring/generat
       prompt += formatResumeStrategyContext(strategyModeData);
     }
   }
+
+  if (sessionType === 'resume-tailoring' && keywordOverlapRatio !== null) {
+    const allowMismatchStatement = keywordOverlapRatio < 0.2 && roleMismatch;
+    prompt += `\n\n═══════════════════════════════════════════════════════════════
+TAILORING GUARDRAIL (HARD RULES)
+═══════════════════════════════════════════════════════════════
+Keyword overlap ratio: ${(keywordOverlapRatio * 100).toFixed(1)}%
+Role mismatch detected: ${roleMismatch ? 'YES' : 'NO'}
+
+RULE:
+- You may only state a "significant mismatch" IF overlap < 20% AND role mismatch is YES.
+- If this rule is not met, do NOT say it is a mismatch. Provide fix-oriented strategy instead.
+═══════════════════════════════════════════════════════════════`;
+  }
   else if (resumeContext?.hasResume && resumeContext.masterResume) {
     prompt += `\n\n═══════════════════════════════════════════════════════════════
 USER'S RESUME ON FILE
@@ -925,8 +1014,46 @@ If you reference risks or fixes, ground them in this analysis context where poss
   if (tailoredResumeContext) {
     prompt += formatTailoredResumeContext(tailoredResumeContext);
   }
-  else if (jobContext && !matchContext) {
+  else if (jobContext && !matchContext && jobContext.jobTitle) {
     prompt += formatJobContext(jobContext);
+  }
+
+  if (resumeText) {
+    const safeResumeText = resumeText.trim() || "No resume text available.";
+    prompt += `\n\n═══════════════════════════════════════════════════════════════
+FULL RESUME TEXT (PRIVATE CONTEXT)
+═══════════════════════════════════════════════════════════════
+${safeResumeText}`;
+  }
+
+  if (jobAnalysisData) {
+    const jobTitle = jobAnalysisData.job_title || 'Unknown Position';
+    const company = jobAnalysisData.company_name || 'Unknown Company';
+    const location = jobAnalysisData.location || '';
+    const description = jobAnalysisData.job_description || '';
+    const requirements = Array.isArray(jobAnalysisData.requirements)
+      ? jobAnalysisData.requirements.join('\n- ')
+      : jobAnalysisData.requirements || '';
+    const responsibilities = Array.isArray(jobAnalysisData.responsibilities)
+      ? jobAnalysisData.responsibilities.join('\n- ')
+      : jobAnalysisData.responsibilities || '';
+
+    prompt += `\n\n═══════════════════════════════════════════════════════════════
+JOB ANALYSIS (PRIVATE CONTEXT)
+═══════════════════════════════════════════════════════════════
+Position: ${jobTitle}
+Company: ${company}
+${location ? `Location: ${location}` : ''}
+
+Job Description:
+${description}
+
+Responsibilities:
+${responsibilities ? `- ${responsibilities}` : 'Not provided'}
+
+Requirements:
+${requirements ? `- ${requirements}` : 'Not provided'}
+`;
   }
 
   return prompt;

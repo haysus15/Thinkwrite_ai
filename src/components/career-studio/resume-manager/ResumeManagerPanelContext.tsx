@@ -1,36 +1,21 @@
 'use client';
 
 import { createContext, useContext, useState } from 'react';
-import type { RecruiterReviewSuggestion } from '@/lib/career-studio/lexBus';
 
 export interface ResumeManagerResultsPanelData {
   active: boolean;
   openDraftEditorSignal: number;
-  quoteReviewLoading: boolean;
-  quoteReviewResponse: string | null;
-  reviewSource: "recruiter" | "quote" | null;
-  scoredQuoteCount: number;
-  ruleIssues: Array<{
-    severity: "high" | "medium" | "low";
-    category: "structure" | "format" | "verbiage" | "impact" | "ats";
-    issue: string;
-    evidence?: string;
-    recommendation?: string;
-  }>;
-  appliedSuggestions: Array<RecruiterReviewSuggestion & { id: string; accepted: boolean; applied: boolean }>;
-  onToggleSuggestion: (id: string, accepted: boolean) => void;
-  onOpenFullChat: () => void;
-  onRecruiterReview: () => void;
-  onExplainScore: () => void;
-  onFixBullets: () => void;
-  onJumpToScoredQuotes: () => void;
-  onExplainResumeWideIssues: () => void;
-  onFixResumeWideIssues: () => void;
   originalResumeText: string;
   draftResumeText: string;
   draftDirty: boolean;
   draftSaving: boolean;
   draftSaveError: string | null;
+  inlineSuggestions?: Array<{
+    id: string;
+    currentLine: string;
+    suggestedFix: string;
+  }>;
+  onApplySuggestion?: (id: string) => void;
   onDraftChange: (value: string) => void;
   onResetDraft: () => void;
   onSaveDraft: () => void;

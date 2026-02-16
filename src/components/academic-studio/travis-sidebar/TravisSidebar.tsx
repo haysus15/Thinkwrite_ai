@@ -9,8 +9,43 @@ import {
   ListChecks,
   Plus,
   FileText,
+  Code2,
 } from "lucide-react";
 import type { AssignmentRow } from "@/types/academic-studio";
+
+const CODING_TYPES = new Set(["lab", "project", "homework"]);
+const CODING_KEYWORDS = [
+  "code",
+  "coding",
+  "programming",
+  "python",
+  "javascript",
+  "sql",
+  "algorithm",
+  "data structure",
+  "database",
+  "query",
+  "function",
+  "class",
+  "loop",
+  "debug",
+  "compile",
+];
+
+const isCodingAssignment = (assignment: AssignmentRow) => {
+  const type = (assignment.assignment_type || "").toLowerCase();
+  if (!CODING_TYPES.has(type)) return false;
+
+  const haystack = [
+    assignment.assignment_name,
+    assignment.class_name,
+    JSON.stringify(assignment.requirements || {}),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return CODING_KEYWORDS.some((kw) => haystack.includes(kw));
+};
 
 export default function TravisSidebar() {
   const router = useRouter();
@@ -160,6 +195,20 @@ export default function TravisSidebar() {
                 >
                   <FileText className="h-3 w-3" />
                   Start paper
+                </button>
+              )}
+              {isCodingAssignment(assignment) && assignment.assignment_type !== "paper" && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    router.push(
+                      `/academic-studio/dashboard?workspace=coding-review&assignmentId=${assignment.id}`
+                    )
+                  }
+                  className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1 text-xs text-amber-100 transition hover:bg-amber-500/25"
+                >
+                  <Code2 className="h-3 w-3" />
+                  Open coding review
                 </button>
               )}
             </div>

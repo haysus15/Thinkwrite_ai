@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useMemo, useRef } from 'react';
 import type { ResumeManagerResultsPanelData } from './ResumeManagerPanelContext';
 
 interface ResumeManagerResultsPanelProps {
@@ -7,6 +8,55 @@ interface ResumeManagerResultsPanelProps {
 }
 
 export default function ResumeManagerResultsPanel({ data }: ResumeManagerResultsPanelProps) {
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const editingRef = useRef(false);
+
+  const highlightMap = useMemo(() => {
+    const suggestions = data.inlineSuggestions || [];
+    if (!suggestions.length) return [];
+    return suggestions
+      .filter((s) => s.currentLine && s.suggestedFix)
+      .map((s) => ({
+        id: s.id,
+        currentLine: s.currentLine.trim(),
+      }));
+  }, [data.inlineSuggestions]);
+
+  const highlightedHtml = useMemo(() => {
+    if (!highlightMap.length) return null;
+    let html = data.draftResumeText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    highlightMap.forEach((item) => {
+      if (!item.currentLine) return;
+      const escaped = item.currentLine
+        .replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const regex = new RegExp(escaped);
+      html = html.replace(
+        regex,
+        `<mark class="tw-inline-suggestion" data-id="${item.id}">${item.currentLine}</mark>`
+      );
+    });
+
+    return html.replace(/\n/g, '<br/>');
+  }, [data.draftResumeText, highlightMap]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    if (document.activeElement === editor && editingRef.current) {
+      return;
+    }
+    const html = highlightedHtml ?? data.draftResumeText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br/>');
+    editor.innerHTML = html;
+  }, [data.draftResumeText, highlightedHtml]);
+
   return (
     <section className="flex flex-col h-full">
       <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3 flex flex-col flex-1 min-h-0">
@@ -18,7 +68,7 @@ export default function ResumeManagerResultsPanel({ data }: ResumeManagerResults
             <button
               type="button"
               onClick={data.onResetDraft}
-              className="text-[10px] text-white/60 hover:text-white transition"
+              className="text-[10px] text-[#A855F7]/80 hover:text-[#C084FC] transition"
             >
               Reset Draft
             </button>
@@ -26,7 +76,7 @@ export default function ResumeManagerResultsPanel({ data }: ResumeManagerResults
               type="button"
               onClick={data.onSaveDraft}
               disabled={data.draftSaving || !data.draftResumeText.trim()}
-              className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition disabled:opacity-50"
+              className="px-2.5 py-1 rounded border border-[#A855F7]/40 bg-[#A855F7]/10 text-[10px] text-white/85 hover:bg-[#A855F7]/20 transition disabled:opacity-50"
             >
               {data.draftSaving ? 'Saving...' : 'Save Draft'}
             </button>
@@ -34,11 +84,28 @@ export default function ResumeManagerResultsPanel({ data }: ResumeManagerResults
         </div>
         {data.originalResumeText ? (
           <>
-            <textarea
-              value={data.draftResumeText}
-              onChange={(e) => data.onDraftChange(e.target.value)}
-              className="flex-1 min-h-[520px] rounded-lg border border-white/10 bg-black/20 p-3 text-[12px] text-white/90 placeholder-white/30 focus:outline-none focus:border-[#9333EA]/50"
-            />
+            <div className="relative flex-1 min-h-[520px] rounded-lg border border-white/10 bg-black/20 overflow-hidden">
+              <div
+                ref={editorRef}
+                role="textbox"
+                contentEditable
+                suppressContentEditableWarning
+                onFocus={() => {
+                  editingRef.current = true;
+                }}
+                onBlur={() => {
+                  editingRef.current = false;
+                }}
+                onInput={(e) => {
+                  const text = e.currentTarget.textContent ?? '';
+                  data.onDraftChange(text);
+                }}
+                className="h-full w-full overflow-y-auto whitespace-pre-wrap break-words p-3 text-[12px] leading-[1.6] text-white/90 focus:outline-none"
+                style={{
+                  caretColor: 'white',
+                }}
+              />
+            </div>
             {data.draftSaveError && (
               <div className="text-[11px] text-red-300 mt-2">{data.draftSaveError}</div>
             )}

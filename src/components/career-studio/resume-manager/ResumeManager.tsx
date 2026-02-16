@@ -7,16 +7,12 @@ import React, {
   useMemo,
   useEffect,
 } from "react";
-import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAuthRequiredUrl } from "@/lib/auth/redirects";
 import {
   dispatchLexPrompt,
   dispatchResumeUpdated,
   subscribeToResumeUpdated,
-  subscribeToRecruiterReview,
-  subscribeToQuoteReview,
-  type RecruiterReviewSuggestion,
 } from "@/lib/career-studio/lexBus";
 import type { WorkspaceContext } from "@/types/career-studio-workspace";
 import { useResumeManagerPanel } from "./ResumeManagerPanelContext";
@@ -50,33 +46,6 @@ interface AnalysisResults {
   resumeQuotes?: ResumeQuote[];
   educationalInsights?: EducationalInsight[];
   ruleIssues?: RuleIssue[];
-}
-
-function parseQuoteLevelSuggestions(response: string): RecruiterReviewSuggestion[] {
-  const suggestions: RecruiterReviewSuggestion[] = [];
-  const normalized = response.replace(/\r/g, "");
-  const regex = /Original:\s*\"([\s\S]*?)\"\s*Rewrite:\s*\"([\s\S]*?)\"/gi;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(normalized))) {
-    const before = match[1].trim();
-    const after = match[2].trim();
-    if (before && after) {
-      suggestions.push({ before, after });
-    }
-  }
-
-  if (suggestions.length > 0) return suggestions;
-
-  const fallbackRegex = /Original:\s*([^\n]+)\s*\n\s*Rewrite:\s*([^\n]+)/gi;
-  while ((match = fallbackRegex.exec(normalized))) {
-    const before = match[1].replace(/^\"|\"$/g, "").trim();
-    const after = match[2].replace(/^\"|\"$/g, "").trim();
-    if (before && after) {
-      suggestions.push({ before, after });
-    }
-  }
-
-  return suggestions;
 }
 
 interface ResumeQuote {
@@ -139,19 +108,87 @@ interface ResumeManagerProps {
   onContextUpdate?: (context: Partial<WorkspaceContext>) => void;
 }
 
-function buildStrictResumeHeader(resumeText: string) {
+function buildLexCoachingPrompt(
+  analysisResults: AnalysisResults | undefined,
+  resumeText: string,
+  fileName: string
+) {
+  if (!analysisResults) {
+    return "No analysis results found. Ask the user to run analysis first.";
+  }
+
+  const breakdown = Object.entries(analysisResults.scoreBreakdown || {})
+    .map(([key, category]) => {
+      const label =
+        key === "formatting"
+          ? "Formatting"
+          : key === "keywords"
+          ? "Keywords"
+          : key === "content"
+          ? "Content"
+          : key === "atsCompatibility"
+          ? "ATS"
+          : key;
+      return `${label}: ${category.score}/${category.maxScore} — ${category.explanation}`;
+    })
+    .join("\n");
+
+  const ruleIssues = (analysisResults.ruleIssues || [])
+    .slice(0, 8)
+    .map(
+      (issue, index) =>
+        `${index + 1}) [${issue.severity.toUpperCase()} · ${issue.category.toUpperCase()}] ${issue.issue}` +
+        (issue.evidence ? `\nEvidence: ${issue.evidence}` : "") +
+        (issue.recommendation ? `\nRecommendation: ${issue.recommendation}` : "")
+    )
+    .join("\n\n");
+
+  const topLineFixes = (analysisResults.resumeQuotes || [])
+    .slice(0, 6)
+    .map(
+      (quote, index) =>
+        `${index + 1}) ${quote.issue}\nOriginal: "${quote.originalText}"\nRewrite: "${quote.suggestedImprovement}"`
+    )
+    .join("\n\n");
+
+  const recommendations = (analysisResults.recommendations || [])
+    .slice(0, 6)
+    .map(
+      (rec, index) =>
+        `${index + 1}) [${rec.priority.toUpperCase()}] ${rec.issue}\nFix: ${rec.solution}\nImpact: ${rec.impact}`
+    )
+    .join("\n\n");
+
+  const safeResumeText = resumeText.trim() || "No resume text available.";
+
   return [
-    "You are Lex. STRICT MODE:",
-    "- Only use facts and wording that appear in the resume text below.",
-    "- Do not invent, infer, or add any new facts.",
-    "- Every issue must include a direct verbatim quote from the resume.",
-    "- If you cannot find a quote, say \"No supported quote\" and skip that item.",
+    "You are Lex. You are acting as a career coach.",
+    "Use ONLY the scoring engine findings below. Do not invent new issues or rewrite lines beyond what the engine already identified.",
+    "Your job: explain the results, prioritize next steps, and coach the user on how to improve.",
+    "Ask 1-2 clarifying questions if you need more context.",
     "",
-    "RESUME TEXT (source of truth):",
+    `Resume: ${fileName}`,
+    `Score: ${analysisResults.overallScore}/100`,
+    "",
+    "Score breakdown:",
+    breakdown || "No breakdown available.",
+    "",
+    "Resume-wide issues:",
+    ruleIssues || "None detected.",
+    "",
+    "Line-level fixes (engine):",
+    topLineFixes || "None detected.",
+    "",
+    "Top recommendations:",
+    recommendations || "None available.",
+    "",
+    "If the user asks about a specific line, use the engine's line-level fix.",
+    "If the user asks for strategy, respond like a coach using the engine's priorities.",
+    "",
+    "RESUME TEXT (reference only, do not invent new facts):",
     "---BEGIN RESUME---",
-    resumeText.trim(),
+    safeResumeText,
     "---END RESUME---",
-    ""
   ].join("\n");
 }
 
@@ -170,15 +207,6 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
   const [draftDirty, setDraftDirty] = useState(false);
   const [draftSaving, setDraftSaving] = useState(false);
   const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
-  const [reviewSuggestions, setReviewSuggestions] = useState<
-    Array<RecruiterReviewSuggestion & { id: string; accepted: boolean; applied: boolean }>
-  >([]);
-  const [appliedSuggestions, setAppliedSuggestions] = useState<
-    Array<RecruiterReviewSuggestion & { id: string; accepted: boolean; applied: boolean }>
-  >([]);
-  const [reviewSource, setReviewSource] = useState<"recruiter" | "quote" | null>(null);
-  const [quoteReviewResponse, setQuoteReviewResponse] = useState<string | null>(null);
-  const [quoteReviewLoading, setQuoteReviewLoading] = useState(false);
   const [rightPanelActive, setRightPanelActive] = useState(false);
   const [openDraftEditorSignal, setOpenDraftEditorSignal] = useState(0);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -187,6 +215,10 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
     const saved = window.localStorage.getItem("resumeManager.leftWidth");
     return saved ? Number(saved) : 240;
   });
+  const [scoreOpen, setScoreOpen] = useState(true);
+  const [issuesOpen, setIssuesOpen] = useState(true);
+  const [lineFixesOpen, setLineFixesOpen] = useState(true);
+  const [priorityFixesOpen, setPriorityFixesOpen] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { setPanel } = useResumeManagerPanel();
 
@@ -204,186 +236,26 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
     [onContextUpdate]
   );
 
-  const sendResumeLexPrompt = useCallback(
-    (prompt: string, intent: "general" | "recruiter-review" | "quote-review" = "general") => {
-      if (!selectedResume) {
-        setToastVisible(true);
-        window.setTimeout(() => setToastVisible(false), 1400);
-        return;
-      }
-      setRightPanelActive(true);
-      if (intent === "quote-review") {
-        setReviewSource("quote");
-        setReviewSuggestions([]);
-        setAppliedSuggestions([]);
-      }
-      if (intent === "recruiter-review") {
-        setReviewSource("recruiter");
-      }
-      dispatchLexPrompt({
-        prompt,
-        workspace: "resume-manager",
-        resumeId: selectedResume.id,
-        intent,
-      });
-      if (intent === "quote-review") {
-        setQuoteReviewLoading(true);
-        setQuoteReviewResponse(null);
-      }
+  const handleLexCoaching = useCallback(() => {
+    if (!selectedResume) {
       setToastVisible(true);
       window.setTimeout(() => setToastVisible(false), 1400);
-    },
-    [selectedResume]
-  );
-
-  const handleToggleSuggestion = useCallback((id: string, accepted: boolean) => {
-    setReviewSuggestions((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, accepted } : item
-      )
+      return;
+    }
+    const prompt = buildLexCoachingPrompt(
+      selectedResume.analysisResults,
+      originalResumeText,
+      selectedResume.fileName || "Resume"
     );
-  }, []);
-
-  const handleOpenFullChat = useCallback(() => {
-    const scoredQuotes = selectedResume?.analysisResults?.resumeQuotes || [];
-    const formatted = scoredQuotes
-      .map(
-        (quote, index) =>
-          `${index + 1}) ${quote.issue}\nOriginal: "${quote.originalText}"\nRewrite: "${quote.suggestedImprovement}"`
-      )
-      .join("\n\n");
-
-    const prompt = scoredQuotes.length && originalResumeText
-      ? [
-          buildStrictResumeHeader(originalResumeText),
-          "Use ONLY the scored quote-level priorities below.",
-          "Do not invent new issues or rewrites. Keep the same originals and rewrites.",
-          "Return each item in this exact format:",
-          "1) Issue: ...",
-          "Quote: \"<verbatim from resume>\"",
-          "Suggested rewrite: \"<use the provided rewrite>\"",
-          "",
-          "SCORDED QUOTE-LEVEL PRIORITIES:",
-          formatted
-        ].join("\n")
-      : "No scored quote-level priorities or resume text available. Ask the user to run analysis first.";
-
-    sendResumeLexPrompt(prompt, "quote-review");
-  }, [sendResumeLexPrompt, selectedResume?.analysisResults?.resumeQuotes, originalResumeText]);
-
-  const handleRecruiterReview = useCallback(
-    () =>
-      sendResumeLexPrompt(
-        originalResumeText
-          ? [
-              buildStrictResumeHeader(originalResumeText),
-              "Review this resume like a recruiter and list the top 3 risks.",
-              "Do NOT return a full resume. Only list issues and suggested edits.",
-              "For each item, output in this exact format:",
-              "1) Issue: ...",
-              "Quote: \"<verbatim from resume>\"",
-              "Before: \"<verbatim line or bullet from resume>\"",
-              "After: \"<rewrite using only facts already in resume>\""
-            ].join("\n")
-          : "Resume text not available. Ask the user to re-run analysis.",
-        "recruiter-review"
-      ),
-    [sendResumeLexPrompt, originalResumeText]
-  );
-
-  const handleExplainScore = useCallback(
-    () =>
-      sendResumeLexPrompt(
-        originalResumeText
-          ? [
-              buildStrictResumeHeader(originalResumeText),
-              "Explain my score like an HR manager and tell me what to fix first.",
-              "Provide up to 3 fixes. For each:",
-              "Issue: ...",
-              "Quote: \"<verbatim from resume>\"",
-              "Suggested rewrite: \"<rewrite using only facts already in resume>\""
-            ].join("\n")
-          : "Resume text not available. Ask the user to re-run analysis."
-      ),
-    [sendResumeLexPrompt, originalResumeText]
-  );
-
-  const handleFixBullets = useCallback(
-    () =>
-      sendResumeLexPrompt(
-        originalResumeText
-          ? [
-              buildStrictResumeHeader(originalResumeText),
-              "Find my weakest bullets and rewrite up to 2 to be clearer or more impact-focused.",
-              "Do not add new facts or metrics.",
-              "For each:",
-              "Issue: ...",
-              "Quote: \"<verbatim from resume>\"",
-              "Suggested rewrite: \"<rewrite using only facts already in resume>\""
-            ].join("\n")
-          : "Resume text not available. Ask the user to re-run analysis."
-      ),
-    [sendResumeLexPrompt, originalResumeText]
-  );
-
-  const handleExplainResumeWideIssues = useCallback(() => {
-    const issues = selectedResume?.analysisResults?.ruleIssues || [];
-    const formatted = issues
-      .map(
-        (issue, index) =>
-          `${index + 1}) [${issue.severity.toUpperCase()} · ${issue.category.toUpperCase()}] ${issue.issue}` +
-          (issue.evidence ? `\nEvidence: ${issue.evidence}` : "") +
-          (issue.recommendation ? `\nRecommendation: ${issue.recommendation}` : "")
-      )
-      .join("\n\n");
-
-    const prompt = issues.length && originalResumeText
-      ? [
-          buildStrictResumeHeader(originalResumeText),
-          "Explain each resume-wide issue below in plain language and teach the user how to fix it.",
-          "Provide 1-2 concrete edits per issue that they can apply in the draft.",
-          "For each issue, include:",
-          "Issue: ...",
-          "Quote: \"<verbatim from resume>\"",
-          "Suggested rewrite: \"<rewrite using only facts already in resume>\"",
-          "",
-          "RESUME-WIDE ISSUES:",
-          formatted
-        ].join("\n")
-      : "There are no resume-wide issues or resume text yet. Ask the user to run analysis first.";
-
-    sendResumeLexPrompt(prompt, "general");
-  }, [sendResumeLexPrompt, selectedResume?.analysisResults?.ruleIssues, originalResumeText]);
-
-  const handleFixResumeWideIssues = useCallback(() => {
-    const issues = selectedResume?.analysisResults?.ruleIssues || [];
-    const formatted = issues
-      .map(
-        (issue, index) =>
-          `${index + 1}) [${issue.severity.toUpperCase()} · ${issue.category.toUpperCase()}] ${issue.issue}` +
-          (issue.evidence ? `\nEvidence: ${issue.evidence}` : "") +
-          (issue.recommendation ? `\nRecommendation: ${issue.recommendation}` : "")
-      )
-      .join("\n\n");
-
-    const prompt = issues.length && originalResumeText
-      ? [
-          buildStrictResumeHeader(originalResumeText),
-          "Apply fixes for the resume-wide issues below. Provide exact edits and call out where to apply them.",
-          "If an issue needs more data, ask a specific question instead of guessing.",
-          "For each issue, include:",
-          "Issue: ...",
-          "Quote: \"<verbatim from resume>\"",
-          "Before: \"<verbatim line or bullet from resume>\"",
-          "After: \"<rewrite using only facts already in resume>\"",
-          "",
-          "RESUME-WIDE ISSUES:",
-          formatted
-        ].join("\n")
-      : "There are no resume-wide issues or resume text yet. Ask the user to run analysis first.";
-
-    sendResumeLexPrompt(prompt, "general");
-  }, [sendResumeLexPrompt, selectedResume?.analysisResults?.ruleIssues, originalResumeText]);
+    dispatchLexPrompt({
+      prompt,
+      workspace: "resume-manager",
+      resumeId: selectedResume.id,
+      intent: "general",
+    });
+    setToastVisible(true);
+    window.setTimeout(() => setToastVisible(false), 1400);
+  }, [selectedResume, originalResumeText]);
 
   const handleOpenDraftEditor = useCallback(() => {
     setRightPanelActive(true);
@@ -399,14 +271,6 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
     setDraftResumeText(originalResumeText);
     setDraftDirty(false);
   }, [originalResumeText]);
-
-  const handleJumpToScoredQuotes = useCallback(() => {
-    if (typeof document === "undefined") return;
-    const target = document.getElementById("scored-quote-priorities");
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, []);
 
   const loadResumes = async () => {
     try {
@@ -443,74 +307,10 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
   }, [onContextUpdate]);
 
   useEffect(() => {
-    return subscribeToRecruiterReview(({ resumeId, suggestions }) => {
-      if (!selectedResume || selectedResume.id !== resumeId) return;
-      const normalized = suggestions.map((s, index) => ({
-        id: `${resumeId}-${index}`,
-        before: s.before,
-        after: s.after,
-        accepted: true,
-        applied: false,
-      }));
-      setReviewSource("recruiter");
-      setReviewSuggestions(normalized);
-    });
-  }, [selectedResume]);
-
-  useEffect(() => {
-    return subscribeToQuoteReview(({ resumeId, response }) => {
-      if (!selectedResume || selectedResume.id !== resumeId) return;
-      setQuoteReviewResponse(response);
-      setQuoteReviewLoading(false);
-      const parsed = parseQuoteLevelSuggestions(response);
-      if (parsed.length > 0) {
-        const normalized = parsed.map((s, index) => ({
-          id: `${resumeId}-quote-${index}`,
-          before: s.before,
-          after: s.after,
-          accepted: true,
-          applied: false,
-        }));
-        setReviewSource("quote");
-        setReviewSuggestions(normalized);
-      }
-    });
-  }, [selectedResume]);
-
-  useEffect(() => {
-    if (!originalResumeText || reviewSuggestions.length === 0) {
-      setAppliedSuggestions([]);
-      return;
-    }
-
-    let updated = originalResumeText;
-    const nextSuggestions = reviewSuggestions.map((suggestion) => {
-      if (!suggestion.accepted) {
-        return { ...suggestion, applied: false };
-      }
-
-      if (suggestion.before && updated.includes(suggestion.before)) {
-        updated = updated.replace(suggestion.before, suggestion.after);
-        return { ...suggestion, applied: true };
-      }
-
-      return { ...suggestion, applied: false };
-    });
-
-    setDraftResumeText(updated);
-    setDraftDirty(true);
-    setAppliedSuggestions(nextSuggestions);
-  }, [originalResumeText, reviewSuggestions]);
-
-  useEffect(() => {
     if (!selectedResume?.id) {
       setOriginalResumeText("");
       setDraftResumeText("");
       setDraftDirty(false);
-      setReviewSuggestions([]);
-      setReviewSource(null);
-      setQuoteReviewResponse(null);
-      setQuoteReviewLoading(false);
       return;
     }
 
@@ -528,10 +328,6 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
           setDraftSaveError(null);
           setDraftDirty(false);
           setDraftResumeText(rawText);
-          setReviewSuggestions([]);
-          setReviewSource(null);
-          setQuoteReviewResponse(null);
-          setQuoteReviewLoading(false);
         }
       } catch (err) {
         console.error("Failed to load resume text:", err);
@@ -649,20 +445,6 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
     () => ({
       active: rightPanelActive,
       openDraftEditorSignal,
-      quoteReviewLoading,
-      quoteReviewResponse,
-      reviewSource,
-      scoredQuoteCount: selectedResume?.analysisResults?.resumeQuotes?.length || 0,
-      ruleIssues: selectedResume?.analysisResults?.ruleIssues || [],
-      appliedSuggestions,
-      onToggleSuggestion: handleToggleSuggestion,
-      onOpenFullChat: handleOpenFullChat,
-      onRecruiterReview: handleRecruiterReview,
-      onExplainScore: handleExplainScore,
-      onFixBullets: handleFixBullets,
-      onJumpToScoredQuotes: handleJumpToScoredQuotes,
-      onExplainResumeWideIssues: handleExplainResumeWideIssues,
-      onFixResumeWideIssues: handleFixResumeWideIssues,
       originalResumeText,
       draftResumeText,
       draftDirty,
@@ -675,18 +457,6 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
     [
       rightPanelActive,
       openDraftEditorSignal,
-      quoteReviewLoading,
-      quoteReviewResponse,
-      reviewSource,
-      appliedSuggestions,
-      handleToggleSuggestion,
-      handleOpenFullChat,
-      handleRecruiterReview,
-      handleExplainScore,
-      handleFixBullets,
-      handleJumpToScoredQuotes,
-      handleExplainResumeWideIssues,
-      handleFixResumeWideIssues,
       originalResumeText,
       draftResumeText,
       draftDirty,
@@ -1179,14 +949,14 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
                       onClick={handleOpenDraftEditor}
-                      className="px-3 py-1.5 rounded-lg border border-white/15 bg-white/5 text-[11px] text-white/80 hover:bg-white/10 transition"
+                      className="px-3 py-1.5 rounded-lg border border-[#A855F7]/40 bg-[#A855F7]/10 text-[11px] text-white/85 hover:bg-[#A855F7]/20 transition"
                     >
                       Open Draft Editor
                     </button>
                     <button
                       onClick={() => reAnalyzeResume(selectedResume.id)}
                       disabled={isReanalyzing === selectedResume.id}
-                      className="bg-[#9333EA] hover:bg-violet-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-50"
+                      className="bg-[#F97316] hover:bg-[#FB923C] text-white px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-50"
                     >
                       {isReanalyzing === selectedResume.id
                         ? "Analyzing..."
@@ -1200,47 +970,42 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
               {selectedResume.analysisResults ? (
                 <>
                   <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3">
-                    <div className="text-[10px] text-white/60 mb-2">
-                      Recruiter Review (Lex Suggestions · Not Scored)
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="engine-text-detail text-[10px] text-white/60 mb-1">
+                          Lex Coaching (Optional)
+                        </div>
+                        <p className="engine-text-detail text-[10px] text-white/50 max-w-md">
+                          Lex uses the engine’s findings to coach you on next steps. No extra scoring, no new issues.
+                        </p>
+                      </div>
                       <button
-                        onClick={handleOpenFullChat}
-                        className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition"
+                        onClick={handleLexCoaching}
+                        disabled={!selectedResume.analysisResults}
+                        className="px-3 py-1.5 rounded-lg border border-[#EC4899]/40 bg-[#EC4899]/10 text-[10px] text-white/85 hover:bg-[#EC4899]/20 transition disabled:opacity-50"
                       >
-                        Quote-level review
-                      </button>
-                      <button
-                        onClick={handleRecruiterReview}
-                        className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition"
-                      >
-                        Recruiter review
-                      </button>
-                      <button
-                        onClick={handleExplainScore}
-                        className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition"
-                      >
-                        Explain score
-                      </button>
-                      <button
-                        onClick={handleFixBullets}
-                        className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition"
-                      >
-                        Fix bullets
+                        Ask Lex (Career Coach)
                       </button>
                     </div>
                   </div>
 
                   {/* Score + HR row */}
-                  <div className="grid grid-cols-2 gap-3">
-                    {/* Score card */}
-                    <div
-                      className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3"
-                    >
-                      <p className="text-[9px] uppercase tracking-wider text-white/40 mb-1">
-                        Overall Score
-                      </p>
-                      <div className="flex items-baseline gap-1">
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Score card (collapsible) */}
+                    <div className="col-span-2 bg-white/[0.02] border border-white/[0.08] rounded-xl p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[9px] uppercase tracking-wider text-white/40">
+                          Overall Score
+                        </p>
+                        <button
+                          onClick={() => setScoreOpen((prev) => !prev)}
+                          className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-white/75 hover:bg-white/10 hover:text-white transition"
+                        >
+                          <span className="text-[11px]">{scoreOpen ? "▾" : "▸"}</span>
+                          {scoreOpen ? "Collapse" : "Expand"}
+                        </button>
+                      </div>
+                      <div className="flex items-baseline gap-1 mt-1">
                         <span
                           className={`text-3xl font-semibold ${getScoreColor(
                             selectedResume.analysisResults.overallScore
@@ -1262,134 +1027,140 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                       {selectedResume.analysisResults.resumeQuotes && (
                         <p className="text-[9px] text-[#9333EA] mt-2">
                           {" "}
-                          {
-                            selectedResume.analysisResults.resumeQuotes
-                              .length
-                          }{" "}
-                          quote-level examples
+                          {selectedResume.analysisResults.resumeQuotes.length} line-level examples
                         </p>
                       )}
-                      <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
-                        <div className="text-white/80 font-semibold mb-1">
-                          How this score works
-                        </div>
-                        <div>
-                          Base Score = Formatting + Keywords + Content + ATS
-                        </div>
-                        <div>
-                          Rule Penalties = High (-4) · Medium (-2) · Low (-1)
-                        </div>
-                        <div>
-                          Scoring comes from the analysis engine (not Lex chat)
-                        </div>
-                        <div>
-                          Base Score (from breakdown): {baseScoreFromBreakdown}/100
-                        </div>
-                        <div>
-                          Total Rule Penalty: -{rulePenalty} (High {rulePenaltyBreakdown.high}, Medium {rulePenaltyBreakdown.medium}, Low {rulePenaltyBreakdown.low})
-                        </div>
-                        <div>
-                          Computed Final: {computedFinalScore}/100
-                        </div>
-                        <div>
-                          Stored Final: {selectedResume.analysisResults.overallScore}/100
-                        </div>
-                        {computedFinalScore !== selectedResume.analysisResults.overallScore && (
-                          <div className="text-[8px] text-amber-300 mt-1">
-                            Note: Stored score differs from computed. Re-analyze to sync.
-                          </div>
-                        )}
-                      </div>
-                      {selectedResume.analysisResults.scoreBreakdown && (
-                        <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
-                          <div className="text-white/80 font-semibold mb-2">
-                            Base score breakdown
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            {Object.entries(selectedResume.analysisResults.scoreBreakdown).map(
-                              ([key, category]) => (
-                                <div
-                                  key={key}
-                                  className="rounded border border-white/10 bg-black/20 p-1.5"
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-white/70">
-                                      {key === "formatting" && "Formatting"}
-                                      {key === "keywords" && "Keywords"}
-                                      {key === "content" && "Content"}
-                                      {key === "atsCompatibility" && "ATS"}
-                                    </span>
-                                    <span className="text-white/80">
-                                      {category.score}/{category.maxScore}
-                                    </span>
-                                  </div>
-                                  <div className="text-[8px] text-white/40 line-clamp-2">
-                                    {category.explanation}
-                                  </div>
-                                </div>
-                              )
+                      {scoreOpen && (
+                        <>
+                          <div className="engine-card engine-text-large mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
+                            <div className="text-white/80 font-semibold mb-2">
+                              How this score works
+                            </div>
+                            <div className="space-y-1">
+                              <div className="engine-row">
+                                <span className="engine-label">Base Score</span>
+                                <span className="engine-value">Formatting + Keywords + Content + ATS</span>
+                              </div>
+                              <div className="engine-row">
+                                <span className="engine-label">Rule Penalties</span>
+                                <span className="engine-value">High (-4) · Medium (-2) · Low (-1)</span>
+                              </div>
+                              <div className="engine-row">
+                                <span className="engine-label">Scoring source</span>
+                                <span className="engine-value">Analysis engine (not Lex chat)</span>
+                              </div>
+                              <div className="engine-row">
+                                <span className="engine-label">Base Score (from breakdown)</span>
+                                <span className="engine-value">{baseScoreFromBreakdown}/100</span>
+                              </div>
+                              <div className="engine-row">
+                                <span className="engine-label">Total Rule Penalty</span>
+                                <span className="engine-value">
+                                  -{rulePenalty} (High {rulePenaltyBreakdown.high}, Medium {rulePenaltyBreakdown.medium}, Low {rulePenaltyBreakdown.low})
+                                </span>
+                              </div>
+                              <div className="engine-row">
+                                <span className="engine-label">Computed Final</span>
+                                <span className="engine-value">{computedFinalScore}/100</span>
+                              </div>
+                              <div className="engine-row">
+                                <span className="engine-label">Stored Final</span>
+                                <span className="engine-value">{selectedResume.analysisResults.overallScore}/100</span>
+                              </div>
+                            </div>
+                            {computedFinalScore !== selectedResume.analysisResults.overallScore && (
+                              <div className="text-[8px] text-amber-300 mt-2">
+                                Note: Stored score differs from computed. Re-analyze to sync.
+                              </div>
                             )}
                           </div>
-                        </div>
-                      )}
-                      {topBaseDeductions.length > 0 && (
-                        <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
-                          <div className="text-white/80 font-semibold mb-2">
-                            Why you lost base points
-                          </div>
-                          <div className="space-y-1">
-                            {topBaseDeductions.map((deduction, index) => (
-                              <div
-                                key={`${deduction.category}-${deduction.reason}-${index}`}
-                                className="flex items-center justify-between gap-2"
-                              >
-                                <span className="text-white/70">
-                                  {deduction.reason}
-                                </span>
-                                <span className="text-white/50">
-                                  -{deduction.points} ({deduction.category})
-                                </span>
+                          {selectedResume.analysisResults.scoreBreakdown && (
+                            <div className="engine-card engine-text-large mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
+                              <div className="text-white/80 font-semibold mb-2">
+                                Base score breakdown
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {ruleLosses.length > 0 && (
-                        <div className="mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
-                          <div className="text-white/80 font-semibold mb-2">
-                            Rule penalty breakdown
-                          </div>
-                          <div className="space-y-1">
-                            {ruleLosses.map((issue, index) => (
-                              <div key={`${issue.issue}-${index}`} className="flex items-center justify-between">
-                                <span className="text-white/70">{issue.issue}</span>
-                                <span className="text-white/50">
-                                  -{issue.points} ({issue.severity.toUpperCase()})
-                                </span>
+                              <div className="grid grid-cols-2 gap-2">
+                                {Object.entries(selectedResume.analysisResults.scoreBreakdown).map(
+                                  ([key, category]) => (
+                                    <div
+                                      key={key}
+                                      className="rounded border border-white/10 bg-black/20 p-1.5"
+                                    >
+                                      <div className="engine-row">
+                                        <span className="engine-label text-white/70">
+                                          {key === "formatting" && "Formatting"}
+                                          {key === "keywords" && "Keywords"}
+                                          {key === "content" && "Content"}
+                                          {key === "atsCompatibility" && "ATS"}
+                                        </span>
+                                        <span className="engine-value text-white/80">
+                                          {category.score}/{category.maxScore}
+                                        </span>
+                                      </div>
+                                      <div className="engine-text-detail text-[8px] text-white/40 line-clamp-2">
+                                        {category.explanation}
+                                      </div>
+                                    </div>
+                                  )
+                                )}
                               </div>
-                            ))}
-                          </div>
-                        </div>
+                            </div>
+                          )}
+                          {topBaseDeductions.length > 0 && (
+                            <div className="engine-card engine-text-large mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
+                              <div className="text-white/80 font-semibold mb-2">
+                                Why you lost base points
+                              </div>
+                              <div className="space-y-1">
+                                {topBaseDeductions.map((deduction, index) => (
+                                  <div
+                                    key={`${deduction.category}-${deduction.reason}-${index}`}
+                                    className="engine-row"
+                                  >
+                                    <span className="engine-label text-white/70">
+                                      {deduction.reason}
+                                    </span>
+                                    <span className="engine-value text-white/50">
+                                      -{deduction.points}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {ruleLosses.length > 0 && (
+                            <div className="engine-card engine-text-large mt-3 rounded-lg border border-white/10 bg-black/20 p-2 text-[9px] text-white/60">
+                              <div className="text-white/80 font-semibold mb-2">
+                                Rule penalty breakdown
+                              </div>
+                              <div className="space-y-1">
+                                {ruleLosses.map((issue, index) => (
+                                  <div key={`${issue.issue}-${index}`} className="engine-row">
+                                    <span className="engine-label text-white/70">{issue.issue}</span>
+                                    <span className="engine-value text-white/50">
+                                      -{issue.points} ({issue.severity.toUpperCase()})
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
 
-                    {/* HR perspective */}
-                    <div
-                      className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3"
-                    >
-                      <h3 className="text-[11px] font-semibold text-white mb-1 flex items-center gap-1">
+                    {/* HR perspective (smaller) */}
+                    <div className="engine-card engine-text-large bg-white/[0.02] border border-white/[0.08] rounded-xl p-3">
+                      <h3 className="engine-text-detail text-[11px] font-semibold text-white mb-1 flex items-center gap-1">
                          HR Manager&apos;s first impression
                       </h3>
-                      <p className="text-white/70 text-[10px] leading-relaxed line-clamp-3">
+                      <p className="engine-text-detail text-white/70 text-[10px] leading-relaxed line-clamp-3">
                         &quot;
-                        {
-                          selectedResume.analysisResults.hrPerspective
-                            .firstImpression
-                        }
+                        {selectedResume.analysisResults.hrPerspective.firstImpression}
                         &quot;
                       </p>
                       <div className="flex items-center justify-between text-[9px] mt-2">
-                        <span className="text-white/50">Likely outcome:</span>
+                        <span className="engine-text-detail text-white/50">Likely outcome:</span>
                         <span
                           className={`font-semibold ${getLikelyOutcomeColor(
                             selectedResume.analysisResults.hrPerspective
@@ -1404,250 +1175,204 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                     </div>
                   </div>
 
-                  <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <h3 className="text-[11px] font-semibold text-white">
-                          Lex Quote-Level Review (Explains Scored Issues)
-                        </h3>
-                        <p className="text-[9px] text-white/40">
-                          {selectedResume.analysisResults.resumeQuotes?.length
-                            ? `Based on ${selectedResume.analysisResults.resumeQuotes.length} scored quote-level priorities.`
-                            : "No scored quote-level priorities yet. Run analysis first."}
-                        </p>
-                      </div>
-                      {quoteReviewLoading && (
-                        <span className="text-[9px] text-white/40">Working…</span>
-                      )}
-                    </div>
-                    {quoteReviewResponse ? (
-                      <div className="rounded-lg border border-white/10 bg-black/20 p-2.5 text-[10px] text-white/75 whitespace-pre-wrap max-h-[260px] overflow-y-auto">
-                        {quoteReviewResponse}
-                      </div>
-                    ) : (
-                      <div className="text-[9px] text-white/40">
-                        Run “Quote-level review” to show Lex’s notes.
-                      </div>
-                    )}
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      {selectedResume.analysisResults.resumeQuotes?.length ? (
-                        <button
-                          onClick={handleJumpToScoredQuotes}
-                          className="text-[9px] text-[#FFD37A] hover:text-white transition"
-                        >
-                          View scored quote-level priorities
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-
                   {ruleIssues.length > 0 && (
                     <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3">
                       <div className="flex items-center justify-between mb-2">
                         <div>
-                          <h3 className="text-[11px] font-semibold text-white">
+                          <h3 className="engine-text-detail text-[11px] font-semibold text-white">
                             Resume-wide issues
                           </h3>
-                          <p className="text-[9px] text-white/40">
+                          <p className="engine-text-detail text-[9px] text-white/40">
                             Global structure, ATS, and clarity problems detected
                           </p>
                         </div>
-                        <span className="text-[9px] text-white/40">
-                          {ruleIssues.length} issues
-                        </span>
-                      </div>
-                      <div className="text-[9px] text-white/50 mb-2">
-                        Penalties applied: -{rulePenalty} (High {rulePenaltyBreakdown.high}, Medium {rulePenaltyBreakdown.medium}, Low {rulePenaltyBreakdown.low})
-                      </div>
-                      <div className="space-y-2 max-h-[260px] overflow-y-auto">
-                        {ruleIssues.map((issue, index) => (
-                          <div
-                            key={index}
-                            className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.06]"
+                        <div className="flex items-center gap-3">
+                          <span className="engine-text-detail text-[9px] text-white/40">
+                            {ruleIssues.length} issues
+                          </span>
+                          <button
+                            onClick={() => setIssuesOpen((prev) => !prev)}
+                            className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-white/75 hover:bg-white/10 hover:text-white transition"
                           >
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <div className="text-[10px] text-white/80 font-medium">
-                                {issue.issue}
-                              </div>
-                              <span
-                                className={`text-[8px] px-1.5 py-0.5 rounded ${
-                                  issue.severity === "high"
-                                    ? "bg-red-500/20 text-red-300"
-                                    : issue.severity === "medium"
-                                    ? "bg-amber-500/20 text-amber-300"
-                                    : "bg-slate-500/20 text-slate-300"
-                                }`}
+                            <span className="text-[11px]">{issuesOpen ? "▾" : "▸"}</span>
+                            {issuesOpen ? "Collapse" : "Expand"}
+                          </button>
+                        </div>
+                      </div>
+                      {issuesOpen && (
+                        <>
+                          <div className="engine-text-detail text-[9px] text-white/50 mb-2">
+                            Penalties applied: -{rulePenalty} (High {rulePenaltyBreakdown.high}, Medium {rulePenaltyBreakdown.medium}, Low {rulePenaltyBreakdown.low})
+                          </div>
+                          <div className="space-y-2 max-h-[260px] overflow-y-auto">
+                            {ruleIssues.map((issue, index) => (
+                              <div
+                                key={index}
+                                className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.06]"
                               >
-                                {issue.severity.toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-[8px] text-white/40 mb-1">
-                              <span>{issue.category.toUpperCase()} · GLOBAL ISSUE</span>
-                            </div>
-                            {issue.evidence && (
-                              <div className="text-[9px] text-white/60 mb-1">
-                                {issue.evidence}
+                                <div className="flex items-center justify-between gap-2 mb-1">
+                                <div className="engine-text-detail text-[10px] text-white/80 font-medium">
+                                  {issue.issue}
+                                </div>
+                                  <span
+                                    className={`text-[8px] px-1.5 py-0.5 rounded ${
+                                      issue.severity === "high"
+                                        ? "bg-red-500/20 text-red-300"
+                                        : issue.severity === "medium"
+                                        ? "bg-amber-500/20 text-amber-300"
+                                        : "bg-slate-500/20 text-slate-300"
+                                    }`}
+                                  >
+                                    {issue.severity.toUpperCase()}
+                                  </span>
+                                </div>
+                                <div className="engine-text-detail flex items-center justify-between text-[8px] text-white/40 mb-1">
+                                  <span>{issue.category.toUpperCase()} · GLOBAL ISSUE</span>
+                                </div>
+                                {issue.evidence && (
+                                  <div className="engine-text-detail text-[9px] text-white/60 mb-1">
+                                    {issue.evidence}
+                                  </div>
+                                )}
+                                {issue.recommendation && (
+                                  <div className="engine-text-detail text-[9px] text-white/70">
+                                    {issue.recommendation}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            {issue.recommendation && (
-                              <div className="text-[9px] text-white/70">
-                                {issue.recommendation}
-                              </div>
-                            )}
+                            ))}
                           </div>
-                        ))}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <button
-                          onClick={handleExplainResumeWideIssues}
-                          className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition"
-                        >
-                          Explain issues
-                        </button>
-                        <button
-                          onClick={handleFixResumeWideIssues}
-                          className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition"
-                        >
-                          Fix issues
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {reviewSource === 'recruiter' && appliedSuggestions.length > 0 && (
-                    <div className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3">
-                      <div className="text-[11px] uppercase tracking-wider text-white/40 mb-2">
-                        Recruiter Review Changes (Lex Suggestions)
-                      </div>
-                      <div className="space-y-2 max-h-[220px] overflow-y-auto">
-                        {appliedSuggestions.map((suggestion) => (
-                          <div
-                            key={suggestion.id}
-                            className="rounded-lg border border-white/10 bg-black/20 p-2 text-[11px]"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-white/80">Before → After</div>
-                              <label className="flex items-center gap-2 text-white/60 text-[10px]">
-                                <input
-                                  type="checkbox"
-                                  checked={suggestion.accepted}
-                                  onChange={(e) => handleToggleSuggestion(suggestion.id, e.target.checked)}
-                                />
-                                Accept
-                              </label>
-                            </div>
-                            <div className="mt-1 text-white/50">
-                              <div className="line-clamp-2">Before: {suggestion.before}</div>
-                              <div className="line-clamp-2">After: {suggestion.after}</div>
-                            </div>
-                            {!suggestion.applied && suggestion.accepted && (
-                              <div className="mt-1 text-[10px] text-yellow-300">
-                                Could not auto-apply. You can paste this change manually.
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                        </>
+                      )}
                     </div>
                   )}
 
                   {selectedResume.analysisResults.resumeQuotes && (
                     <div
                       id="scored-quote-priorities"
-                      className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3"
+                      className="engine-card engine-text-large bg-white/[0.02] border border-white/[0.08] rounded-xl p-3"
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div>
-                          <h3 className="text-[11px] font-semibold text-white">
-                            Quote-level priorities (Scored · Source of Truth)
+                          <h3 className="engine-text-detail text-[11px] font-semibold text-white">
+                            Engine line-level fixes (Scored)
                           </h3>
-                          <p className="text-[9px] text-white/40">
-                            Directly tied to score deductions.
+                          <p className="engine-text-detail text-[9px] text-white/40">
+                            Generated by the scoring engine. These issues directly impact your score.
                           </p>
                         </div>
-                        <span className="text-[9px] text-white/40">
-                          {selectedResume.analysisResults.resumeQuotes.length} items
-                        </span>
-                      </div>
-                      <div className="space-y-2 max-h-[260px] overflow-y-auto">
-                        {selectedResume.analysisResults.resumeQuotes.map((quote, index) => (
-                          <div
-                            key={`${quote.issue}-${index}`}
-                            className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.06]"
+                        <div className="flex items-center gap-3">
+                          <span className="engine-text-detail text-[9px] text-white/40">
+                            {selectedResume.analysisResults.resumeQuotes.length} items
+                          </span>
+                          <button
+                            onClick={() => setLineFixesOpen((prev) => !prev)}
+                            className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-white/75 hover:bg-white/10 hover:text-white transition"
                           >
-                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <div className="text-[10px] text-white/80 font-medium">
-                                {index + 1}) {quote.issue}
-                              </div>
-                              <span className="text-[8px] px-1.5 py-0.5 rounded bg-[#9333EA]/20 text-[#9333EA]">
-                                {quote.category.replace(/_/g, " ").toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="text-[9px] text-white/60 mb-1">
-                              Original: {quote.originalText}
-                            </div>
-                            <div className="text-[9px] text-white/70">
-                              Rewrite: {quote.suggestedImprovement}
-                            </div>
-                          </div>
-                        ))}
+                            <span className="text-[11px]">{lineFixesOpen ? "▾" : "▸"}</span>
+                            {lineFixesOpen ? "Collapse" : "Expand"}
+                          </button>
+                        </div>
                       </div>
+                      {lineFixesOpen && (
+                        <div className="space-y-2 max-h-[260px] overflow-y-auto">
+                          {selectedResume.analysisResults.resumeQuotes.map((quote, index) => (
+                            <div
+                              key={`${quote.issue}-${index}`}
+                              className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.06]"
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <div className="engine-text-detail text-[10px] text-white/80 font-medium">
+                                  {index + 1}) {quote.issue}
+                                </div>
+                                <span className="text-[8px] px-1.5 py-0.5 rounded bg-[#9333EA]/20 text-[#9333EA]">
+                                  {quote.category.replace(/_/g, " ").toUpperCase()}
+                                </span>
+                              </div>
+                              {quote.context && (
+                                <div className="engine-text-detail text-[9px] text-white/40 mb-1">
+                                  Context: {quote.context}
+                                </div>
+                              )}
+                              <div className="engine-text-detail text-[9px] text-white/60 mb-1">
+                                Current line: {quote.originalText}
+                              </div>
+                              <div className="engine-text-detail text-[9px] text-white/70">
+                                Fix: {quote.suggestedImprovement}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
                   {/* Recommendations */}
                   <div
-                    className="bg-white/[0.02] border border-white/[0.08] rounded-xl p-3"
+                    className="engine-card engine-text-large bg-white/[0.02] border border-white/[0.08] rounded-xl p-3"
                   >
-                    <h3 className="text-[11px] font-semibold text-white mb-2">
-                       Priority fixes (Scored)
-                    </h3>
-                    <p className="text-[9px] text-white/40 mb-2">
-                      Scored recommendations from the analysis engine.
-                    </p>
-                    <div className="space-y-2">
-                      {selectedResume.analysisResults.recommendations
-                        .slice(0, 3)
-                        .map((rec, index) => (
-                          <div
-                            key={index}
-                            className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.06]"
-                          >
-                            <div className="flex items-start gap-2">
-                              <span
-                                className={`w-5 h-5 rounded-full text-[9px] flex items-center justify-center font-bold flex-shrink-0 ${
-                                  rec.priority === "high"
-                                    ? "bg-red-500/20 text-red-300"
-                                    : rec.priority === "medium"
-                                    ? "bg-[#9333EA]/20 text-[#9333EA]"
-                                    : "bg-blue-500/20 text-blue-300"
-                                }`}
-                              >
-                                {index + 1}
-                              </span>
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-white text-[10px] font-medium">
-                                  {rec.issue}
-                                </h4>
-                                <p className="text-[9px] text-white/50 mt-0.5 line-clamp-2">
-                                  {rec.solution}
-                                </p>
-                              </div>
-                              <span
-                                className={`text-[8px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${
-                                  rec.priority === "high"
-                                    ? "bg-red-500/20 text-red-300"
-                                    : rec.priority === "medium"
-                                    ? "bg-[#9333EA]/20 text-[#9333EA]"
-                                    : "bg-blue-500/20 text-blue-300"
-                                }`}
-                              >
-                                {rec.priority.toUpperCase()}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                          <h3 className="engine-text-detail text-[11px] font-semibold text-white">
+                           Priority fixes (Scored)
+                        </h3>
+                        <p className="engine-text-detail text-[9px] text-white/40">
+                          Scored recommendations from the analysis engine.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setPriorityFixesOpen((prev) => !prev)}
+                        className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-white/75 hover:bg-white/10 hover:text-white transition"
+                      >
+                        <span className="text-[11px]">{priorityFixesOpen ? "▾" : "▸"}</span>
+                        {priorityFixesOpen ? "Collapse" : "Expand"}
+                      </button>
                     </div>
+                    {priorityFixesOpen && (
+                      <div className="space-y-2">
+                        {selectedResume.analysisResults.recommendations
+                          .slice(0, 3)
+                          .map((rec, index) => (
+                            <div
+                              key={index}
+                              className="bg-white/[0.02] rounded-lg p-2 border border-white/[0.06]"
+                            >
+                              <div className="flex items-start gap-2">
+                                <span
+                                  className={`w-5 h-5 rounded-full text-[9px] flex items-center justify-center font-bold flex-shrink-0 ${
+                                    rec.priority === "high"
+                                      ? "bg-red-500/20 text-red-300"
+                                      : rec.priority === "medium"
+                                      ? "bg-[#9333EA]/20 text-[#9333EA]"
+                                      : "bg-blue-500/20 text-blue-300"
+                                  }`}
+                                >
+                                  {index + 1}
+                                </span>
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="engine-text-detail text-white text-[10px] font-medium">
+                                    {rec.issue}
+                                  </h4>
+                                  <p className="engine-text-detail text-[9px] text-white/50 mt-0.5 line-clamp-2">
+                                    {rec.solution}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`text-[8px] px-1.5 py-0.5 rounded font-semibold flex-shrink-0 ${
+                                    rec.priority === "high"
+                                      ? "bg-red-500/20 text-red-300"
+                                      : rec.priority === "medium"
+                                      ? "bg-[#9333EA]/20 text-[#9333EA]"
+                                      : "bg-blue-500/20 text-blue-300"
+                                  }`}
+                                >
+                                  {rec.priority.toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 </>
               ) : selectedResume.analysisStatus === "analyzing" ? (
@@ -1657,7 +1382,7 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                     Analyzing your resume...
                   </h3>
                   <p className="text-white/50 text-[11px] mt-1">
-                    Lex is reading line-by-line
+                    Scoring engine is reading line-by-line
                   </p>
                 </div>
               ) : (
@@ -1671,7 +1396,7 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                   </p>
                   <button
                     onClick={() => reAnalyzeResume(selectedResume.id)}
-                    className="bg-[#9333EA] hover:bg-violet-600 text-white px-4 py-2 rounded-lg text-[11px] font-semibold"
+                    className="bg-[#F97316] hover:bg-[#FB923C] text-white px-4 py-2 rounded-lg text-[11px] font-semibold"
                   >
                      Analyze resume
                   </button>
@@ -1687,9 +1412,9 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
               <p className="text-white/50 text-[11px] mt-2 max-w-md mx-auto">
                 Upload a resume to get{" "}
                 <span className="text-[#9333EA]">
-                  score, HR perspective, and quote-level feedback
+                  score, HR perspective, and line-level fixes
                 </span>{" "}
-                from Lex.
+                from the scoring engine.
               </p>
             </div>
           )}

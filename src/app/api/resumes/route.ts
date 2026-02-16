@@ -6,6 +6,7 @@ import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import mammoth from 'mammoth';
 import ContentAwareEducationalScoringEngine from '../../../lib/educational-scoring-engine';
+import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
 
 const scoringEngine = new ContentAwareEducationalScoringEngine();
 
@@ -233,6 +234,48 @@ export async function POST(request: NextRequest) {
 
       if (insertError || !newResume) {
         return Errors.databaseError(insertError?.message || 'Insert failed');
+      }
+
+      // Mirror Mode: Learn + archive user-authored resume in career chamber
+      try {
+        await ingestStudioWriting({
+          supabase,
+          userId,
+          sourceStudio: 'career',
+          text: cleanedContent,
+          sessionId: newResume.id,
+          context: 'resume_manager_upload',
+          fileName: file.name,
+          mimeType: file.type || 'text/plain',
+          fileSize: file.size,
+          writingType: 'professional',
+          registerInArchive: true,
+        });
+      } catch (e) {
+        // Silent fail - capture shouldn't break upload
+      }
+
+      // Mirror Mode: Register lineage (best effort)
+      try {
+        await supabase
+          .from('document_lineage')
+          .insert({
+            user_id: userId,
+            original_document_id: newResume.id,
+            studio_origin: 'career',
+            current_version_id: newResume.id,
+            version_history: [
+              {
+                version_type: 'original',
+                document_id: newResume.id,
+                source_studio: 'career',
+                document_type: 'resume',
+                created_at: new Date().toISOString(),
+              },
+            ],
+          });
+      } catch (e) {
+        // Silent fail - lineage shouldn't block upload
       }
 
       return NextResponse.json({

@@ -19,9 +19,17 @@ interface DocumentListProps {
   documents: MirrorDocument[];
   onDelete: (documentId: string) => Promise<void>;
   isLoading?: boolean;
+  title?: string;
+  showHeader?: boolean;
 }
 
-export default function DocumentList({ documents, onDelete, isLoading = false }: DocumentListProps) {
+export default function DocumentList({
+  documents,
+  onDelete,
+  isLoading = false,
+  title = 'Your Writing Samples',
+  showHeader = true,
+}: DocumentListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -128,36 +136,38 @@ export default function DocumentList({ documents, onDelete, isLoading = false }:
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '0.5rem',
-        }}
-      >
-        <h3
+      {showHeader && (
+        <div
           style={{
-            margin: 0,
-            fontSize: '1rem',
-            color: '#f0f0f5',
-            fontWeight: 500,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '0.5rem',
           }}
         >
-          Your Writing Samples
-        </h3>
-        <span
-          style={{
-            fontSize: '0.75rem',
-            color: 'rgba(240, 240, 245, 0.5)',
-            background: 'rgba(255, 255, 255, 0.05)',
-            padding: '0.25rem 0.75rem',
-            borderRadius: '1rem',
-          }}
-        >
-          {documents.length} {documents.length === 1 ? 'document' : 'documents'}
-        </span>
-      </div>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: '1rem',
+              color: '#f0f0f5',
+              fontWeight: 500,
+            }}
+          >
+            {title}
+          </h3>
+          <span
+            style={{
+              fontSize: '0.75rem',
+              color: 'rgba(240, 240, 245, 0.5)',
+              background: 'rgba(255, 255, 255, 0.05)',
+              padding: '0.25rem 0.75rem',
+              borderRadius: '1rem',
+            }}
+          >
+            {documents.length} {documents.length === 1 ? 'document' : 'documents'}
+          </span>
+        </div>
+      )}
 
       {documents.map((doc) => (
         <div

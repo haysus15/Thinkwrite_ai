@@ -4,6 +4,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
 import { getConfidenceLabel } from "@/lib/mirror-mode/voiceAggregation";
+import { getGatekeeperContext } from "@/services/voice-profile/gatekeeper";
 
 // ============================================================================
 // TYPES
@@ -48,9 +49,28 @@ export interface VoiceGenerationContext {
   
   // Pre-built prompt injection for Claude/OpenAI
   promptInjection: string;
+  gatekeeper?: {
+    sufficientData: boolean;
+    warnings: string[];
+    counts: {
+      primary: number;
+      general: number;
+      combined: number;
+    };
+    thresholds: {
+      combinedMin: number;
+    };
+  } | null;
 }
 
 export type StudioType = 'career' | 'academic' | 'creative';
+type Chamber = 'career' | 'academic' | 'creative' | 'general' | 'overall';
+
+const STUDIO_TO_CHAMBER: Record<StudioType, Chamber> = {
+  career: 'career',
+  academic: 'academic',
+  creative: 'creative',
+};
 
 // ============================================================================
 // CONFIDENCE TIERS
@@ -337,7 +357,8 @@ export class VoiceProfileService {
     userId: string,
     studioType: StudioType
   ): Promise<VoiceGenerationContext> {
-    const profile = await this.getProfile(userId);
+    const gatekeeper = await getGatekeeperContext(userId, studioType, [studioType, "general", "overall"]);
+    const profile = await this.getChamberedProfile(userId, studioType);
     const readiness = assessVoiceReadiness(profile);
     const promptInjection = buildPromptInjection(profile, readiness, studioType);
 
@@ -346,6 +367,52 @@ export class VoiceProfileService {
       readiness,
       profile,
       promptInjection,
+      gatekeeper: gatekeeper
+        ? {
+            sufficientData: gatekeeper.sufficientData,
+            warnings: gatekeeper.warnings,
+            counts: gatekeeper.counts,
+            thresholds: gatekeeper.thresholds,
+          }
+        : null,
+    };
+  }
+
+  /**
+   * Get chamber-specific profile for a studio (primary + general + overall DNA)
+   * Falls back to legacy overall profile if chambers are unavailable.
+   */
+  private static async getChamberedProfile(
+    userId: string,
+    studioType: StudioType
+  ): Promise<VoiceProfileFull | null> {
+    const gatekeeper = await getGatekeeperContext(userId, studioType);
+    if (!gatekeeper) {
+      // Fallback to legacy overall profile
+      return this.getProfile(userId);
+    }
+
+    const { primaryChamber, primary, overall, general } = gatekeeper;
+
+    const chosen = primary || overall || general;
+    if (!chosen) return this.getProfile(userId);
+
+    const fingerprint = chosen.aggregate_fingerprint as VoiceFingerprint;
+
+    return {
+      userId: chosen.user_id,
+      profileId: `${chosen.user_id}:${chosen.chamber}`,
+      confidenceLevel: chosen.confidence_level || 0,
+      confidenceLabel: getConfidenceLabel(chosen.confidence_level || 0),
+      documentCount: chosen.document_count || 0,
+      totalWordCount: chosen.total_word_count || 0,
+      lastTrainedAt: chosen.last_trained_at,
+      createdAt: chosen.created_at || new Date().toISOString(),
+      updatedAt: chosen.updated_at || new Date().toISOString(),
+      fingerprint,
+      voiceDescription: describeVoice(fingerprint),
+      voiceSummary: buildVoiceSummary(fingerprint),
+      evolutionHistory: chosen.evolution_history || [],
     };
   }
 

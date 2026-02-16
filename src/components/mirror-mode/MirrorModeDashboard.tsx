@@ -1,20 +1,13 @@
-// src/components/mirror-mode/MirrorModeDashboard.tsx
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useVoiceStatus } from '@/hooks/useVoiceStatus';
-import WritingTypeSelector from './WritingTypeSelector';
-import { type WritingType } from '@/lib/mirror-mode/writingTypes';
-import DocumentList, { MirrorDocument } from './DocumentList';
-import ResetVoice from './ResetVoice';
-import ModernVoiceGenerator from './ModernVoiceGenerator';
-import LiveLearningFeed from './LiveLearningFeed';
-import VoiceEvolutionTimeline from './VoiceEvolutionTimeline';
-import DocumentDetailModal from './DocumentDetailModal';
-import OnboardingTour from './OnboardingTour';
 import dynamic from 'next/dynamic';
+import { useVoiceStatus } from '@/hooks/useVoiceStatus';
+import { type WritingType, mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
+import DocumentDetailModal from './DocumentDetailModal';
 import styles from './MirrorModeDashboard.module.css';
 
 const CosmicParticleBackground = dynamic(
@@ -26,42 +19,107 @@ type Props = {
   userId: string;
 };
 
+type ChamberKey = 'career' | 'academic' | 'creative' | 'general';
+type TabKey = 'identity' | 'archive' | 'ursie' | 'upload';
+
+type MirrorDocument = {
+  id: string;
+  filename: string;
+  writing_type: string;
+  word_count: number;
+  file_size: number;
+  uploaded_at: string;
+  analyzed: boolean;
+};
+
 type UploadSuccessData = {
-  fileName: string;
-  confidenceGain: number;
-  confidenceLevel: number;
+  chamber: ChamberKey;
   isFirstDocument: boolean;
 };
 
+type UrsieMessage = {
+  id: string;
+  sender: 'user' | 'ursie';
+  message: string;
+};
+
+type ChamberSummary = {
+  confidenceLabel: string;
+  confidenceLevel: number;
+  documentCount: number;
+  lastTrainedAt: string | null;
+  updatedAt: string | null;
+};
+
+type TimelineEvent = {
+  id: string;
+  type: 'milestone' | 'insight' | 'observation';
+  date: string;
+  rawTimestamp: string;
+  text: string;
+  documentName?: string;
+  chamber?: ChamberKey;
+  writingType?: string;
+  findings?: string[];
+};
+
+const chamberOrder: Array<{
+  key: ChamberKey;
+  label: string;
+  description: string;
+  writingType: WritingType;
+  colorVar: '--career' | '--academic' | '--creative' | '--general';
+}> = [
+  { key: 'career', label: 'Career', description: 'Professional voice', writingType: 'professional', colorVar: '--career' },
+  { key: 'academic', label: 'Academic', description: 'Analytical voice', writingType: 'academic', colorVar: '--academic' },
+  { key: 'creative', label: 'Creative', description: 'Imaginative voice', writingType: 'creative', colorVar: '--creative' },
+  { key: 'general', label: 'General', description: 'Everyday voice', writingType: 'general', colorVar: '--general' },
+];
+
+const tabItems: Array<{ key: TabKey; label: string }> = [
+  { key: 'identity', label: 'Identity' },
+  { key: 'archive', label: 'Archive' },
+  { key: 'ursie', label: 'Ursie' },
+  { key: 'upload', label: 'Upload' },
+];
+
 export default function MirrorModeDashboard({ userId }: Props) {
+  void userId;
+
   const { status, loading, error, refetch } = useVoiceStatus();
   const router = useRouter();
+
+  const [activeTab, setActiveTab] = useState<TabKey>('identity');
+  const [openArchiveChamber, setOpenArchiveChamber] = useState<ChamberKey | null>('career');
+  const [timelineOpen, setTimelineOpen] = useState(false);
+
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<UploadSuccessData | null>(null);
-  const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
-  const [resetSuccess, setResetSuccess] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [writingType, setWritingType] = useState<WritingType>('professional');
+  const [selectedUploadChamber, setSelectedUploadChamber] = useState<ChamberKey>('general');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
   const [showDocumentDetail, setShowDocumentDetail] = useState(false);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
 
-  const [selectedHub, setSelectedHub] = useState<'train' | 'generate' | 'samples' | null>(null);
+  const [floatingUrsieOpen, setFloatingUrsieOpen] = useState(false);
 
-  const [ursieMessages, setUrsieMessages] = useState<Array<{ id: string; sender: 'user' | 'ursie'; message: string; createdAt?: string }>>([]);
+  const [ursieMessages, setUrsieMessages] = useState<UrsieMessage[]>([]);
   const [ursieInput, setUrsieInput] = useState('');
   const [ursieThinking, setUrsieThinking] = useState(false);
   const [ursieSessionId, setUrsieSessionId] = useState<string | null>(null);
   const [ursieSavedCount, setUrsieSavedCount] = useState<number>(0);
   const [ursieIsSaved, setUrsieIsSaved] = useState<boolean>(false);
   const [ursieNotice, setUrsieNotice] = useState<string | null>(null);
-  const [ursieMemoryPromptEnabled, setUrsieMemoryPromptEnabled] = useState(true);
-  const [memoryCandidate, setMemoryCandidate] = useState('');
-  const [memoryPromptPending, setMemoryPromptPending] = useState(false);
-  const [memoryPromptNudge, setMemoryPromptNudge] = useState(false);
+  const [ursieObservations, setUrsieObservations] = useState<Array<{ id: string; text: string; type?: string; chamber?: string; createdAt?: string }>>([]);
   const [manualMemoryInput, setManualMemoryInput] = useState('');
-  const ursieChatRef = useRef<HTMLDivElement>(null);
+
+  const [epochs, setEpochs] = useState<Array<{ id: string; epoch_number: number | null; started_at: string; ended_at: string | null }>>([]);
+
+  const chatRefMain = useRef<HTMLDivElement>(null);
+  const chatRefFloating = useRef<HTMLDivElement>(null);
 
   const MAX_FILE_SIZE = 10 * 1024 * 1024;
   const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.txt'];
@@ -71,32 +129,208 @@ export default function MirrorModeDashboard({ userId }: Props) {
     'text/plain',
   ];
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  const overview = status?.overview;
+  const highlights = status?.voiceHighlights || [];
+  const chamberSummaries = status?.chamberSummaries || null;
+  const chamberWarnings = status?.chamberWarnings || [];
+  const recentUploads = status?.documents?.recentUploads || [];
+  const evolutionHistory = status?.evolutionHistory || [];
+
+  const documents: MirrorDocument[] = useMemo(
+    () => recentUploads.map((doc: any) => ({
+      id: doc.id,
+      filename: doc.fileName,
+      writing_type: doc.writingType || 'general',
+      word_count: doc.wordCount || 0,
+      file_size: doc.fileSize || 0,
+      uploaded_at: doc.uploadedAt || new Date().toISOString(),
+      analyzed: doc.learned || false,
+    })),
+    [recentUploads]
+  );
+
+  const chamberDocs = useMemo(() => {
+    const seed: Record<ChamberKey, MirrorDocument[]> = {
+      career: [],
+      academic: [],
+      creative: [],
+      general: [],
+    };
+
+    documents.forEach((doc) => {
+      const chamber = mapWritingTypeToChamber(doc.writing_type) as ChamberKey;
+      seed[chamber].push(doc);
+    });
+
+    (Object.keys(seed) as ChamberKey[]).forEach((chamber) => {
+      seed[chamber].sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime());
+    });
+
+    return seed;
+  }, [documents]);
+
+  const chamberDocCounts = useMemo(() => {
+    const counts: Record<ChamberKey, number> = {
+      career: 0,
+      academic: 0,
+      creative: 0,
+      general: 0,
+    };
+
+    chamberOrder.forEach((chamber) => {
+      counts[chamber.key] = chamberDocs[chamber.key].length;
+    });
+
+    return counts;
+  }, [chamberDocs]);
+
+  const profileSampleCount = overview?.documentCount || 0;
+  const documentCount = status?.documents?.total || 0;
+  const chamberSignalCounts = useMemo(() => {
+    const counts: Record<ChamberKey, number> = {
+      career: 0,
+      academic: 0,
+      creative: 0,
+      general: 0,
+    };
+
+    chamberOrder.forEach((chamber) => {
+      const summaryCount = (chamberSummaries?.[chamber.key as keyof typeof chamberSummaries] as ChamberSummary | null)?.documentCount || 0;
+      counts[chamber.key] = Math.max(summaryCount - chamberDocCounts[chamber.key], 0);
+    });
+
+    return counts;
+  }, [chamberDocCounts, chamberSummaries]);
+  const learnedSignalCount = Math.max(profileSampleCount - documentCount, 0);
+  const rawChamberCount = chamberOrder.filter((c) => (chamberDocCounts[c.key] + chamberSignalCounts[c.key]) > 0).length;
+  const chamberCount = (documentCount + learnedSignalCount) > 0 && rawChamberCount === 0 ? 1 : rawChamberCount;
+  const totalWordCount = overview?.totalWordCount || 0;
+
+  const formatDate = (value: string): string => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown date';
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  const formatDateLong = (value: string): string => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unknown date';
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const formatWordsK = (value: number): string => {
+    if (!value) return '0';
+    if (value < 1000) return `${value}`;
+    return `${(value / 1000).toFixed(1)}k`;
+  };
+
+  const formatRelative = (value?: string): string => {
+    if (!value) return 'Now';
+    const time = new Date(value).getTime();
+    if (Number.isNaN(time)) return 'Recent';
+    const diff = Date.now() - time;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
+
+  const describeChange = (change: string): string => {
+    const map: Record<string, string> = {
+      'initial-profile-created': 'First profile established',
+      'minor-refinement': 'Minor voice refinement',
+      'formality-shift': 'Formality shifted',
+      'sentence-length-shift': 'Sentence length changed',
+      'vocabulary-complexity-shift': 'Vocabulary complexity moved',
+      'hedge-density-shift': 'Hedging pattern changed',
+      'punctuation-rhythm-shift': 'Punctuation rhythm changed',
+      'voice-variation-shift': 'Voice variation changed',
+    };
+    return map[change] || change.replace(/-/g, ' ');
+  };
+
+  const getConfidenceLabel = (confidence: number, docsInChamber: number): 'Learning' | 'Developing' | 'Confident' | 'Mastered' | 'Empty' => {
+    if (docsInChamber === 0) return 'Empty';
+    if (confidence < 25) return 'Learning';
+    if (confidence < 45) return 'Developing';
+    if (confidence < 70) return 'Confident';
+    return 'Mastered';
+  };
+
+  const getIdentityOneLiner = (): string => {
+    const assessedSamples = Math.max(profileSampleCount, documentCount);
+    if (assessedSamples === 0) return "I don't know your voice yet. Show me how you write.";
+    if (assessedSamples < 3) return 'I am starting to hear your patterns. Give me a little more range.';
+    if (chamberCount < 2) {
+      const primary = chamberOrder.find((c) => (chamberDocCounts[c.key] + chamberSignalCounts[c.key]) > 0)?.label.toLowerCase() || 'current';
+      return `Your ${primary} voice is forming. I still need your other sides.`;
+    }
+    if (assessedSamples < 6) return 'I can hear your rhythm. Now we sharpen consistency across chambers.';
+
+    const ranked = chamberOrder
+      .map((c) => ({
+        key: c.key,
+        label: c.label,
+        count: chamberDocCounts[c.key] + chamberSignalCounts[c.key],
+        confidence: ((chamberSummaries?.[c.key as keyof typeof chamberSummaries] as ChamberSummary | null)?.confidenceLevel || 0),
+      }))
+      .sort((a, b) => b.confidence - a.confidence || b.count - a.count);
+
+    const strongest = ranked.find((r) => r.count > 0);
+    const weakest = ranked.filter((r) => r.count > 0).slice(-1)[0];
+    const empty = ranked.find((r) => r.count === 0);
+
+    if (empty) return `I know your voice in parts. ${empty.label} is still waiting.`;
+    if (strongest && weakest && strongest.key !== weakest.key) {
+      return `I know your voice. ${strongest.label} is strongest. ${weakest.label} needs more depth.`;
+    }
+    return 'Your archive is coherent. I can track shifts between contexts.';
+  };
+
+  const getVarietyNudge = (): string => {
+    const assessedSamples = Math.max(profileSampleCount, documentCount);
+    if (assessedSamples === 0) return 'Start anywhere. Show me how you write.';
+    if (assessedSamples < 3) return 'One more sample will make your profile steadier.';
+    if (chamberCount < 2) {
+      const only = chamberOrder.find((c) => (chamberDocCounts[c.key] + chamberSignalCounts[c.key]) > 0)?.label.toLowerCase() || 'current';
+      return `You are concentrated in ${only}. Add a different chamber for balance.`;
+    }
+    if (chamberCount < 4) return 'Strong momentum. Add your missing chambers to round out your voice.';
+    return 'Good range. Keep feeding each chamber so your voice stays sharp.';
   };
 
   const validateFile = (file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
-      return `File too large (${formatFileSize(file.size)}). Maximum size is 10MB.`;
+      const mb = (file.size / (1024 * 1024)).toFixed(2);
+      return `File too large (${mb}MB). Maximum size is 10MB.`;
     }
+
     const fileExtension = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
     if (!ALLOWED_TYPES.includes(file.type) && !ALLOWED_EXTENSIONS.includes(fileExtension)) {
       return 'Invalid file type. Only PDF, DOCX, and TXT files are allowed.';
     }
+
     return null;
   };
 
   const handleUpload = useCallback(async (file: File) => {
     setUploadError(null);
     setUploadSuccess(null);
+
     const validationError = validateFile(file);
     if (validationError) {
       setUploadError(validationError);
       return;
     }
+
+    const selected = chamberOrder.find((c) => c.key === selectedUploadChamber);
+    const writingType = selected?.writingType || 'general';
+
     setUploading(true);
+
     const formData = new FormData();
     formData.append('file', file);
     formData.append('writingType', writingType);
@@ -107,65 +341,32 @@ export default function MirrorModeDashboard({ userId }: Props) {
         body: formData,
       });
       const data = await res.json();
-      if (data.success) {
-        if (data.learning?.learned) {
-          setUploadSuccess({
-            fileName: file.name,
-            confidenceGain: data.learning.confidenceGain || 0,
-            confidenceLevel: data.learning.confidenceLevel || 0,
-            isFirstDocument: data.learning.isFirstDocument || false,
-          });
-        }
-        refetch();
-        setTimeout(() => setUploadSuccess(null), 5000);
-      } else {
-        setUploadError(data.error || 'Upload failed');
-      }
+      if (!data.success) throw new Error(data.error || 'Upload failed');
+
+      setUploadSuccess({
+        chamber: selectedUploadChamber,
+        isFirstDocument: Boolean(data.learning?.isFirstDocument),
+      });
+      refetch();
+      window.setTimeout(() => setUploadSuccess(null), 5000);
     } catch (err: any) {
-      setUploadError(err.message || 'Network error');
+      setUploadError(err.message || 'Upload failed');
     } finally {
       setUploading(false);
     }
-  }, [userId, writingType, refetch]);
-
-  const handleDeleteDocument = useCallback(async (documentId: string) => {
-    try {
-      const res = await fetch(`/api/mirror-mode/document/${encodeURIComponent(documentId)}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Delete failed');
-      setDeleteSuccess('Document deleted successfully');
-      setTimeout(() => setDeleteSuccess(null), 3000);
-      refetch();
-    } catch (err: any) {
-      console.error('Delete error:', err);
-      throw err;
-    }
-  }, [refetch]);
-
-  const handleResetVoice = useCallback(async () => {
-    try {
-      const res = await fetch('/api/mirror-mode/reset', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Reset failed');
-      setResetSuccess(true);
-      setTimeout(() => setResetSuccess(false), 3000);
-      refetch();
-    } catch (err: any) {
-      console.error('Reset error:', err);
-      throw err;
-    }
-  }, [refetch]);
+  }, [refetch, selectedUploadChamber]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleUpload(file);
+    e.currentTarget.value = '';
   };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.type === 'dragenter' || e.type === 'dragover') setDragActive(true);
-    else if (e.type === 'dragleave') setDragActive(false);
+    if (e.type === 'dragleave') setDragActive(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -176,154 +377,152 @@ export default function MirrorModeDashboard({ userId }: Props) {
     if (file) handleUpload(file);
   };
 
-  const getVarietyNudge = (documents: MirrorDocument[]): string | null => {
-    if (documents.length < 3) return null;
-    const typeCounts = documents.reduce((acc, d) => {
-      const type = d.writing_type || 'other';
-      acc[type] = (acc[type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
-    const types = Object.keys(typeCounts);
-    if (types.length >= 2) return null;
-    const dominantType = types[0];
-    const suggestions: Record<string, string> = {
-      professional: 'Try adding a creative or personal sample for variety',
-      academic: 'Try adding a professional email or casual post',
-      creative: 'Try adding a professional or academic piece',
-      personal: 'Try adding a professional or academic sample',
-      technical: 'Try adding a personal or creative sample',
-      other: 'Try adding different types of writing',
-    };
-    return suggestions[dominantType] || suggestions.other;
+  const handleDeleteDocument = useCallback(async (documentId: string) => {
+    setDeletingDocumentId(documentId);
+    try {
+      const res = await fetch(`/api/mirror-mode/document/${encodeURIComponent(documentId)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
+      refetch();
+    } catch (err: any) {
+      setUploadError(err?.message || 'Delete failed');
+    } finally {
+      setDeletingDocumentId(null);
+    }
+  }, [refetch]);
+
+  const handleResetVoice = useCallback(async () => {
+    try {
+      const res = await fetch('/api/mirror-mode/reset', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Reset failed');
+      setUrsieNotice('Started a fresh epoch.');
+      refetch();
+    } catch (err: any) {
+      setUrsieNotice(err?.message || 'Reset failed.');
+    }
+  }, [refetch]);
+
+  const handleChamberCardClick = (chamber: ChamberKey) => {
+    setActiveTab('archive');
+    setOpenArchiveChamber(chamber);
   };
 
-  const handleDocumentClick = useCallback((documentId: string) => {
-    setSelectedDocumentId(documentId);
-    setShowDocumentDetail(true);
+  useEffect(() => {
+    const savedTab = window.sessionStorage.getItem('mirror-mode-active-tab') as TabKey | null;
+    if (savedTab && tabItems.some((item) => item.key === savedTab)) {
+      setActiveTab(savedTab);
+    }
   }, []);
 
-  const overview = status?.overview;
-  const highlights = status?.voiceHighlights || [];
-  const recommendations = status?.recommendations || [];
-  const recentUploads = status?.documents?.recentUploads || [];
-  const evolutionHistory = status?.evolutionHistory || [];
-  const confidenceLevel = overview?.confidenceLevel || 0;
-  const isReady = confidenceLevel >= 45;
-  const isFirstTime = !overview?.hasProfile || (overview?.documentCount || 0) === 0;
-
-  const documents: MirrorDocument[] = recentUploads.map((doc: any) => ({
-    id: doc.id,
-    filename: doc.fileName,
-    writing_type: doc.writingType || 'general',
-    word_count: doc.wordCount || 0,
-    file_size: doc.fileSize || 0,
-    uploaded_at: doc.uploadedAt || new Date().toISOString(),
-    analyzed: doc.learned || false,
-  }));
-
-  const varietyNudge = getVarietyNudge(documents);
-  const hasVoiceData = Boolean(status?.voiceDescription || recommendations.length > 0);
-  const lastUserMessage = [...ursieMessages].reverse().find((m) => m.sender === 'user')?.message || '';
+  useEffect(() => {
+    window.sessionStorage.setItem('mirror-mode-active-tab', activeTab);
+    if (activeTab === 'ursie') {
+      setFloatingUrsieOpen(false);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     let isActive = true;
+
     const loadUrsie = async () => {
       try {
         const res = await fetch('/api/mirror-mode/ursie/chat', { cache: 'no-store' });
         const data = await res.json();
-        if (!isActive) return;
-        if (data?.success) {
-          setUrsieSessionId(data.sessionId || null);
-          const loaded = (data.messages || []).map((m: any) => ({
-            id: m.id,
-            sender: m.sender,
-            message: m.message,
-            createdAt: m.created_at,
-          }));
-          if (loaded.length === 0) {
-            setUrsieMessages([
-              {
-                id: `u-${Date.now()}-welcome`,
-                sender: 'ursie',
-                message: "State what you need. I’ll guide your voice work.",
-              },
-            ]);
-          } else {
-            setUrsieMessages(loaded);
-          }
-          setUrsieSavedCount(data.savedCount || 0);
-          setUrsieIsSaved(!!data.isSaved);
-          setUrsieMemoryPromptEnabled(data.memoryPromptEnabled !== false);
+        if (!isActive || !data?.success) return;
+
+        setUrsieSessionId(data.sessionId || null);
+        setUrsieSavedCount(data.savedCount || 0);
+        setUrsieIsSaved(Boolean(data.isSaved));
+
+        const loaded = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          sender: m.sender,
+          message: m.message,
+        }));
+
+        if (loaded.length === 0) {
+          setUrsieMessages([
+            {
+              id: 'ursie-default',
+              sender: 'ursie',
+              message: "I'm here. Ask me about your voice, your chambers, or what to upload next.",
+            },
+          ]);
+        } else {
+          setUrsieMessages(loaded);
         }
-      } catch (err) {
+      } catch {
         if (isActive) setUrsieNotice('Failed to load Ursie chat.');
       }
     };
+
+    const loadObservations = async () => {
+      try {
+        const res = await fetch('/api/mirror-mode/observations?limit=20', { cache: 'no-store' });
+        const data = await res.json();
+        if (!isActive || !data?.success) return;
+
+        setUrsieObservations((data.observations || []).map((o: any) => ({
+          id: o.id,
+          text: o.observation_text,
+          type: o.observation_type,
+          chamber: o.chamber,
+          createdAt: o.generated_at,
+        })));
+      } catch {
+        // Silent fail
+      }
+    };
+
+    const loadEpochs = async () => {
+      try {
+        const res = await fetch('/api/mirror-mode/epochs', { cache: 'no-store' });
+        const data = await res.json();
+        if (!isActive || !data?.success) return;
+
+        setEpochs((data.epochs || []).map((epoch: any) => ({
+          id: epoch.id,
+          epoch_number: epoch.epoch_number ?? null,
+          started_at: epoch.started_at,
+          ended_at: epoch.ended_at,
+        })));
+      } catch {
+        // Silent fail
+      }
+    };
+
     loadUrsie();
+    loadObservations();
+    loadEpochs();
+
     return () => {
       isActive = false;
     };
   }, []);
 
   useEffect(() => {
-    if (!ursieMemoryPromptEnabled || !memoryPromptPending) return;
-    setMemoryPromptNudge(false);
-    const timer = window.setTimeout(() => {
-      setMemoryPromptNudge(true);
-    }, 120000);
-    return () => window.clearTimeout(timer);
-  }, [ursieMemoryPromptEnabled, memoryPromptPending]);
+    if (chatRefMain.current) {
+      chatRefMain.current.scrollTop = chatRefMain.current.scrollHeight;
+    }
+    if (chatRefFloating.current) {
+      chatRefFloating.current.scrollTop = chatRefFloating.current.scrollHeight;
+    }
+  }, [ursieMessages, ursieThinking, floatingUrsieOpen]);
 
   useEffect(() => {
     if (!ursieNotice) return;
-    const timer = window.setTimeout(() => setUrsieNotice(null), 3000);
+    const timer = window.setTimeout(() => setUrsieNotice(null), 3200);
     return () => window.clearTimeout(timer);
   }, [ursieNotice]);
-
-  useEffect(() => {
-    if (!ursieChatRef.current) return;
-    ursieChatRef.current.scrollTop = ursieChatRef.current.scrollHeight;
-  }, [ursieMessages, ursieThinking]);
-
-  if (loading) {
-    return (
-      <div className={styles.dashboard}>
-        <CosmicParticleBackground starCount={2000} nebulaIntensity={0.15} driftSpeed={0.15} />
-        <div className={styles.loading}>
-          <div className={styles.spinner} />
-          <p>Loading your voice profile...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className={styles.dashboard}>
-        <CosmicParticleBackground starCount={2000} nebulaIntensity={0.15} driftSpeed={0.15} />
-        <div className={styles.error}>
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" style={{ marginBottom: '1rem' }}>
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <h3>Connection Error</h3>
-          <p>{error}</p>
-          <button onClick={refetch} className={styles.btnRetry}>Retry</button>
-        </div>
-      </div>
-    );
-  }
 
   const sendUrsieMessage = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || ursieThinking) return;
-    const userMsg = { id: `u-${Date.now()}`, sender: 'user' as const, message: trimmed };
-    setUrsieMessages((prev) => [...prev, userMsg]);
+
+    setUrsieMessages((prev) => [...prev, { id: `u-${Date.now()}`, sender: 'user', message: trimmed }]);
     setUrsieInput('');
     setUrsieThinking(true);
-    setMemoryPromptPending(false);
-    setMemoryPromptNudge(false);
 
     try {
       const res = await fetch('/api/mirror-mode/ursie/chat', {
@@ -331,60 +530,24 @@ export default function MirrorModeDashboard({ userId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed, sessionId: ursieSessionId }),
       });
+
       const data = await res.json();
-      if (!res.ok || !data?.success) {
-        throw new Error(data?.error || 'Ursie is unavailable');
-      }
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Ursie is unavailable');
+
       setUrsieSessionId(data.sessionId || ursieSessionId);
       setUrsieMessages((prev) => [
         ...prev,
         {
           id: `u-${Date.now()}-r`,
-          sender: 'ursie' as const,
-          message: data.reply || 'I’m here with you. Ask me about your voice or what to train next.',
+          sender: 'ursie',
+          message: data.reply || 'I am here. Ask what to train next.',
         },
       ]);
-      setMemoryCandidate(data.memoryCandidate || '');
-      setMemoryPromptPending(true);
     } catch (err: any) {
       setUrsieNotice(err?.message || 'Ursie had trouble responding.');
     } finally {
       setUrsieThinking(false);
     }
-  };
-
-  const handleSaveMemory = async (note: string) => {
-    if (!note.trim()) return;
-    try {
-      const res = await fetch('/api/mirror-mode/ursie/memory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: ursieSessionId, note }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to save memory');
-      setUrsieNotice('Memory saved.');
-      setMemoryPromptPending(false);
-      setMemoryCandidate('');
-      setManualMemoryInput('');
-    } catch (err: any) {
-      setUrsieNotice(err?.message || 'Failed to save memory.');
-    }
-  };
-
-  const handleDisableMemoryPrompts = async () => {
-    try {
-      await fetch('/api/mirror-mode/ursie/preferences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memoryPromptEnabled: false }),
-      });
-    } catch {
-      // ignore
-    }
-    setUrsieMemoryPromptEnabled(false);
-    setMemoryPromptPending(false);
-    setMemoryCandidate('');
   };
 
   const handleSaveChat = async () => {
@@ -397,8 +560,9 @@ export default function MirrorModeDashboard({ userId }: Props) {
       });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to save chat');
+
       setUrsieIsSaved(true);
-      setUrsieSavedCount((c) => Math.min(c + 1, 10));
+      setUrsieSavedCount((value) => Math.min(value + 1, 10));
       setUrsieNotice('Chat saved.');
     } catch (err: any) {
       setUrsieNotice(err?.message || 'Unable to save chat.');
@@ -410,308 +574,515 @@ export default function MirrorModeDashboard({ userId }: Props) {
       const res = await fetch('/api/mirror-mode/ursie/session', { method: 'POST' });
       const data = await res.json();
       if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to start new chat');
+
       setUrsieSessionId(data.sessionId || null);
       setUrsieMessages([]);
       setUrsieIsSaved(false);
-      setMemoryPromptPending(false);
-      setMemoryPromptNudge(false);
       setUrsieNotice('New chat started.');
     } catch (err: any) {
       setUrsieNotice(err?.message || 'Unable to start new chat.');
     }
   };
 
+  const handleSaveMemory = async () => {
+    const note = manualMemoryInput.trim();
+    if (!note) return;
+
+    try {
+      const res = await fetch('/api/mirror-mode/ursie/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: ursieSessionId, note }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Failed to save memory');
+
+      setManualMemoryInput('');
+      setUrsieNotice('Saved for Ursie.');
+    } catch (err: any) {
+      setUrsieNotice(err?.message || 'Failed to save memory.');
+    }
+  };
+
+  const evolutionEvents = useMemo<TimelineEvent[]>(() => {
+    const observationsByChamber: Partial<Record<ChamberKey, string>> = {};
+    ursieObservations.forEach((obs) => {
+      const chamber = obs.chamber as ChamberKey | undefined;
+      if (!chamber || observationsByChamber[chamber]) return;
+      observationsByChamber[chamber] = obs.text;
+    });
+
+    const fromArchive: TimelineEvent[] = [...documents]
+      .sort((a, b) => new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime())
+      .map((doc) => {
+        const chamber = mapWritingTypeToChamber(doc.writing_type) as ChamberKey;
+        const findings: string[] = [
+          `${doc.word_count || 0} words recorded`,
+          doc.analyzed ? 'Ursie learned from this entry' : 'Queued for learning',
+        ];
+        const chamberObservation = observationsByChamber[chamber];
+        if (chamberObservation) findings.unshift(chamberObservation);
+
+        return {
+          id: `archive-${doc.id}`,
+          type: 'milestone',
+          date: formatDate(doc.uploaded_at),
+          rawTimestamp: doc.uploaded_at,
+          text: `${doc.filename || 'Document'} archived in ${chamber} chamber.`,
+          documentName: doc.filename || 'Document',
+          chamber,
+          writingType: doc.writing_type || 'general',
+          findings: findings.slice(0, 3),
+        };
+      });
+
+    const fromLearning: TimelineEvent[] = [...evolutionHistory]
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+      .map((entry: any) => {
+        const chamber = mapWritingTypeToChamber(entry.writingType) as ChamberKey;
+        const findings = (entry.changesMade || []).slice(0, 3).map(describeChange);
+        const chamberObservation = observationsByChamber[chamber];
+        if (chamberObservation) findings.unshift(chamberObservation);
+
+        return {
+          id: `ev-${entry.documentId}-${entry.timestamp}`,
+          type: 'milestone',
+          date: formatDate(entry.timestamp),
+          rawTimestamp: entry.timestamp,
+          text: `${entry.documentName || 'Writing sample'} recorded in ${chamber} chamber learning log.`,
+          documentName: entry.documentName || 'Document',
+          chamber,
+          writingType: entry.writingType || 'general',
+          findings: findings.slice(0, 3),
+        };
+      });
+
+    const fromObservations: TimelineEvent[] = ursieObservations.slice(0, 8).map((obs, idx) => ({
+      id: `obs-${obs.id}`,
+      type: (idx % 2 === 0 ? 'insight' : 'observation') as 'insight' | 'observation',
+      date: formatDate(obs.createdAt || new Date().toISOString()),
+      rawTimestamp: obs.createdAt || new Date().toISOString(),
+      text: obs.text,
+      chamber: (obs.chamber as ChamberKey | undefined) || undefined,
+      findings: [],
+    }));
+
+    const recentSignals = [...fromLearning, ...fromObservations]
+      .sort((a, b) => new Date(a.rawTimestamp).getTime() - new Date(b.rawTimestamp).getTime())
+      .slice(-80);
+
+    const merged = [...fromArchive, ...recentSignals]
+      .sort((a, b) => new Date(a.rawTimestamp).getTime() - new Date(b.rawTimestamp).getTime());
+    return merged;
+  }, [documents, evolutionHistory, ursieObservations]);
+
+  const activeArchiveDocs = openArchiveChamber ? (chamberDocs[openArchiveChamber] || []) : [];
+  const lastTimelineEvent = evolutionEvents[evolutionEvents.length - 1] || null;
+
+  const archiveObservationByChamber = useMemo(() => {
+    const map: Record<ChamberKey, string | null> = {
+      career: null,
+      academic: null,
+      creative: null,
+      general: null,
+    };
+
+    chamberOrder.forEach((chamber) => {
+      const found = ursieObservations.find((obs) => obs.chamber === chamber.key);
+      map[chamber.key] = found?.text || null;
+    });
+
+    return map;
+  }, [ursieObservations]);
+
+  const shouldShowFloatingUrsie = activeTab !== 'ursie';
+
+  if (loading) {
+    return (
+      <div className={styles.dashboard}>
+        <CosmicParticleBackground starCount={2000} nebulaIntensity={0.15} driftSpeed={0.15} />
+        <div className={styles.loadingCard}>
+          <div className={styles.spinner} />
+          <p>Loading Mirror Mode...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={styles.dashboard}>
+        <CosmicParticleBackground starCount={2000} nebulaIntensity={0.15} driftSpeed={0.15} />
+        <div className={styles.loadingCard}>
+          <h3>Connection error</h3>
+          <p>{error}</p>
+          <button type="button" className={styles.retryButton} onClick={refetch}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.dashboard}>
       <CosmicParticleBackground starCount={2000} nebulaIntensity={0.15} driftSpeed={0.15} />
 
       <div className={styles.container}>
-        {/* Header */}
         <header className={styles.header}>
-          <div 
-            className={styles.brandLogoContainer}
-            onClick={() => router.push('/select-studio')}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') router.push('/select-studio'); }}
-          >
-            <Image 
-              src="/thinkwrite-mirror-mode-logo.png" 
-              alt="ThinkWrite AI - Mirror Mode" 
-              width={800}
-              height={1000}
+          <button type="button" className={styles.headerBrand} onClick={() => router.push('/select-studio')}>
+            <Image
+              src="/thinkwrite-mirror-mode-logo.png"
+              alt="ThinkWrite Mirror Mode"
+              width={560}
+              height={84}
               className={styles.brandLogo}
               priority
             />
-          </div>
-          
-          <div className={styles.headerRight}>
-            <p className={styles.subtitle}>Your voice is being learned by Ursie</p>
-            <div className={`${styles.badge} ${isReady ? styles.badgeReady : styles.badgeLearning}`}>
-              <span className={styles.pulse} />
-              {isReady ? 'Voice Ready' : 'Learning'}
-            </div>
+          </button>
+
+          <div className={styles.headerPresence}>
+            <span className={styles.presenceDot} />
+            <span>Ursie is watching</span>
           </div>
         </header>
 
-        {/* Three-panel layout */}
-        <div className={styles.layoutShell}>
-          {/* Left Rail */}
-          <div className={styles.leftRail}>
-            {/* Progress Steps */}
-            {documents.length < 3 && documents.length > 0 && (
-              <div className={styles.progressCard}>
-                <h3 className={styles.sectionTitle}>Getting Started</h3>
-                <div className={styles.progressSteps}>
-                  <div className={`${styles.progressStep} ${documents.length >= 1 ? styles.progressStepComplete : ''}`}>
-                    <span className={`${styles.stepIndicator} ${documents.length >= 1 ? styles.stepIndicatorComplete : ''}`}>
-                      {documents.length >= 1 ? '✓' : '1'}
-                    </span>
-                    <span className={`${styles.stepLabel} ${documents.length >= 1 ? styles.stepLabelComplete : ''}`}>
-                      Upload first document
-                    </span>
-                  </div>
-                  <div className={`${styles.progressStep} ${documents.length >= 2 ? styles.progressStepComplete : ''}`}>
-                    <span className={`${styles.stepIndicator} ${documents.length >= 2 ? styles.stepIndicatorComplete : ''}`}>
-                      {documents.length >= 2 ? '✓' : '2'}
-                    </span>
-                    <span className={`${styles.stepLabel} ${documents.length >= 2 ? styles.stepLabelComplete : ''}`}>
-                      Add a second sample
-                    </span>
-                  </div>
-                  <div className={`${styles.progressStep} ${documents.length >= 3 ? styles.progressStepComplete : ''}`}>
-                    <span className={`${styles.stepIndicator} ${documents.length >= 3 ? styles.stepIndicatorComplete : ''}`}>
-                      {documents.length >= 3 ? '✓' : '3'}
-                    </span>
-                    <span className={`${styles.stepLabel} ${documents.length >= 3 ? styles.stepLabelComplete : ''}`}>
-                      Include variety
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className={styles.ursieCard}>
-              <div className={styles.ursieHeader}>
-                <div className={styles.ursieAvatar}>U</div>
-                <div className={styles.ursieHeaderText}>
-                  <div className={styles.ursieName}>Ursie</div>
-                  <div className={styles.ursieSubtitle}>Voice Learning Guide</div>
-                </div>
-                <div className={styles.ursieHeaderActions}>
-                  <button className={styles.ursieActionBtn} onClick={handleNewChat}>New</button>
-                  <button className={styles.ursieActionBtn} onClick={handleSaveChat} disabled={ursieIsSaved}>
-                    {ursieIsSaved ? 'Saved' : `Save (${ursieSavedCount}/10)`}
-                  </button>
-                </div>
-              </div>
-
-              <div className={styles.ursieChat} ref={ursieChatRef}>
-                {ursieMessages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={msg.sender === 'user' ? styles.ursieMsgUser : styles.ursieMsgBot}
-                  >
-                    {msg.message}
-                  </div>
-                ))}
-                {ursieThinking && (
-                  <div className={styles.ursieMsgBot}>...</div>
-                )}
-              </div>
-
-              {ursieNotice && <div className={styles.ursieNotice}>{ursieNotice}</div>}
-
-              {ursieMemoryPromptEnabled && memoryPromptPending && (
-                <div className={styles.ursieMemoryPrompt}>
-                  <div className={styles.ursieMemoryText}>
-                    Save this as a memory{memoryCandidate ? ':' : '?'}
-                  </div>
-                  {memoryCandidate && (
-                    <div className={styles.ursieMemoryCandidate}>{memoryCandidate}</div>
-                  )}
-                  {memoryPromptNudge && (
-                    <div className={styles.ursieMemoryNudge}>Still here if you want me to keep it.</div>
-                  )}
-                  <div className={styles.ursieMemoryActions}>
-                    <button
-                      className={styles.ursieMemoryBtn}
-                      onClick={() => handleSaveMemory(memoryCandidate || lastUserMessage || 'User wants this remembered')}
-                    >
-                      Save
-                    </button>
-                    <button
-                      className={styles.ursieMemoryBtnGhost}
-                      onClick={() => {
-                        setMemoryPromptPending(false);
-                        setMemoryPromptNudge(false);
-                        setMemoryCandidate('');
-                      }}
-                    >
-                      Not now
-                    </button>
-                    <button className={styles.ursieMemoryDisable} onClick={handleDisableMemoryPrompts}>
-                      Don’t ask again
-                    </button>
-                  </div>
-                </div>
+        <nav className={styles.tabBar}>
+          {tabItems.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`${styles.tabButton} ${activeTab === tab.key ? styles.tabButtonActive : ''}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              <span>{tab.label}</span>
+              {tab.key === 'archive' && (
+                <span className={styles.tabBadge}>{documentCount}</span>
               )}
+            </button>
+          ))}
+        </nav>
 
-              {!ursieMemoryPromptEnabled && (
-                <div className={styles.ursieMemoryManual}>
-                  <div className={styles.ursieMemoryText}>Save a memory for Ursie</div>
-                  <div className={styles.ursieMemoryInputRow}>
-                    <input
-                      value={manualMemoryInput}
-                      onChange={(e) => setManualMemoryInput(e.target.value)}
-                      placeholder="e.g., prefers concise, formal tone"
-                      className={styles.ursieMemoryInput}
-                    />
-                    <button
-                      className={styles.ursieMemoryBtn}
-                      onClick={() => handleSaveMemory(manualMemoryInput)}
-                      disabled={!manualMemoryInput.trim()}
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className={styles.ursieQuickActions}>
-                {[
-                  'How do I train my voice?',
-                  'Why is confidence low?',
-                  'What should I upload next?',
-                ].map((q) => (
-                  <button
-                    key={q}
-                    className={styles.ursieQuickBtn}
-                    onClick={() => sendUrsieMessage(q)}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-
-              <div className={styles.ursieInputRow}>
-                <input
-                  value={ursieInput}
-                  onChange={(e) => setUrsieInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') sendUrsieMessage(ursieInput);
-                  }}
-                  placeholder="Ask Ursie..."
-                  className={styles.ursieInput}
-                />
-                <button
-                  className={styles.ursieSend}
-                  onClick={() => sendUrsieMessage(ursieInput)}
-                  disabled={!ursieInput.trim() || ursieThinking}
-                >
-                  →
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Main Column */}
-          <div className={styles.mainCol}>
-            <section className={styles.heroSection}>
-              <div className={styles.heroBadge}>Mirror Mode • Ursie</div>
-              <div className={styles.heroTitle}>Your voice, held steady.</div>
-              <div className={styles.heroSub}>
-                Train, generate, or review samples. Ursie keeps your voice consistent across studios.
-              </div>
-            </section>
-
-            <section className={styles.controlCenter}>
-              <div className={styles.controlHeader}>
-                <div>
-                  <div className={styles.controlKicker}>Control Center</div>
-                  <div className={styles.controlTitle}>Choose your path</div>
-                </div>
-                {hasVoiceData && (
-                  <div className={styles.controlMeta}>
-                    <div className={styles.controlMetaLabel}>How You Write</div>
-                    {status?.voiceDescription && (
-                      <div className={styles.controlMetaValue}>{status.voiceDescription}</div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {hasVoiceData && recommendations.length > 0 && (
-                <div className={styles.controlSteps}>
-                  {recommendations.map((rec, i) => (
-                    <div key={i} className={styles.controlStep}>
-                      <span className={styles.stepArrow}>→</span>
-                      {rec}
+        <main className={styles.tabContentWrap}>
+          {activeTab === 'identity' && (
+            <section className={styles.tabContent}>
+              <article className={styles.glassCard}>
+                <div className={styles.identityHeroMock}>
+                  <button type="button" className={styles.timelineCompact} onClick={() => setTimelineOpen(true)}>
+                    <div className={styles.timelineCompactTop}>
+                      <span className={styles.timelineCompactLabel}>Timeline</span>
+                      <span className={styles.timelineCompactIcon}>↗</span>
                     </div>
-                  ))}
-                </div>
-              )}
-
-              <div className={styles.hubRow}>
-                {[
-                  { key: 'train', title: 'Train Your Voice', desc: 'Upload samples' },
-                  { key: 'generate', title: 'Generate In Your Voice', desc: 'Write in your style' },
-                  { key: 'samples', title: 'Writing Samples', desc: 'Review documents' },
-                ].map((hub) => (
-                  <button
-                    key={hub.key}
-                    className={`${styles.hubButton} ${selectedHub === hub.key ? styles.hubButtonActive : ''}`}
-                    onClick={() => setSelectedHub(hub.key as 'train' | 'generate' | 'samples')}
-                  >
-                    <div className={styles.hubButtonTitle}>{hub.title}</div>
-                    <div className={styles.hubButtonDesc}>{hub.desc}</div>
+                    <div className={styles.timelineCompactSep} />
+                    <p className={styles.timelineCompactPreview}>
+                      {lastTimelineEvent?.documentName
+                        ? `${lastTimelineEvent.documentName}: ${lastTimelineEvent.text}`
+                        : (lastTimelineEvent?.text || "Ursie's timeline appears as your archive grows.")}
+                    </p>
+                    <div className={styles.timelineCompactFooter}>
+                      <span>{evolutionEvents.length} entries</span>
+                      <span>View all</span>
+                    </div>
                   </button>
-                ))}
-              </div>
 
-              <div className={styles.controlBody}>
-                {/* Upload Card */}
-                {selectedHub === 'train' && (
-                  <div 
-                    className={`${styles.uploadCard} ${dragActive ? styles.uploadCardDragging : ''}`}
-                    onDragEnter={handleDrag}
-                    onDragLeave={handleDrag}
-                    onDragOver={handleDrag}
-                    onDrop={handleDrop}
-                  >
-                    <h3 className={styles.sectionTitle}>Train Your Voice</h3>
-                    
-                    <div className={styles.uploadArea}>
-                      <div className={styles.uploadIcon}>
-                        {uploading ? (
-                          <div className={styles.spinnerSm} />
-                        ) : (
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-                          </svg>
+                  <div className={styles.identityMainMock}>
+                    <p className={styles.assessmentLabel}>Ursie's assessment</p>
+                    <p className={styles.assessmentLine}>{getIdentityOneLiner()}</p>
+
+                    <div className={styles.metaRowMock}>
+                      <div>
+                        <p className={styles.metaValueMock}>{documentCount}</p>
+                        <p className={styles.metaKey}>Archive docs</p>
+                      </div>
+                      <div>
+                        <p className={styles.metaValueMock}>{learnedSignalCount}</p>
+                        <p className={styles.metaKey}>Learned signals</p>
+                      </div>
+                      <div>
+                        <p className={styles.metaValueMock}>{formatWordsK(totalWordCount)}<span> words</span></p>
+                        <p className={styles.metaKey}>Analyzed</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className={styles.identityDivider} />
+                <div className={styles.identityChamberRowMock}>
+                  {chamberOrder.map((chamber) => {
+                    const summary = chamberSummaries?.[chamber.key as keyof typeof chamberSummaries] as ChamberSummary | null;
+                    const count = chamberDocCounts[chamber.key];
+                    const signalCount = chamberSignalCounts[chamber.key];
+                    const confidence = getConfidenceLabel(summary?.confidenceLevel || 0, count);
+
+                    return (
+                      <button
+                        key={chamber.key}
+                        type="button"
+                        className={`${styles.chamberItemMock} ${count === 0 ? styles.chamberItemMockEmpty : ''}`}
+                        onClick={() => handleChamberCardClick(chamber.key)}
+                      >
+                        <div className={styles.chamberItemTopMock}>
+                          <span className={styles.chamberDotMock} style={{ backgroundColor: `var(${chamber.colorVar})` }} />
+                          <span className={styles.chamberNameMock}>{chamber.label}</span>
+                        </div>
+                        <p className={styles.chamberSubMock}>{chamber.description}</p>
+                        <div className={styles.chamberStatsMock}>
+                          <span>
+                            {count > 0 ? `${count} docs` : 'No documents'}
+                            {signalCount > 0 ? ` + ${signalCount} signals` : ''}
+                          </span>
+                          <span style={{ color: count > 0 ? `var(${chamber.colorVar})` : undefined }}>{confidence}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </article>
+
+              <article className={styles.subtleActionsRow}>
+                <button type="button" className={styles.inlineLink} onClick={handleResetVoice}>Start fresh</button>
+                <Link href="/mirror-mode" className={styles.inlineLink}>Privacy controls</Link>
+              </article>
+            </section>
+          )}
+
+          {activeTab === 'archive' && (
+            <section className={styles.tabContent}>
+              <article className={styles.glassCard}>
+                <p className={styles.sectionTitle}>YOUR WRITING ARCHIVE</p>
+
+                <div className={styles.archiveList}>
+                  {chamberOrder.map((chamber) => {
+                    const isOpen = openArchiveChamber === chamber.key;
+                    const summary = chamberSummaries?.[chamber.key as keyof typeof chamberSummaries] as ChamberSummary | null;
+                    const count = chamberDocCounts[chamber.key];
+                    const signalCount = chamberSignalCounts[chamber.key];
+                    const chamberObservation = archiveObservationByChamber[chamber.key];
+
+                    return (
+                      <section
+                        key={chamber.key}
+                        className={styles.archiveAccordion}
+                        style={{ ['--chamber-color' as any]: `var(${chamber.colorVar})` }}
+                      >
+                        <button
+                          type="button"
+                          className={styles.archiveHeader}
+                          onClick={() => setOpenArchiveChamber((prev) => (prev === chamber.key ? null : chamber.key))}
+                        >
+                          <div className={styles.archiveHeaderLeft}>
+                            <span className={styles.archiveColorDot} />
+                            <span className={styles.archiveName}>{chamber.label}</span>
+                            <span className={styles.archiveCount}>
+                              {count > 0 ? `${count} ${count === 1 ? 'doc' : 'docs'}` : 'empty'}
+                              {signalCount > 0 ? ` • ${signalCount} signals` : ''}
+                            </span>
+                          </div>
+                          <span className={`${styles.archiveChevron} ${isOpen ? styles.archiveChevronOpen : ''}`}>▾</span>
+                        </button>
+
+                        {isOpen && (
+                          <div className={styles.archiveBody}>
+                            {chamberObservation && (
+                              <div className={styles.archiveObservation}>
+                                <p>Ursie: {chamberObservation}</p>
+                              </div>
+                            )}
+
+                            {highlights.length > 0 && (
+                              <div className={styles.patternTagRow}>
+                                {highlights.slice(0, 6).map((h, idx) => (
+                                  <span key={`${h.label}-${idx}`} className={styles.patternTag}>{h.label}</span>
+                                ))}
+                              </div>
+                            )}
+
+                            {activeArchiveDocs.length > 0 ? (
+                              <div className={styles.archiveDocList}>
+                                {activeArchiveDocs.map((doc) => (
+                                  <div key={doc.id} className={styles.archiveDocRow}>
+                                    <button
+                                      type="button"
+                                      className={styles.archiveDocButton}
+                                      onClick={() => {
+                                        setSelectedDocumentId(doc.id);
+                                        setShowDocumentDetail(true);
+                                      }}
+                                    >
+                                      <span className={styles.archiveDocName}>{doc.filename}</span>
+                                      <span className={styles.archiveDocMeta}>{chamber.label} • {doc.word_count} words • {formatDateLong(doc.uploaded_at)}</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      className={styles.deleteDocButton}
+                                      onClick={() => handleDeleteDocument(doc.id)}
+                                      disabled={deletingDocumentId === doc.id}
+                                    >
+                                      {deletingDocumentId === doc.id ? 'Removing...' : 'Remove'}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className={styles.archiveEmptyState}>No documents in this chamber yet. Upload some {chamber.label.toLowerCase()} writing to get started.</p>
+                            )}
+
+                            {count > 0 && activeArchiveDocs.length === 0 && (
+                              <p className={styles.archiveEmptyState}>This chamber has learned from studio activity, but direct uploads are not listed here yet.</p>
+                            )}
+
+                            <p className={styles.archiveStatusHint}>{summary?.confidenceLabel || getConfidenceLabel(summary?.confidenceLevel || 0, count)}</p>
+                          </div>
                         )}
+                      </section>
+                    );
+                  })}
+                </div>
+              </article>
+            </section>
+          )}
+
+          {activeTab === 'ursie' && (
+            <section className={styles.tabContent}>
+              <article className={`${styles.glassCard} ${styles.ursieTabCard}`}>
+                <div className={styles.ursieGrid}>
+                  <div className={styles.ursieChatPane}>
+                    <header className={styles.ursiePaneHeader}>
+                      <div className={styles.ursieTitleWrap}>
+                        <span className={styles.ursieAvatar}>U</span>
+                        <div>
+                          <p className={styles.ursieName}>Ursie</p>
+                          <p className={styles.ursieSubtitle}>Your voice, reflected honestly</p>
+                        </div>
                       </div>
 
-                      <WritingTypeSelector
-                        value={writingType}
-                        onChange={setWritingType}
-                        variant="dropdown"
-                        disabled={uploading}
-                      />
+                      <div className={styles.ursieActionRow}>
+                        <button type="button" className={styles.smallActionBtn} onClick={handleNewChat}>New</button>
+                        <button type="button" className={styles.smallActionBtn} onClick={handleSaveChat} disabled={ursieIsSaved}>
+                          {ursieIsSaved ? 'Saved' : `Save (${ursieSavedCount}/10)`}
+                        </button>
+                      </div>
+                    </header>
 
-                      <p className={styles.uploadHint}>TXT, DOCX, or PDF • 50+ words</p>
+                    <div className={styles.quickActionRow}>
+                      {['How is my voice?', 'What should I upload?', 'What patterns do you see?'].map((q) => (
+                        <button key={q} type="button" className={styles.quickActionBtn} onClick={() => sendUrsieMessage(q)}>{q}</button>
+                      ))}
+                    </div>
+
+                    <div className={styles.chatScroll} ref={chatRefMain}>
+                      {ursieMessages.map((msg) => (
+                        <div key={msg.id} className={msg.sender === 'user' ? styles.messageUser : styles.messageUrsie}>
+                          {msg.message}
+                        </div>
+                      ))}
+                      {ursieThinking && <div className={styles.messageUrsie}>Thinking...</div>}
+                    </div>
+
+                    <div className={styles.chatInputRow}>
+                      <input
+                        value={ursieInput}
+                        onChange={(e) => setUrsieInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') sendUrsieMessage(ursieInput);
+                        }}
+                        className={styles.chatInput}
+                        placeholder="Ask Ursie..."
+                      />
+                      <button
+                        type="button"
+                        className={styles.sendButton}
+                        onClick={() => sendUrsieMessage(ursieInput)}
+                        disabled={!ursieInput.trim() || ursieThinking}
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+
+                  <aside className={styles.ursieObsPane}>
+                    <p className={styles.sectionTitle}>OBSERVATIONS</p>
+
+                    <div className={styles.observationScroll}>
+                      {ursieObservations.length === 0 ? (
+                        <p className={styles.observationEmpty}>I'm watching. I'll share what I notice as your archive grows.</p>
+                      ) : (
+                        ursieObservations.map((item) => (
+                          <article key={item.id} className={styles.observationItem}>
+                            <p>{item.text}</p>
+                            <div className={styles.observationMeta}>
+                              <span>{item.chamber || 'general'}</span>
+                              <span>{formatRelative(item.createdAt)}</span>
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+
+                    <div className={styles.tellRow}>
+                      <input
+                        value={manualMemoryInput}
+                        onChange={(e) => setManualMemoryInput(e.target.value)}
+                        className={styles.tellInput}
+                        placeholder="Tell Ursie"
+                      />
+                      <button
+                        type="button"
+                        className={styles.smallActionBtn}
+                        onClick={handleSaveMemory}
+                        disabled={!manualMemoryInput.trim()}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </aside>
+                </div>
+              </article>
+            </section>
+          )}
+
+          {activeTab === 'upload' && (
+            <section className={styles.tabContent}>
+              <article className={`${styles.glassCard} ${styles.uploadTabCard}`}>
+                <div className={styles.uploadGrid}>
+                  <div>
+                    <p className={styles.sectionTitle}>DEPOSIT WRITING</p>
+
+                    <div className={styles.uploadPillRow}>
+                      {chamberOrder.map((chamber) => (
+                        <button
+                          key={chamber.key}
+                          type="button"
+                          className={`${styles.uploadPill} ${selectedUploadChamber === chamber.key ? styles.uploadPillActive : ''}`}
+                          onClick={() => setSelectedUploadChamber(chamber.key)}
+                          disabled={uploading}
+                        >
+                          {chamber.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div
+                      className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
+                      onDragEnter={handleDrag}
+                      onDragLeave={handleDrag}
+                      onDragOver={handleDrag}
+                      onDrop={handleDrop}
+                    >
+                      <p className={styles.dropIcon}>↑</p>
+                      <p className={styles.dropTitle}>Drop a document here or click to browse</p>
+                      <p className={styles.dropMeta}>PDF, DOCX, or TXT — 50+ words</p>
 
                       <input
                         ref={fileInputRef}
                         type="file"
                         accept=".txt,.docx,.pdf"
                         onChange={handleFileSelect}
-                        className={styles.fileInput}
+                        className={styles.hiddenFileInput}
                         disabled={uploading}
                       />
 
-                      <button 
-                        className={styles.btnUpload}
+                      <button
+                        type="button"
+                        className={styles.selectButton}
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploading}
                       >
@@ -720,111 +1091,189 @@ export default function MirrorModeDashboard({ userId }: Props) {
                     </div>
 
                     {uploadSuccess && (
-                      <div className={styles.successBanner}>
-                        <span className={styles.successIcon}>✓</span>
-                        <div className={styles.successContent}>
-                          <strong>{uploadSuccess.fileName}</strong> added to your voice profile
-                          <span className={styles.successDetail}>
-                            +{uploadSuccess.confidenceGain.toFixed(1)}% confidence → {uploadSuccess.confidenceLevel}%
-                          </span>
-                        </div>
+                      <div className={styles.uploadFeedback}>
+                        {uploadSuccess.isFirstDocument
+                          ? `Got it. First document in your ${uploadSuccess.chamber} chamber.`
+                          : `Got it. Your ${uploadSuccess.chamber} chamber just grew.`}
                       </div>
                     )}
-                    {uploadError && <div className={`${styles.toast} ${styles.toastError}`}>{uploadError}</div>}
-                    {deleteSuccess && <div className={`${styles.toast} ${styles.toastSuccess}`}>{deleteSuccess}</div>}
-                    {resetSuccess && <div className={`${styles.toast} ${styles.toastSuccess}`}>Voice profile has been reset</div>}
-                    {varietyNudge && !uploadSuccess && (
-                      <div className={styles.varietyNudge}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10" />
-                          <line x1="12" y1="16" x2="12" y2="12" />
-                          <line x1="12" y1="8" x2="12.01" y2="8" />
-                        </svg>
-                        <span>{varietyNudge}</span>
-                      </div>
-                    )}
+
+                    {uploadError && <div className={styles.uploadError}>{uploadError}</div>}
                   </div>
-                )}
 
-                {selectedHub === 'generate' && (
-                  <section className={styles.sectionCard}>
-                    <h2 className={styles.sectionHeading}>Generate In Your Voice</h2>
-                    <div className={styles.generatorWrapper}>
-                      <div className={styles.generatorInfo}>
-                        <div className={styles.genConfidence}>
-                          <span className={styles.genConfLabel}>Voice Confidence</span>
-                          <span className={styles.genConfValue}>{confidenceLevel}%</span>
-                        </div>
-                        <p className={styles.genStatus}>
-                          {isReady ? '✓ Your voice is ready to use' : 'Upload more documents to improve accuracy'}
-                        </p>
-                      </div>
-                      <ModernVoiceGenerator confidenceLevel={confidenceLevel} isReady={confidenceLevel >= 25} />
+                  <aside className={styles.uploadSidebar}>
+                    <p className={styles.sectionTitle}>CHAMBER STATUS</p>
+
+                    <div className={styles.statusList}>
+                      {chamberOrder.map((chamber) => {
+                        const summary = chamberSummaries?.[chamber.key as keyof typeof chamberSummaries] as ChamberSummary | null;
+                        const count = chamberDocCounts[chamber.key];
+                        const signalCount = chamberSignalCounts[chamber.key];
+                        const confidence = getConfidenceLabel(summary?.confidenceLevel || 0, count);
+
+                        return (
+                          <div key={chamber.key} className={styles.statusRow}>
+                            <div className={styles.statusLeft}>
+                              <span className={styles.statusDot} style={{ backgroundColor: `var(${chamber.colorVar})` }} />
+                              <span>{chamber.label}</span>
+                            </div>
+                            <span className={styles.statusText}>
+                              {count > 0 ? `${count} docs` : 'Empty'}
+                              {signalCount > 0 ? ` • ${signalCount} signals` : ''}
+                              {count > 0 || signalCount > 0 ? ` • ${confidence}` : ''}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </section>
-                )}
 
-                {selectedHub === 'samples' && (
-                  <section className={styles.sectionCard}>
-                    <h2 className={styles.sectionHeading}>Your Writing Samples</h2>
-                    <div className={styles.docsWrapper}>
-                      <DocumentList documents={documents} onDelete={handleDeleteDocument} isLoading={false} />
+                    <div className={styles.varietyNudge}>
+                      <p>Ursie: {getVarietyNudge()}</p>
                     </div>
-                  </section>
-                )}
-              </div>
-            </section>
-          </div>
-
-          {/* Right Rail */}
-          {selectedHub && (
-          <div className={styles.rightRail}>
-            {(evolutionHistory.length > 0 || documents.length > 0) && (
-              <VoiceEvolutionTimeline
-                currentConfidence={confidenceLevel}
-                documentCount={overview?.documentCount || 0}
-                totalWords={overview?.totalWordCount || 0}
-                evolutionHistory={evolutionHistory}
-                onDocumentClick={handleDocumentClick}
-              />
-            )}
-
-            {highlights.length > 0 && (
-              <div className={styles.card}>
-                <h3 className={styles.sectionTitle}>Your Voice DNA</h3>
-                <div className={styles.dnaGrid}>
-                  {highlights.map((h, i) => (
-                    <div key={i} className={styles.dnaBadge}>
-                      <div className={styles.dnaLabel}>{h.label}</div>
-                      <div className={styles.dnaValue}>{h.value}</div>
-                    </div>
-                  ))}
+                  </aside>
                 </div>
-              </div>
-            )}
-
-            <section className={styles.sectionCard}>
-              <h2 className={styles.sectionHeading}>Live Learning Feed</h2>
-              <div className={styles.feedWrapper}>
-                <LiveLearningFeed />
-              </div>
+              </article>
             </section>
-          </div>
           )}
-        </div>
+        </main>
 
-        <div className={styles.resetSection}>
-          <ResetVoice onReset={handleResetVoice} documentCount={documents.length} disabled={uploading} />
-        </div>
+        {ursieNotice && <div className={styles.noticeToast}>{ursieNotice}</div>}
       </div>
+
+      {shouldShowFloatingUrsie && (
+        <div className={styles.floatingWrap}>
+          {floatingUrsieOpen && (
+            <div className={styles.floatingPanel}>
+              <header className={styles.floatingHeader}>
+                <div className={styles.ursieTitleWrap}>
+                  <span className={styles.ursieAvatar}>U</span>
+                  <div>
+                    <p className={styles.ursieName}>Ursie</p>
+                    <p className={styles.ursieSubtitle}>Always nearby</p>
+                  </div>
+                </div>
+                <button type="button" className={styles.floatingClose} onClick={() => setFloatingUrsieOpen(false)}>✕</button>
+              </header>
+
+              <div className={styles.quickActionRow}>
+                {['How is my voice?', 'What should I upload?'].map((q) => (
+                  <button key={q} type="button" className={styles.quickActionBtn} onClick={() => sendUrsieMessage(q)}>{q}</button>
+                ))}
+              </div>
+
+              <div className={styles.floatingChatScroll} ref={chatRefFloating}>
+                {ursieMessages.map((msg) => (
+                  <div key={`floating-${msg.id}`} className={msg.sender === 'user' ? styles.messageUser : styles.messageUrsie}>
+                    {msg.message}
+                  </div>
+                ))}
+                {ursieThinking && <div className={styles.messageUrsie}>Thinking...</div>}
+              </div>
+
+              <div className={styles.chatInputRow}>
+                <input
+                  value={ursieInput}
+                  onChange={(e) => setUrsieInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') sendUrsieMessage(ursieInput);
+                  }}
+                  className={styles.chatInput}
+                  placeholder="Ask Ursie..."
+                />
+                <button
+                  type="button"
+                  className={styles.sendButton}
+                  onClick={() => sendUrsieMessage(ursieInput)}
+                  disabled={!ursieInput.trim() || ursieThinking}
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="button"
+            className={`${styles.floatingBubble} ${floatingUrsieOpen ? styles.floatingBubbleActive : ''}`}
+            onClick={() => setFloatingUrsieOpen((value) => !value)}
+            aria-label="Open Ursie"
+          >
+            <span className={styles.floatingPulse} />
+            <span className={styles.floatingLabel}>U</span>
+          </button>
+        </div>
+      )}
 
       <DocumentDetailModal
         documentId={selectedDocumentId || ''}
         isOpen={showDocumentDetail}
-        onClose={() => { setShowDocumentDetail(false); setSelectedDocumentId(null); }}
+        onClose={() => {
+          setShowDocumentDetail(false);
+          setSelectedDocumentId(null);
+        }}
       />
 
-      <OnboardingTour isFirstTime={isFirstTime} onComplete={() => {}} onUploadClick={() => fileInputRef.current?.click()} />
+      {timelineOpen && (
+        <div className={styles.timelineModalOverlay} onClick={() => setTimelineOpen(false)}>
+          <div className={styles.timelineModal} onClick={(e) => e.stopPropagation()}>
+            <header className={styles.timelineModalHeader}>
+              <div>
+                <p className={styles.timelineModalTitle}>Voice Timeline</p>
+                <p className={styles.timelineModalSub}>Recorded by Ursie</p>
+              </div>
+              <button type="button" className={styles.timelineModalClose} onClick={() => setTimelineOpen(false)}>✕</button>
+            </header>
+
+            <div className={styles.timelineModalBody}>
+              {evolutionEvents.length === 0 ? (
+                <p className={styles.observationEmpty}>No timeline entries yet. Add documents and keep writing in studios.</p>
+              ) : (
+                evolutionEvents.map((event) => (
+                  <div key={`modal-${event.id}`} className={styles.timelineModalEntry}>
+                    <span
+                      className={styles.timelineModalDot}
+                      style={{
+                        backgroundColor:
+                          event.type === 'milestone'
+                            ? 'var(--accent)'
+                            : event.type === 'insight'
+                              ? 'var(--creative)'
+                              : 'var(--academic)',
+                      }}
+                    />
+                    <div className={styles.timelineModalEntryBody}>
+                      <div className={styles.timelineModalEntryHead}>
+                        <span>{event.date}</span>
+                        <span>{event.type}</span>
+                      </div>
+                      <p>{event.text}</p>
+                      {(event.documentName || event.chamber) && (
+                        <div className={styles.timelineMetaPills}>
+                          {event.documentName && (
+                            <span className={styles.timelineMetaPill}>{event.documentName}</span>
+                          )}
+                          {event.chamber && (
+                            <span className={styles.timelineMetaPill}>
+                              {chamberOrder.find((c) => c.key === event.chamber)?.label || event.chamber}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {!!event.findings?.length && (
+                        <ul className={styles.timelineFindings}>
+                          {event.findings.map((finding, idx) => (
+                            <li key={`${event.id}-finding-${idx}`}>{finding}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

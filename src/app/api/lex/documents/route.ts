@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
+import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
 
 interface DocumentMemory {
   id: string;
@@ -168,6 +169,50 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Document save error:', error);
       return NextResponse.json({ error: 'Failed to save document' }, { status: 500 });
+    }
+
+    // Mirror Mode: Learn + archive user-authored document in career chamber
+    if (extractedText && extractedText.trim().length > 0) {
+      try {
+        await ingestStudioWriting({
+          supabase,
+          userId,
+          sourceStudio: 'career',
+          text: extractedText,
+          sessionId: document.id,
+          context: 'lex_document_upload',
+          fileName,
+          mimeType: fileType || 'text/plain',
+          fileSize: fileSize || null,
+          writingType: 'professional',
+          registerInArchive: true,
+        });
+      } catch (e) {
+        // Silent fail
+      }
+    }
+
+    // Mirror Mode: Register lineage (best effort)
+    try {
+      await supabase
+        .from('document_lineage')
+        .insert({
+          user_id: userId,
+          original_document_id: document.id,
+          studio_origin: 'career',
+          current_version_id: document.id,
+          version_history: [
+            {
+              version_type: 'original',
+              document_id: document.id,
+              source_studio: 'career',
+              document_type: fileType || 'document',
+              created_at: new Date().toISOString(),
+            },
+          ],
+        });
+    } catch (e) {
+      // Silent fail
     }
 
     // Update Lex's memory context

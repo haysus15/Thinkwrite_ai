@@ -6,6 +6,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { dispatchLexPrompt, subscribeToStrategySummary } from "@/lib/career-studio/lexBus";
+import { useResumeManagerPanel } from "../resume-manager/ResumeManagerPanelContext";
 import {
   FileText,
   Briefcase,
@@ -62,10 +64,19 @@ interface JobAnalysisOption {
   atsScore?: number;
 }
 
+interface StrategyInsight {
+  section: string;
+  quote: string;
+  issue: string;
+  why: string;
+  fix: string;
+}
+
 type ViewMode =
   | "select-inputs"
   | "select-level"
   | "strategy-session"
+  | "edit-passes"
   | "extract-insights"
   | "processing"
   | "review"
@@ -115,6 +126,26 @@ const TAILORING_LEVEL_CONFIG: Record<
   },
 };
 
+function parseStrategyInsights(text: string): StrategyInsight[] {
+  const normalized = text.replace(/\*\*/g, "").replace(/\r/g, "");
+  const regex =
+    /(\d+)\)\s*Section:\s*([^\n]+)[\s\S]*?Current line:\s*([^\n]+)[\s\S]*?Issue:\s*([^\n]+)[\s\S]*?Why it matters:\s*([^\n]+)[\s\S]*?Suggested fix:\s*([^\n]+)/gi;
+  const results: StrategyInsight[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(normalized))) {
+    results.push({
+      section: match[2]?.trim() || "Section",
+      quote: match[3]?.trim() || "",
+      issue: match[4]?.trim() || "Issue not provided",
+      why: match[5]?.trim() || "Why it matters not provided",
+      fix: match[6]?.trim() || "Suggested fix not provided",
+    });
+  }
+
+  return results;
+}
+
 export default function TailorResumeInterface({
   jobAnalysisId: initialJobAnalysisId,
   masterResumeId: initialMasterResumeId,
@@ -128,11 +159,26 @@ export default function TailorResumeInterface({
   const [voiceMetadata, setVoiceMetadata] = useState<{
     usedVoiceProfile: boolean;
     confidenceLevel: number;
+    sufficientData?: boolean;
+    warnings?: string[];
   } | null>(null);
+  const [voiceSources, setVoiceSources] = useState<string[]>([]);
   const [voiceTransformedContent, setVoiceTransformedContent] = useState<string | null>(null);
   const [currentChangeIndex, setCurrentChangeIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draftPanelOpen, setDraftPanelOpen] = useState(false);
+  const [openDraftEditorSignal, setOpenDraftEditorSignal] = useState(0);
+  const [originalResumeText, setOriginalResumeText] = useState("");
+  const [draftResumeText, setDraftResumeText] = useState("");
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
+  const { setPanel } = useResumeManagerPanel();
+  const [strategyInsights, setStrategyInsights] = useState<StrategyInsight[]>([]);
+  const [strategySummaryText, setStrategySummaryText] = useState<string | null>(null);
+  const [editPassInsights, setEditPassInsights] = useState<StrategyInsight[]>([]);
+  const [editPassSummaryText, setEditPassSummaryText] = useState<string | null>(null);
 
   //  ADDED: Save button state
   const [isSaving, setIsSaving] = useState(false);
@@ -161,9 +207,11 @@ export default function TailorResumeInterface({
       resumes.length > 0 &&
       jobAnalyses.length > 0
     ) {
-      setViewMode("select-level");
+      if (viewMode === "select-inputs") {
+        setViewMode("select-level");
+      }
     }
-  }, [initialJobAnalysisId, initialMasterResumeId, resumes, jobAnalyses]);
+  }, [initialJobAnalysisId, initialMasterResumeId, resumes, jobAnalyses, viewMode]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -176,6 +224,122 @@ export default function TailorResumeInterface({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    return subscribeToStrategySummary(({ resumeId, jobId, text, contextTag }) => {
+      if (resumeId && selectedResumeId && resumeId !== selectedResumeId) return;
+      if (jobId && selectedJobId && jobId !== selectedJobId) return;
+      if (contextTag === "tailor-edit-passes") {
+        setEditPassSummaryText(text);
+        setEditPassInsights(parseStrategyInsights(text));
+        return;
+      }
+      setStrategySummaryText(text);
+      setStrategyInsights(parseStrategyInsights(text));
+    });
+  }, [selectedResumeId, selectedJobId]);
+
+  useEffect(() => {
+    if (!draftPanelOpen || !selectedResumeId) return;
+    if (!originalResumeText) {
+      loadResumeText(selectedResumeId);
+    }
+  }, [draftPanelOpen, selectedResumeId, originalResumeText]);
+
+  useEffect(() => {
+    if (!draftPanelOpen) {
+      setPanel(null);
+      return;
+    }
+
+    const inlineSuggestions =
+      viewMode === "strategy-session"
+        ? strategyInsights
+            .filter((insight) => insight.quote && insight.fix)
+            .map((insight, index) => ({
+              id: `${selectedResumeId || "resume"}-strategy-${index}`,
+              currentLine: insight.quote,
+              suggestedFix: insight.fix,
+            }))
+        : undefined;
+
+    setPanel({
+      active: draftPanelOpen,
+      openDraftEditorSignal,
+      originalResumeText,
+      draftResumeText,
+      draftDirty,
+      draftSaving,
+      draftSaveError,
+      inlineSuggestions,
+      onApplySuggestion: (id) => {
+        if (!inlineSuggestions) return;
+        const suggestion = inlineSuggestions.find((s) => s.id === id);
+        if (!suggestion) return;
+        if (!suggestion.currentLine || !suggestion.suggestedFix) return;
+        if (!draftResumeText.includes(suggestion.currentLine)) return;
+        const updated = draftResumeText.replace(
+          suggestion.currentLine,
+          suggestion.suggestedFix
+        );
+        setDraftResumeText(updated);
+        setDraftDirty(true);
+      },
+      onDraftChange: handleDraftChange,
+      onResetDraft: handleResetDraft,
+      onSaveDraft: handleSaveDraft,
+    });
+  }, [
+    draftPanelOpen,
+    openDraftEditorSignal,
+    originalResumeText,
+    draftResumeText,
+    draftDirty,
+    draftSaving,
+    draftSaveError,
+    strategyInsights,
+    viewMode,
+    selectedResumeId,
+    setPanel,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      setPanel(null);
+    };
+  }, [setPanel]);
+
+  useEffect(() => {
+    let active = true;
+    const fetchSources = async () => {
+      try {
+        const response = await fetch("/api/voice-profile/gatekeeper", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requesting_studio: "career",
+            context: "tailor_resume",
+            requested_chambers: ["career", "general", "overall"],
+          }),
+        });
+        const data = await response.json();
+        if (!active) return;
+        const sources: string[] = [];
+        const primaryLabel = data?.voice_profile?.primary_chamber;
+        if (primaryLabel) sources.push(primaryLabel);
+        if (data?.voice_profile?.general) sources.push("general");
+        if (data?.voice_profile?.overall) sources.push("overall");
+        setVoiceSources(sources.length ? sources : ["standard"]);
+      } catch {
+        if (!active) return;
+        setVoiceSources(["standard"]);
+      }
+    };
+    fetchSources();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const loadOptions = async () => {
     setIsLoadingOptions(true);
     try {
@@ -185,6 +349,100 @@ export default function TailorResumeInterface({
       setError("Failed to load your resumes and job analyses");
     } finally {
       setIsLoadingOptions(false);
+    }
+  };
+
+  const openDraftPanel = () => {
+    setDraftPanelOpen(true);
+    setOpenDraftEditorSignal((prev) => prev + 1);
+  };
+
+  const loadResumeText = async (resumeId: string) => {
+    try {
+      const response = await fetch(`/api/resumes/${resumeId}`);
+      const data = await response.json();
+      if (!data?.success || !data?.resume) return;
+      const rawText =
+        data.resume.extractedText ||
+        data.resume.fullText ||
+        data.resume.automatedAnalysis?.extractedText ||
+        "";
+      setOriginalResumeText(rawText);
+      setDraftResumeText(rawText);
+      setDraftDirty(false);
+      setDraftSaveError(null);
+      return rawText;
+    } catch (err) {
+      console.error("Failed to load resume text:", err);
+    }
+  };
+
+  const handleDraftChange = (value: string) => {
+    setDraftResumeText(value);
+    setDraftDirty(true);
+  };
+
+  const handleResetDraft = () => {
+    setDraftResumeText(originalResumeText);
+    setDraftDirty(false);
+  };
+
+  const handleSaveDraft = async () => {
+    if (!selectedResumeId || !draftResumeText.trim()) return;
+    setDraftSaving(true);
+    setDraftSaveError(null);
+    try {
+      const response = await fetch("/api/resumes/lex-revision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceResumeId: selectedResumeId,
+          revisedText: draftResumeText,
+          fileName: `${selectedResume?.fileName || "Resume"} (Draft)`,
+        }),
+      });
+      const data = await response.json();
+      if (!data?.success || !data?.resume?.id) {
+        throw new Error(data?.error || "Failed to save draft");
+      }
+      setDraftDirty(false);
+      setViewMode("edit-passes");
+      dispatchLexPrompt({
+        workspace: "tailor",
+        resumeId: selectedResumeId,
+        jobId: selectedJobId,
+        intent: "general",
+        contextTag: "tailor-edit-passes",
+        displayPrompt: "Running edit pass check…",
+        prompt: [
+          "You are Lex. This is an EDIT PASS check after a manual resume update.",
+          "Compare the updated resume against the selected job analysis.",
+          "Do NOT generate a full tailored resume. This is a manual check.",
+          "Output EXACTLY this format (repeat items as needed):",
+          "EDIT PASSES",
+          "1) Section: <summary | experience | skills | education | projects | certifications | other>",
+          "Current line: \"<verbatim quote from the resume>\"",
+          "Issue: <what is still missing or misaligned>",
+          "Why it matters: <impact on this job>",
+          "Suggested fix: <specific change to make>",
+          "",
+          "Then include:",
+          "NEXT STEPS",
+          "- <short checklist>",
+          "",
+          "Ask 1-2 clarifying questions if needed.",
+          "",
+          "UPDATED RESUME TEXT (source of truth):",
+          "---BEGIN RESUME---",
+          draftResumeText,
+          "---END RESUME---",
+        ].join("\n"),
+      });
+    } catch (err: any) {
+      console.error("Save draft failed:", err);
+      setDraftSaveError(err?.message || "Failed to save draft");
+    } finally {
+      setDraftSaving(false);
     }
   };
 
@@ -276,18 +534,54 @@ export default function TailorResumeInterface({
       return;
     }
     setError(null);
+    openDraftPanel();
     setViewMode("select-level");
   };
 
-  const handleStrategySession = () => {
+  const handleStrategySession = async () => {
     if (!selectedResumeId || !selectedJobId) {
       setError("Please select both a resume and a job analysis");
       return;
     }
-
-    router.push(
-      `/career-studio/lex?mode=strategy&resumeId=${selectedResumeId}&jobId=${selectedJobId}&returnTo=tailor-resume`
-    );
+    setError(null);
+    openDraftPanel();
+    setViewMode("strategy-session");
+    let resumeText = originalResumeText;
+    if (!resumeText) {
+      const loaded = await loadResumeText(selectedResumeId);
+      resumeText = loaded || "";
+    }
+    dispatchLexPrompt({
+      workspace: "tailor",
+      resumeId: selectedResumeId,
+      jobId: selectedJobId,
+      intent: "general",
+      contextTag: "tailor-strategy",
+      displayPrompt: "Starting strategy session…",
+      prompt: [
+        "You are Lex. This is a resume-tailoring STRATEGY session.",
+        "Use the selected resume + job analysis context already available.",
+        "Do NOT generate a full tailored resume. This is strategy only.",
+        "Output EXACTLY this format (repeat items as needed):",
+        "STRATEGY INSIGHTS",
+        "1) Section: <summary | experience | skills | education | projects | certifications | other>",
+        "Current line: \"<verbatim quote from the resume>\"",
+        "Issue: <what's weak or missing>",
+        "Why it matters: <impact on this job>",
+        "Suggested fix: <specific change to make>",
+        "",
+        "Then include:",
+        "NEXT STEPS",
+        "- <short checklist>",
+        "",
+        "Ask 1-2 clarifying questions if needed.",
+        "",
+        "RESUME TEXT (source of truth):",
+        "---BEGIN RESUME---",
+        resumeText || "No resume text available.",
+        "---END RESUME---",
+      ].join("\n"),
+    });
   };
 
   const handleExtractInsightsFromSession = async () => {
@@ -610,6 +904,8 @@ export default function TailorResumeInterface({
       case "select-level":
       case "strategy-session":
         return 2;
+      case "edit-passes":
+        return 3;
       case "processing":
       case "extract-insights":
       case "review":
@@ -907,6 +1203,170 @@ export default function TailorResumeInterface({
             </div>
           )}
 
+          {/* STRATEGY SESSION VIEW */}
+          {viewMode === "strategy-session" && (
+            <div className="space-y-6">
+              <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+                      Lex Strategy Insights
+                    </p>
+                    <h2 className="text-lg font-semibold text-white mt-1">
+                      Resume edits Lex is calling out
+                    </h2>
+                    <p className="text-white/50 text-xs mt-1">
+                      Strategy-only guidance. Edit the master resume on the right.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {strategyInsights.length === 0 ? (
+                <div className="bg-white/[0.02] border border-white/[0.08] rounded-2xl p-6 text-center">
+                  <MessageCircle className="w-8 h-8 text-purple-300 mx-auto mb-3" />
+                  <p className="text-white/70 text-sm">
+                    Lex is preparing strategy insights. Ask follow-ups in chat if needed.
+                  </p>
+                  {strategySummaryText && (
+                    <div className="mt-4 text-left text-[11px] text-white/60 whitespace-pre-wrap">
+                      {strategySummaryText}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {strategyInsights.map((insight, index) => (
+                    <div
+                      key={`${insight.section}-${index}`}
+                      className="bg-white/[0.02] border border-white/[0.08] rounded-2xl p-5"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+                          {insight.section}
+                        </span>
+                        <span className="text-[10px] text-purple-200/70">
+                          Insight {index + 1}
+                        </span>
+                      </div>
+                      <div className="space-y-3 text-[12px] text-white/80">
+                        {insight.quote && (
+                          <div>
+                            <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                              Current line
+                            </span>
+                            <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-white/70">
+                              {insight.quote}
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                            Issue
+                          </span>
+                          {insight.issue}
+                        </div>
+                        <div>
+                          <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                            Why it matters
+                          </span>
+                          {insight.why}
+                        </div>
+                        <div>
+                          <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                            Suggested fix
+                          </span>
+                          {insight.fix}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* EDIT PASSES VIEW */}
+          {viewMode === "edit-passes" && (
+            <div className="space-y-6">
+              <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-5">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+                    Edit Passes
+                  </p>
+                  <h2 className="text-lg font-semibold text-white mt-1">
+                    Check alignment against the job
+                  </h2>
+                  <p className="text-white/50 text-xs mt-1">
+                    This pass flags gaps after your manual edits. Update the draft on the right, then save again.
+                  </p>
+                </div>
+              </div>
+
+              {editPassInsights.length === 0 ? (
+                <div className="bg-white/[0.02] border border-white/[0.08] rounded-2xl p-6 text-center">
+                  <MessageCircle className="w-8 h-8 text-purple-300 mx-auto mb-3" />
+                  <p className="text-white/70 text-sm">
+                    Lex is preparing the edit pass check. Ask follow-ups in chat if needed.
+                  </p>
+                  {editPassSummaryText && (
+                    <div className="mt-4 text-left text-[11px] text-white/60 whitespace-pre-wrap">
+                      {editPassSummaryText}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {editPassInsights.map((insight, index) => (
+                    <div
+                      key={`${insight.section}-${index}`}
+                      className="bg-white/[0.02] border border-white/[0.08] rounded-2xl p-5"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+                          {insight.section}
+                        </span>
+                        <span className="text-[10px] text-purple-200/70">
+                          Pass {index + 1}
+                        </span>
+                      </div>
+                      <div className="space-y-3 text-[12px] text-white/80">
+                        {insight.quote && (
+                          <div>
+                            <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                              Current line
+                            </span>
+                            <div className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-white/70">
+                              {insight.quote}
+                            </div>
+                          </div>
+                        )}
+                        <div>
+                          <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                            Issue
+                          </span>
+                          {insight.issue}
+                        </div>
+                        <div>
+                          <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                            Why it matters
+                          </span>
+                          {insight.why}
+                        </div>
+                        <div>
+                          <span className="text-white/40 uppercase tracking-[0.2em] text-[9px] block mb-1">
+                            Suggested fix
+                          </span>
+                          {insight.fix}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* EXTRACT INSIGHTS VIEW */}
           {viewMode === "extract-insights" && (
             <div className="flex flex-col items-center justify-center py-20 space-y-6">
@@ -1162,6 +1622,28 @@ export default function TailorResumeInterface({
                   </div>
                 </div>
               )}
+
+              {voiceMetadata && voiceMetadata.sufficientData === false && (
+                <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-amber-100">
+                  <div className="text-sm font-semibold">Mirror Mode needs more writing data</div>
+                  <div className="text-xs text-amber-100/80 mt-1">
+                    {voiceMetadata.warnings?.[0] ||
+                      "Your Career + General chambers are still thin. Tailoring may sound generic."}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/60">
+                <span className="uppercase tracking-[0.2em] text-white/40">Voice sources:</span>
+                {voiceSources.map((source) => (
+                  <span
+                    key={source}
+                    className="px-2 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] uppercase tracking-[0.2em]"
+                  >
+                    {source}
+                  </span>
+                ))}
+              </div>
 
               {/* Accept all bar */}
               <div className="flex items-center justify-between gap-3">
@@ -1749,6 +2231,10 @@ function getTailorMicrocopy({
 
   if (viewMode === "strategy-session" || viewMode === "extract-insights") {
     return "Learning your story from conversation—no fabrication, just strategic positioning.";
+  }
+
+  if (viewMode === "edit-passes") {
+    return "Edit passes: check alignment against the job before you generate changes.";
   }
 
   if (viewMode === "processing") {

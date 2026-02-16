@@ -23,9 +23,17 @@ type Props = {
   totalWords: number;
   evolutionHistory: VoiceEvolution[];
   onDocumentClick: (documentId: string) => void;
+  epochs?: Array<{
+    id: string;
+    epoch_number: number | null;
+    started_at: string;
+    ended_at: string | null;
+    reason: string | null;
+    archived_profile_data?: any;
+  }>;
 };
 
-// Confidence milestones
+// Confidence milestones (labels only; no percentages displayed)
 const milestones = [
   { value: 25, label: 'Learning' },
   { value: 45, label: 'Developing' },
@@ -39,9 +47,14 @@ export default function VoiceEvolutionTimeline({
   totalWords,
   evolutionHistory,
   onDocumentClick,
+  epochs = [],
 }: Props) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'timeline' | 'epochs'>('timeline');
+  const confidenceLabel =
+    milestones.find((m) => currentConfidence < m.value)?.label ||
+    milestones[milestones.length - 1].label;
 
   // Sort evolution history by timestamp
   const sortedHistory = useMemo(() => {
@@ -61,6 +74,25 @@ export default function VoiceEvolutionTimeline({
     }));
   }, [sortedHistory]);
 
+  const epochMarkers = useMemo(() => {
+    if (!epochs || epochs.length === 0 || sortedHistory.length === 0) return [];
+    const minTime = new Date(sortedHistory[0].timestamp).getTime();
+    const maxTime = new Date(sortedHistory[sortedHistory.length - 1].timestamp).getTime();
+    if (maxTime <= minTime) return [];
+    return epochs
+      .filter((e) => e.started_at)
+      .map((epoch) => {
+        const t = new Date(epoch.started_at).getTime();
+        const x = ((t - minTime) / (maxTime - minTime)) * 100;
+        return {
+          id: epoch.id,
+          epoch_number: epoch.epoch_number,
+          x: Math.max(0, Math.min(100, x)),
+        };
+      })
+      .filter((m) => m.x >= 0 && m.x <= 100);
+  }, [epochs, sortedHistory]);
+
   // Format date for display
   const formatDate = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -70,6 +102,34 @@ export default function VoiceEvolutionTimeline({
     });
   };
 
+  const epochData = useMemo(() => {
+    if (!epochs || epochs.length === 0) return [];
+    return [...epochs]
+      .sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+      .map((epoch, index, list) => {
+        const snapshot = epoch.archived_profile_data || {};
+        const chambers = snapshot?.chambers || [];
+        const previous = index > 0 ? list[index - 1] : null;
+        const prevSnapshot = previous?.archived_profile_data || null;
+        const prevChambers = prevSnapshot?.chambers || [];
+        const deltaMap = ['career', 'academic', 'creative', 'general'].map((key) => {
+          const curr = chambers.find((c: any) => c.chamber === key) || {};
+          const prev = prevChambers.find((c: any) => c.chamber === key) || {};
+          const currCount = curr.document_count || 0;
+          const prevCount = prev.document_count || 0;
+          return {
+            chamber: key,
+            delta: currCount - prevCount,
+            current: currCount,
+          };
+        });
+        return {
+          ...epoch,
+          deltaMap,
+        };
+      });
+  }, [epochs]);
+
   // Format change tags for display
   const formatChange = (change: string) => {
     return change.split('-').map(word =>
@@ -77,10 +137,18 @@ export default function VoiceEvolutionTimeline({
     ).join(' ');
   };
 
-  const isLiveArtifact = (documentId: string) => documentId.startsWith('live-lex-chat-');
+  const isLiveArtifact = (documentId: string) => documentId.startsWith('live-') || documentId.startsWith('capture-');
+  const getSourceLabel = (documentId: string) => (isLiveArtifact(documentId) ? 'Studio capture' : 'Upload');
   const getDisplayName = (name: string, writingType: string) => {
     if (name && name !== 'Unknown') return name;
     return `${getWritingTypeAbbrev(writingType)} Sample`;
+  };
+  const getChamberLabel = (writingType: string) => {
+    if (writingType === 'professional') return 'Career';
+    if (writingType === 'academic') return 'Academic';
+    if (writingType === 'creative') return 'Creative';
+    if (writingType === 'general') return 'General';
+    return 'General';
   };
 
   return (
@@ -89,8 +157,8 @@ export default function VoiceEvolutionTimeline({
       <div className="stats-bar" onClick={() => setIsExpanded(!isExpanded)}>
         <div className="stat-group">
           <div className="stat">
-            <div className="stat-value">{currentConfidence}%</div>
-            <div className="stat-label">Confidence</div>
+            <div className="stat-value">{confidenceLabel}</div>
+            <div className="stat-label">Voice Strength</div>
           </div>
           <div className="stat-divider" />
           <div className="stat">
@@ -123,9 +191,58 @@ export default function VoiceEvolutionTimeline({
       {/* Expanded Content */}
       {isExpanded && (
         <div className="expanded-content">
+          <div className="view-toggle">
+            <button
+              className={viewMode === 'timeline' ? 'toggle active' : 'toggle'}
+              type="button"
+              onClick={() => setViewMode('timeline')}
+            >
+              Timeline
+            </button>
+            <button
+              className={viewMode === 'epochs' ? 'toggle active' : 'toggle'}
+              type="button"
+              onClick={() => setViewMode('epochs')}
+            >
+              Epoch Deltas
+            </button>
+          </div>
+
+          {viewMode === 'epochs' && (
+            <div className="epoch-view">
+              <h4 className="graph-title">Chamber Deltas by Epoch</h4>
+              {epochData.length === 0 ? (
+                <div className="empty-graph">No epoch snapshots yet.</div>
+              ) : (
+                <div className="epoch-grid">
+                  {epochData.map((epoch) => (
+                    <div key={epoch.id} className="epoch-card">
+                      <div className="epoch-title">
+                        {epoch.epoch_number ? `Epoch ${epoch.epoch_number}` : 'Epoch'}
+                      </div>
+                      <div className="epoch-date">{formatDate(epoch.started_at)}</div>
+                      <div className="epoch-chambers">
+                        {epoch.deltaMap.map((row) => (
+                          <div key={row.chamber} className="epoch-row">
+                            <span className="epoch-label">{row.chamber}</span>
+                            <span className="epoch-delta">
+                              {row.delta >= 0 ? `+${row.delta}` : row.delta}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {viewMode === 'timeline' && (
+          <>
           {/* Graph Section */}
           <div className="graph-section">
-            <h4 className="graph-title">Voice Confidence Over Time</h4>
+            <h4 className="graph-title">Voice Evolution Over Time</h4>
 
             {graphData.length > 0 ? (
               <div className="graph-wrapper">
@@ -145,8 +262,27 @@ export default function VoiceEvolutionTimeline({
                         y={100 - m.value - 1}
                         className="milestone-label"
                       >
-                        {m.value}%
+                        {m.label}
                       </text>
+                    </g>
+                  ))}
+
+                  {/* Epoch markers */}
+                  {epochMarkers.map((marker) => (
+                    <g key={marker.id}>
+                      <line
+                        x1={marker.x}
+                        y1="0"
+                        x2={marker.x}
+                        y2="100"
+                        className="epoch-marker"
+                      />
+                      {marker.epoch_number && (
+                        <text x={marker.x + 1} y="6" className="epoch-label">
+                          E{marker.epoch_number}
+                        </text>
+                      )}
+                      <title>{marker.epoch_number ? `Epoch ${marker.epoch_number}` : 'Epoch'}</title>
                     </g>
                   ))}
 
@@ -250,10 +386,13 @@ export default function VoiceEvolutionTimeline({
                       </div>
 
                       <div className="event-meta">
-                        <span className={`confidence-change ${event.confidenceDelta >= 0 ? 'positive' : 'negative'}`}>
-                          {event.confidenceDelta >= 0 ? '+' : ''}{event.confidenceDelta.toFixed(1)}%
-                        </span>
-                        <span className="confidence-total">→ {event.confidenceLevel}%</span>
+                        <span className="confidence-change neutral">Voice shift recorded</span>
+                        <span className="confidence-total">{getSourceLabel(event.documentId)}</span>
+                        <span className="confidence-total">{getWritingTypeLabel(event.writingType)}</span>
+                        <span className="confidence-total">{getChamberLabel(event.writingType)} chamber</span>
+                        {event.changesMade && event.changesMade.length > 0 && (
+                          <span className="confidence-total">{event.changesMade.slice(0, 1).join(', ')}</span>
+                        )}
                       </div>
 
                       {event.changesMade && event.changesMade.length > 0 && (
@@ -277,16 +416,19 @@ export default function VoiceEvolutionTimeline({
                               </span>
                             </div>
                             <div className="event-detail">
-                              <span className="event-detail-label">Confidence Delta</span>
-                              <span className="event-detail-value">
-                                {event.confidenceDelta >= 0 ? '+' : ''}
-                                {event.confidenceDelta.toFixed(1)}%
-                              </span>
+                              <span className="event-detail-label">Voice Shift</span>
+                              <span className="event-detail-value">Recorded</span>
                             </div>
                             <div className="event-detail">
                               <span className="event-detail-label">Total Documents</span>
                               <span className="event-detail-value">
                                 {event.totalDocuments}
+                              </span>
+                            </div>
+                            <div className="event-detail">
+                              <span className="event-detail-label">Chamber Delta</span>
+                              <span className="event-detail-value">
+                                {getChamberLabel(event.writingType)} +1 doc
                               </span>
                             </div>
                             <div className="event-detail">
@@ -335,6 +477,8 @@ export default function VoiceEvolutionTimeline({
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       )}
 
@@ -428,6 +572,78 @@ export default function VoiceEvolutionTimeline({
           animation: slideDown 0.3s ease;
         }
 
+        .view-toggle {
+          display: flex;
+          gap: 0.4rem;
+          margin-bottom: 1rem;
+        }
+
+        .toggle {
+          border: 1px solid rgba(192, 192, 192, 0.2);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 0.7rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          padding: 0.35rem 0.75rem;
+          border-radius: 999px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .toggle.active {
+          background: rgba(192, 192, 192, 0.2);
+          color: #fff;
+          border-color: rgba(192, 192, 192, 0.4);
+        }
+
+        .epoch-grid {
+          display: grid;
+          gap: 0.75rem;
+        }
+
+        .epoch-card {
+          padding: 0.75rem;
+          border-radius: 0.75rem;
+          background: rgba(0, 0, 0, 0.3);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .epoch-title {
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: #fff;
+        }
+
+        .epoch-date {
+          font-size: 0.7rem;
+          color: rgba(255, 255, 255, 0.5);
+          margin-bottom: 0.4rem;
+        }
+
+        .epoch-chambers {
+          display: grid;
+          gap: 0.3rem;
+        }
+
+        .epoch-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 0.7rem;
+          color: rgba(255, 255, 255, 0.7);
+        }
+
+        .epoch-label {
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+        .epoch-delta {
+          font-weight: 600;
+          color: #c0c0c0;
+        }
+
         @keyframes slideDown {
           from {
             opacity: 0;
@@ -473,6 +689,17 @@ export default function VoiceEvolutionTimeline({
         .graph :global(.milestone-label) {
           font-size: 3px;
           fill: rgba(255, 255, 255, 0.4);
+        }
+
+        .graph :global(.epoch-marker) {
+          stroke: rgba(255, 255, 255, 0.15);
+          stroke-width: 0.4;
+          stroke-dasharray: 1, 2;
+        }
+
+        .graph :global(.epoch-label) {
+          font-size: 3px;
+          fill: rgba(255, 255, 255, 0.35);
         }
 
         .graph :global(.graph-line) {
@@ -614,9 +841,15 @@ export default function VoiceEvolutionTimeline({
           color: #ef4444;
         }
 
+        .confidence-change.neutral {
+          color: rgba(255, 255, 255, 0.7);
+        }
+
         .confidence-total {
-          font-size: 0.8rem;
-          color: rgba(255, 255, 255, 0.5);
+          font-size: 0.7rem;
+          color: rgba(255, 255, 255, 0.55);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
         }
 
         .event-tags {

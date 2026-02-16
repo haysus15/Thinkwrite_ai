@@ -3,8 +3,10 @@ import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractTextFromFile } from "@/lib/mirror-mode/extractText";
+import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
 
 export const runtime = "nodejs";
+const MIRROR_REFERENCE_PATTERN = /syllabus|assignment[_\s-]?requirements?|writing[_\s-]?requirements?|course[_\s-]?requirements?|school[_\s-]?requirements?|job[_\s-]?analysis/i;
 
 export async function POST(request: Request) {
   const { userId, error } = await getAuthUser();
@@ -58,6 +60,52 @@ export async function POST(request: Request) {
       { success: false, error: insertError?.message || "Upload failed." },
       { status: 500 }
     );
+  }
+
+  // Mirror Mode: ingest academic uploads unless they are reference artifacts.
+  const mirrorContext = `study_material_upload ${title || file.name} ${topic || ""}`.trim();
+  const isReferenceArtifact = MIRROR_REFERENCE_PATTERN.test(mirrorContext);
+  if (!isReferenceArtifact) {
+    try {
+      await ingestStudioWriting({
+        supabase,
+        userId,
+        sourceStudio: "academic",
+        text: extractResult.text,
+        sessionId: data.id,
+        context: mirrorContext,
+        fileName: title || file.name,
+        mimeType: file.type || "text/plain",
+        fileSize: file.size || extractResult.text.length,
+        writingType: "academic",
+        registerInArchive: true,
+      });
+    } catch {
+      // Silent fail
+    }
+  }
+
+  // Mirror Mode: Register lineage (best effort)
+  try {
+    await supabase
+      .from("document_lineage")
+      .insert({
+        user_id: userId,
+        original_document_id: data.id,
+        studio_origin: "academic",
+        current_version_id: data.id,
+        version_history: [
+          {
+            version_type: "original",
+            document_id: data.id,
+            source_studio: "academic",
+            document_type: "study_material",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      });
+  } catch (e) {
+    // Silent fail
   }
 
   return NextResponse.json(

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import type { TailoredResumeDB, StructuredResumeContent, ResumeChange } from '@/types/tailored-resume';
+import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
 
 export async function POST(
   request: NextRequest,
@@ -110,6 +111,25 @@ export async function POST(
     }
 
     console.log('✅ Saved as new resume:', savedResume.id);
+
+    // Mirror Mode: accepted tailored output becomes a user-authored career artifact.
+    try {
+      await ingestStudioWriting({
+        supabase,
+        userId,
+        sourceStudio: 'career',
+        text: extractedText,
+        sessionId: savedResume.id,
+        context: 'tailored_resume_saved',
+        fileName,
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        fileSize: extractedText.length,
+        writingType: 'professional',
+        registerInArchive: true,
+      });
+    } catch {
+      // Silent fail
+    }
 
     // Update the tailored_resumes record to mark it as saved
     await supabase

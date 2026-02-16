@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { MathfieldElement } from "mathlive";
+type MathfieldElement = any;
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from "lucide-react";
 import type { MathStep, StepStatus } from "@/types/math-mode";
 
@@ -38,7 +38,9 @@ export default function MathStepEditor({
 
   useEffect(() => {
     if (!containerRef.current || fieldRef.current) return;
-    const mf = new MathfieldElement();
+    const MathfieldElementCtor = (window as any).MathfieldElement;
+    if (!MathfieldElementCtor) return;
+    const mf = new MathfieldElementCtor();
     mf.value = step.latex;
     mf.addEventListener("input", () =>
       onUpdate(step.id, mf.value, step.reasoning)

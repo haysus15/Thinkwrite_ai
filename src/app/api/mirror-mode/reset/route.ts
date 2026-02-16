@@ -1,5 +1,5 @@
 // src/app/api/mirror-mode/reset/route.ts
-// POST endpoint for completely resetting user's voice profile
+// POST endpoint for epoch-based reset (no hard deletes)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
@@ -18,49 +18,89 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. Get all document IDs and storage paths for this user
-    const { data: documents } = await supabase
-      .from('mirror_documents')
-      .select('id, storage_path')
-      .eq('user_id', user.id);
+    const now = new Date().toISOString();
 
-    const documentIds = documents?.map(d => d.id) || [];
-    const storagePaths = documents?.map(d => d.storage_path).filter(Boolean) || [];
+    // ---- ARCHIVE CURRENT EPOCH ----
+    const { data: profile } = await supabase
+      .from('voice_profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle();
 
-    // 2. Delete all files from storage
-    if (storagePaths.length > 0) {
-      const { error: storageError } = await supabase.storage
-        .from('user-documents')
-        .remove(storagePaths);
+    const { data: currentEpochRow } = await supabase
+      .from('voice_profile_epochs')
+      .select('id, epoch_number, started_at')
+      .eq('user_id', user.id)
+      .is('ended_at', null)
+      .order('epoch_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-      if (storageError) {
-        console.error('Storage delete error:', storageError);
-        // Continue with database deletion even if storage fails
-      }
+    const currentEpochNumber = currentEpochRow?.epoch_number || 1;
+
+    let chambersSnapshot: any[] = [];
+    try {
+      const { data: chamberRows } = await supabase
+        .from('voice_profiles_chambers')
+        .select('*')
+        .eq('user_id', user.id);
+      chambersSnapshot = chamberRows || [];
+    } catch {
+      chambersSnapshot = [];
     }
 
-    // 3. Delete all document content
-    if (documentIds.length > 0) {
-      const { error: contentDeleteError } = await supabase
-        .from('mirror_document_content')
-        .delete()
-        .in('document_id', documentIds);
+    const archivedProfileData = {
+      archivedAt: now,
+      profile,
+      chambers: chambersSnapshot,
+    };
 
-      if (contentDeleteError) {
-        console.error('Content delete error:', contentDeleteError);
-      }
+    if (currentEpochRow) {
+      await supabase
+        .from('voice_profile_epochs')
+        .update({
+          ended_at: now,
+          archived_profile_data: archivedProfileData,
+          reason: 'user_reset',
+        })
+        .eq('id', currentEpochRow.id);
+    } else {
+      // If no epoch exists, create and immediately close the first epoch
+      await supabase
+        .from('voice_profile_epochs')
+        .insert({
+          user_id: user.id,
+          epoch_number: currentEpochNumber,
+          started_at: profile?.created_at || now,
+          ended_at: now,
+          archived_profile_data: archivedProfileData,
+          reason: 'user_reset',
+        });
     }
 
-    // 4. Delete all documents
-    const { error: docsDeleteError } = await supabase
+    // ---- START NEW EPOCH ----
+    await supabase
+      .from('voice_profile_epochs')
+      .insert({
+        user_id: user.id,
+        epoch_number: currentEpochNumber + 1,
+        started_at: now,
+      });
+
+    // ---- HIDE CURRENT DOCUMENTS (NO HARD DELETE) ----
+    const { error: docsHideError } = await supabase
       .from('mirror_documents')
-      .delete()
+      .update({
+        deleted_at: now,
+        visibility_status: 'hidden',
+        epoch_number: currentEpochNumber,
+      })
       .eq('user_id', user.id);
 
-    if (docsDeleteError) {
-      console.error('Documents delete error:', docsDeleteError);
+    if (docsHideError) {
+      console.error('Documents hide error:', docsHideError);
       return NextResponse.json(
-        { error: 'Failed to delete documents' },
+        { error: 'Failed to hide documents (schema upgrade required?)' },
         { status: 500 }
       );
     }
@@ -137,7 +177,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       success: true,
       message: 'Voice profile has been reset',
-      deletedDocuments: documentIds.length
+      newEpoch: currentEpochNumber + 1
     });
 
   } catch (error) {

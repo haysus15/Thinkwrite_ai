@@ -2,7 +2,7 @@
 
 import type { MathStep } from "@/types/math-mode";
 import MathStepEditor from "./MathStepEditor";
-import { MathfieldElement } from "mathlive";
+type MathfieldElement = any;
 
 export default function MathStepCanvas({
   steps,

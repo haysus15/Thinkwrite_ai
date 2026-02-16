@@ -6,6 +6,56 @@ import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import type { ResumeChange } from '@/types/tailored-resume';
 
+type LineageVersionType = 'user_accepted' | 'user_rejected' | 'user_modified';
+
+async function appendLineageDecision(params: {
+  supabase: ReturnType<typeof createSupabaseAdmin>;
+  userId: string;
+  masterResumeId?: string | null;
+  versionType: LineageVersionType;
+  changesMade: any;
+}) {
+  const { supabase, userId, masterResumeId, versionType, changesMade } = params;
+  if (!masterResumeId) return;
+
+  const { data: lineage } = await supabase
+    .from('document_lineage')
+    .select('id, version_history, editorial_decisions')
+    .eq('user_id', userId)
+    .eq('original_document_id', masterResumeId)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!lineage?.id) return;
+
+  const nextHistory = Array.isArray(lineage.version_history)
+    ? [...lineage.version_history]
+    : [];
+  nextHistory.push({
+    version_type: versionType,
+    content_snapshot: null,
+    changes_made: changesMade || null,
+    created_at: new Date().toISOString(),
+  });
+
+  const nextEditorial = lineage.editorial_decisions || {};
+  const decisionList = nextEditorial[versionType] || [];
+  nextEditorial[versionType] = [
+    ...decisionList,
+    { changes_made: changesMade || null, at: new Date().toISOString() },
+  ];
+
+  await supabase
+    .from('document_lineage')
+    .update({
+      version_history: nextHistory,
+      editorial_decisions: nextEditorial,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', lineage.id);
+}
+
 // PATCH: Update a single change's status (accept or reject)
 export async function PATCH(
   request: NextRequest,
@@ -34,7 +84,7 @@ export async function PATCH(
     // Fetch current tailored resume - verify ownership
     const { data: tailoredResume, error: fetchError } = await supabase
       .from('tailored_resumes')
-      .select('changes, changes_accepted, changes_rejected, changes_pending')
+      .select('changes, changes_accepted, changes_rejected, changes_pending, master_resume_id')
       .eq('id', tailoredResumeId)
       .eq('user_id', userId)
       .single();
@@ -58,6 +108,7 @@ export async function PATCH(
     }
 
     const previousStatus = changes[changeIndex].status;
+    const changeSnapshot = changes[changeIndex];
     
     // Update the change
     changes[changeIndex] = {
@@ -110,6 +161,29 @@ export async function PATCH(
       );
     }
 
+    // Mirror Mode lineage update (best effort)
+    try {
+      const versionType = status === 'accepted' ? 'user_accepted' : 'user_rejected';
+      await appendLineageDecision({
+        supabase,
+        userId,
+        masterResumeId: tailoredResume.master_resume_id,
+        versionType,
+        changesMade: {
+          changeId,
+          previousStatus,
+          status,
+          section: changeSnapshot.section,
+          original: changeSnapshot.original,
+          tailored: changeSnapshot.tailored,
+          reason: changeSnapshot.reason,
+          impact: changeSnapshot.impact,
+        },
+      });
+    } catch {
+      // Silent fail
+    }
+
     return NextResponse.json({
       success: true,
       change: changes[changeIndex],
@@ -153,7 +227,7 @@ export async function POST(
     // Fetch current tailored resume - verify ownership
     const { data: tailoredResume, error: fetchError } = await supabase
       .from('tailored_resumes')
-      .select('changes')
+      .select('changes, master_resume_id')
       .eq('id', tailoredResumeId)
       .eq('user_id', userId)
       .single();
@@ -225,6 +299,39 @@ export async function POST(
         { error: 'Failed to update changes' },
         { status: 500 }
       );
+    }
+
+    // Mirror Mode lineage update (best effort)
+    try {
+      const actionType =
+        action === 'acceptAll' || action === 'acceptSelected'
+          ? 'user_accepted'
+          : 'user_rejected';
+      const affectedIds = changeIds?.length
+        ? changeIds
+        : updatedChanges.filter(c => c.status !== 'pending').map(c => c.id);
+      const affectedChanges = updatedChanges.filter(c => affectedIds.includes(c.id));
+      await appendLineageDecision({
+        supabase,
+        userId,
+        masterResumeId: tailoredResume.master_resume_id,
+        versionType: actionType,
+        changesMade: {
+          action,
+          changeIds: affectedIds,
+          changes: affectedChanges.map(c => ({
+            id: c.id,
+            section: c.section,
+            original: c.original,
+            tailored: c.tailored,
+            reason: c.reason,
+            impact: c.impact,
+            status: c.status,
+          })),
+        },
+      });
+    } catch {
+      // Silent fail
     }
 
     return NextResponse.json({

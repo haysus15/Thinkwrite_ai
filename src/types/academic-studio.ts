@@ -5,7 +5,8 @@ export type VictorMode =
   | "idea_expansion"
   | "challenge"
   | "study"
-  | "math";
+  | "math"
+  | "coding_review";
 
 export interface VictorSessionSummary {
   id: string;

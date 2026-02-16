@@ -21,6 +21,11 @@ export default function PaperGenerator({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [guardrails, setGuardrails] = useState<{
+    sufficientData: boolean;
+    warnings: string[];
+  } | null>(null);
+  const [voiceSources, setVoiceSources] = useState<string[]>([]);
 
   const handleGenerate = async () => {
     if (!outlineId) return;
@@ -41,9 +46,11 @@ export default function PaperGenerator({
       });
       const data = await response.json();
       if (!response.ok) {
+        setGuardrails(data.guardrails || null);
         throw new Error(data.error || "Generation failed.");
       }
       setStatus("Draft ready. Move to checkpoint.");
+      setGuardrails(data.guardrails || null);
       onContinue(data.paperId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed.");
@@ -51,6 +58,38 @@ export default function PaperGenerator({
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    const fetchSources = async () => {
+      try {
+        const response = await fetch("/api/voice-profile/gatekeeper", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requesting_studio: "academic",
+            context: "paper_generator",
+            requested_chambers: ["academic", "general", "overall"],
+          }),
+        });
+        const data = await response.json();
+        if (!active) return;
+        const sources: string[] = [];
+        const primaryLabel = data?.voice_profile?.primary_chamber;
+        if (primaryLabel) sources.push(primaryLabel);
+        if (data?.voice_profile?.general) sources.push("general");
+        if (data?.voice_profile?.overall) sources.push("overall");
+        setVoiceSources(sources.length ? sources : ["standard"]);
+      } catch {
+        if (!active) return;
+        setVoiceSources(["standard"]);
+      }
+    };
+    fetchSources();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -64,6 +103,17 @@ export default function PaperGenerator({
         <p className="mt-3 text-sm text-slate-400">
           Mirror Mode voice confidence must be above 50 before generation.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-300">
+          <span className="uppercase tracking-[0.2em] text-slate-500">Voice sources:</span>
+          {voiceSources.map((source) => (
+            <span
+              key={source}
+              className="rounded border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.2em]"
+            >
+              {source}
+            </span>
+          ))}
+        </div>
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-4">
             <p className="text-xs uppercase tracking-[0.2em] text-slate-400">

@@ -13,8 +13,10 @@ import {
   dispatchResumeUpdated,
   dispatchRecruiterReview,
   dispatchQuoteReview,
+  dispatchStrategySummary,
   type LexPromptPayload,
 } from '@/lib/career-studio/lexBus';
+import BlendConsentModal from '@/components/mirror-mode/BlendConsentModal';
 
 interface Message {
   id: string;
@@ -84,15 +86,95 @@ export default function LexSidebarUnified({
   const [previewRevisionText, setPreviewRevisionText] = useState<string | null>(null);
   const [importingBuilderDraft, setImportingBuilderDraft] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [guardrails, setGuardrails] = useState<{
+    sufficientData: boolean;
+    warnings: string[];
+    blendRequired?: boolean;
+    blendDenied?: string[];
+    primaryChamber?: string;
+  } | null>(null);
+  const [showBlendConsent, setShowBlendConsent] = useState(false);
+  const [voiceSources, setVoiceSources] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastModeRef = useRef<WorkspaceView | null>(null);
   const messagesRef = useRef<Message[]>(messages);
   const suppressModeMessageRef = useRef(false);
   const currentIntentRef = useRef<LexPromptPayload['intent']>(undefined);
+  const pendingSummaryRef = useRef<LexPromptPayload['contextTag'] | null>(null);
+  const pendingSummaryMetaRef = useRef<{ resumeId?: string; jobId?: string } | null>(null);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  const fetchGuardrails = useCallback(async () => {
+    try {
+      const response = await fetch('/api/voice-profile/gatekeeper', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requesting_studio: 'career',
+          context: workspaceState.currentView,
+          requested_chambers: ['career', 'general', 'overall'],
+        }),
+      });
+      const data = await response.json();
+      if (data?.warnings && data?.sufficient_data !== undefined) {
+        setGuardrails({
+          sufficientData: Boolean(data.sufficient_data),
+          warnings: data.warnings || [],
+          blendRequired: Boolean(data?.blend?.required),
+          blendDenied: data?.blend?.denied || [],
+          primaryChamber: data?.voice_profile?.primary_chamber || null,
+        });
+        const sources: string[] = [];
+        const primaryLabel = data?.voice_profile?.primary_chamber;
+        if (primaryLabel) sources.push(primaryLabel);
+        if (data?.voice_profile?.general) sources.push('general');
+        if (data?.voice_profile?.overall) sources.push('overall');
+        setVoiceSources(sources);
+      }
+    } catch {
+      setGuardrails(null);
+      setVoiceSources([]);
+    }
+  }, [workspaceState.currentView]);
+
+  useEffect(() => {
+    fetchGuardrails();
+  }, [fetchGuardrails]);
+
+  const handleApproveBlend = async () => {
+    if (!guardrails?.blendDenied?.length || !guardrails.primaryChamber) return;
+    try {
+      await Promise.all(
+        guardrails.blendDenied.map((from) =>
+          fetch("/api/mirror-mode/consent/blending", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from_chamber: from,
+              to_chamber: guardrails.primaryChamber,
+              scope: "session",
+              expires_in_days: 1,
+            }),
+          })
+        )
+      );
+      setGuardrails((prev) =>
+        prev
+          ? {
+              ...prev,
+              blendRequired: false,
+              blendDenied: [],
+            }
+          : prev
+      );
+      fetchGuardrails();
+    } catch {
+      // Silent fail
+    }
+  };
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -306,7 +388,14 @@ export default function LexSidebarUnified({
     };
   }, [workspaceState.context.selectedResumeId]);
 
-  const sendLexMessage = useCallback(async (prompt: string, options?: { displayPrompt?: string }) => {
+  const sendLexMessage = useCallback(async (
+    prompt: string,
+    options?: {
+      displayPrompt?: string;
+      contextOverride?: { resumeId?: string; jobId?: string };
+      sessionTypeOverride?: string;
+    }
+  ) => {
     const trimmed = prompt.trim();
     if (!trimmed || isTyping) return;
 
@@ -345,7 +434,8 @@ export default function LexSidebarUnified({
         'resume-builder': 'resume-tailoring'
       };
 
-      const sessionType = sessionTypeMap[workspaceState.currentView] || 'general';
+      const sessionType = options?.sessionTypeOverride || sessionTypeMap[workspaceState.currentView] || 'general';
+      const overrideJobId = options?.contextOverride?.jobId;
 
       const requestMessages = [
         ...messagesRef.current,
@@ -371,7 +461,9 @@ export default function LexSidebarUnified({
           resumeContext: lexResumeContext?.hasResume ? lexResumeContext : undefined,
           resumeAnalysisContext: resumeAnalysisContext || undefined,
           intent: intentForRequest,
-          jobContext: workspaceState.context.selectedJobId
+          jobContext: overrideJobId
+            ? { jobId: overrideJobId }
+            : workspaceState.context.selectedJobId
             ? { jobId: workspaceState.context.selectedJobId }
             : undefined
         })
@@ -392,6 +484,17 @@ export default function LexSidebarUnified({
         };
 
         setMessages((prev) => [...prev, lexMsg]);
+
+        if (pendingSummaryRef.current) {
+          dispatchStrategySummary({
+            resumeId: pendingSummaryMetaRef.current?.resumeId,
+            jobId: pendingSummaryMetaRef.current?.jobId,
+            text: lexMsg.content,
+            contextTag: pendingSummaryRef.current
+          });
+          pendingSummaryRef.current = null;
+          pendingSummaryMetaRef.current = null;
+        }
 
         if (intentForRequest === 'recruiter-review' && workspaceState.context.selectedResumeId) {
           const suggestions = parseRecruiterReviewSuggestions(lexMsg.content);
@@ -455,6 +558,11 @@ export default function LexSidebarUnified({
         });
       }
 
+      if (payload.contextTag === 'tailor-strategy' || payload.contextTag === 'tailor-edit-passes') {
+        pendingSummaryRef.current = payload.contextTag;
+        pendingSummaryMetaRef.current = { resumeId: payload.resumeId, jobId: payload.jobId };
+      }
+
       const promptToSend = payload.intent === 'recruiter-review'
         ? [
             payload.prompt,
@@ -499,13 +607,23 @@ export default function LexSidebarUnified({
           ].join("\n")
         : payload.prompt;
 
-      const displayPrompt = payload.intent === 'recruiter-review'
+      const displayPrompt = payload.displayPrompt
+        ? payload.displayPrompt
+        : payload.intent === 'recruiter-review'
         ? "Reviewing your resume now…"
         : payload.intent === 'quote-review'
         ? "Reviewing quote-level feedback…"
         : payload.prompt;
 
-      void sendLexMessage(promptToSend, { displayPrompt });
+      const sessionTypeOverride =
+        payload.contextTag === 'tailor-strategy' || payload.contextTag === 'tailor-edit-passes'
+          ? 'resume-tailoring'
+          : undefined;
+      void sendLexMessage(promptToSend, {
+        displayPrompt,
+        contextOverride: { resumeId: payload.resumeId, jobId: payload.jobId },
+        sessionTypeOverride
+      });
     };
 
     return subscribeToLexPrompts(handleExternalPrompt);
@@ -637,6 +755,38 @@ export default function LexSidebarUnified({
             {workspaceState.currentView.replace('-', ' ')}
           </span>
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] text-white/40 uppercase tracking-wider">Voice sources:</span>
+          {(voiceSources.length > 0 ? voiceSources : ['standard']).map((source) => (
+            <span
+              key={source}
+              className="px-2 py-0.5 rounded text-[10px] uppercase tracking-[0.2em] border border-white/10 bg-white/5 text-white/60"
+            >
+              {source}
+            </span>
+          ))}
+        </div>
+        {guardrails && guardrails.blendRequired && (
+          <div className="mt-2 rounded-lg border border-purple-400/40 bg-purple-500/10 px-3 py-2 text-[11px] text-purple-100">
+            Cross-chamber blending needs explicit consent.
+            <div className="mt-1 text-[10px] text-purple-100/80">
+              Ursie will only blend voices when you say yes.
+            </div>
+            <a
+              href="/mirror-mode"
+              className="mt-2 inline-flex text-[10px] uppercase tracking-[0.2em] text-purple-100/80 underline underline-offset-4"
+            >
+              Open Mirror Mode
+            </a>
+            <button
+              type="button"
+              onClick={() => setShowBlendConsent(true)}
+              className="mt-2 w-full rounded-md border border-purple-300/40 bg-purple-500/20 px-2 py-1 text-[10px] uppercase tracking-[0.2em] text-purple-100 hover:bg-purple-500/30"
+            >
+              Review consent
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
@@ -723,6 +873,18 @@ export default function LexSidebarUnified({
 
         <div ref={messagesEndRef} />
       </div>
+
+      {showBlendConsent && guardrails?.blendDenied?.length && guardrails.primaryChamber && (
+        <BlendConsentModal
+          fromChambers={guardrails.blendDenied}
+          toChamber={guardrails.primaryChamber}
+          onClose={() => setShowBlendConsent(false)}
+          onApprove={async () => {
+            await handleApproveBlend();
+            setShowBlendConsent(false);
+          }}
+        />
+      )}
 
       {/* Quick Actions */}
       <div className="px-4 pb-2 flex-shrink-0">

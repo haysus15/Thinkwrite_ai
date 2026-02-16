@@ -102,6 +102,32 @@ Return JSON: {
     );
   }
 
+  // Mirror Mode: Do not ingest syllabus text into voice/archive.
+  // Syllabi are reference documents, not authored writing samples.
+
+  // Mirror Mode: Register lineage (best effort)
+  try {
+    await supabase
+      .from("document_lineage")
+      .insert({
+        user_id: userId,
+        original_document_id: data.id,
+        studio_origin: "academic",
+        current_version_id: data.id,
+        version_history: [
+          {
+            version_type: "original",
+            document_id: data.id,
+            source_studio: "academic",
+            document_type: "syllabus",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      });
+  } catch (e) {
+    // Silent fail
+  }
+
   return NextResponse.json(
     {
       success: true,

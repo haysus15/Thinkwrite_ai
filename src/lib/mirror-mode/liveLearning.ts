@@ -5,6 +5,7 @@
 export type LearningSource =
   | 'cover-letter'
   | 'lex-chat'
+  | 'coding-review'
   | 'resume-upload'
   | 'resume-builder'
   | 'tailored-resume'
@@ -19,12 +20,14 @@ export type LearnOptions = {
     documentId?: string;
     title?: string;
     context?: string;
+    writingType?: string;
   };
 };
 
 const SOURCE_NAME: Record<LearningSource, string> = {
   'cover-letter': 'Cover Letter',
   'lex-chat': 'Lex Chat',
+  'coding-review': 'Coding Review',
   'resume-upload': 'Resume Upload',
   'resume-builder': 'Resume Builder',
   'tailored-resume': 'Tailored Resume',
@@ -34,12 +37,13 @@ const SOURCE_NAME: Record<LearningSource, string> = {
 
 const SOURCE_WRITING_TYPE: Record<LearningSource, string> = {
   'cover-letter': 'professional',
-  'lex-chat': 'personal',
+  'lex-chat': 'general',
+  'coding-review': 'academic',
   'resume-upload': 'professional',
   'resume-builder': 'professional',
   'tailored-resume': 'professional',
-  'manual-upload': 'professional',
-  'other': 'professional',
+  'manual-upload': 'general',
+  'other': 'general',
 };
 
 /**
@@ -124,6 +128,7 @@ export async function learnFromTextDirect(
   const { createClient } = await import('@supabase/supabase-js');
   const { extractVoiceFingerprint } = await import('./voiceAnalysis');
   const { aggregateFingerprints, getConfidenceLabel } = await import('./voiceAggregation');
+  const { mapWritingTypeToChamber } = await import('./writingTypes');
 
   const { userId, text, source, metadata } = options;
 
@@ -131,6 +136,7 @@ export async function learnFromTextDirect(
   const minWords: Record<LearningSource, number> = {
     'cover-letter': 50,
     'lex-chat': 20,
+    'coding-review': 20,
     'resume-upload': 50,
     'resume-builder': 30,
     'tailored-resume': 50,
@@ -152,13 +158,19 @@ export async function learnFromTextDirect(
     );
 
     // Check settings
-    const { data: settings } = await supabase
-      .from('mirror_mode_settings')
-      .select('live_learning_enabled, learning_sources')
-      .eq('user_id', userId)
-      .single();
-
-    const isEnabled = settings?.live_learning_enabled ?? true;
+    let isEnabled = true;
+    try {
+      const { data: settings, error: settingsError } = await supabase
+        .from('mirror_mode_settings')
+        .select('live_learning_enabled, learning_sources')
+        .eq('user_id', userId)
+        .single();
+      if (!settingsError) {
+        isEnabled = settings?.live_learning_enabled ?? true;
+      }
+    } catch {
+      isEnabled = true;
+    }
     if (!isEnabled) {
       return { learned: false, error: 'Live learning disabled' };
     }
@@ -190,7 +202,7 @@ export async function learnFromTextDirect(
     const documentId = metadata?.documentId || `live-${source}-${Date.now()}`;
     const documentMeta = {
       fileName: metadata?.title || SOURCE_NAME[source],
-      writingType: SOURCE_WRITING_TYPE[source],
+      writingType: metadata?.writingType || SOURCE_WRITING_TYPE[source],
       wordCount,
     };
     const updatedProfile = aggregateFingerprints(existingProfile, fingerprint, documentId, documentMeta);
@@ -212,6 +224,70 @@ export async function learnFromTextDirect(
 
     if (upsertError) {
       return { learned: false, error: upsertError.message };
+    }
+
+    // Best-effort chamber profile update
+    try {
+      const chamber = mapWritingTypeToChamber(documentMeta.writingType);
+      const { data: existingChamberRow } = await supabase
+        .from('voice_profiles_chambers')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('chamber', chamber)
+        .maybeSingle();
+
+      let existingChamberProfile = null;
+      if (existingChamberRow) {
+        existingChamberProfile = {
+          userId: existingChamberRow.user_id,
+          aggregateFingerprint: existingChamberRow.aggregate_fingerprint,
+          confidenceLevel: existingChamberRow.confidence_level || 0,
+          documentCount: existingChamberRow.document_count || 0,
+          totalWordCount: existingChamberRow.total_word_count || 0,
+          lastTrainedAt: existingChamberRow.last_trained_at || new Date().toISOString(),
+          evolutionHistory: existingChamberRow.evolution_history || [],
+        };
+      }
+
+      const updatedChamberProfile = aggregateFingerprints(
+        existingChamberProfile,
+        fingerprint,
+        documentId,
+        documentMeta
+      );
+      updatedChamberProfile.userId = userId;
+
+      await supabase
+        .from('voice_profiles_chambers')
+        .upsert({
+          user_id: userId,
+          chamber,
+          aggregate_fingerprint: updatedChamberProfile.aggregateFingerprint,
+          confidence_level: updatedChamberProfile.confidenceLevel,
+          document_count: updatedChamberProfile.documentCount,
+          total_word_count: updatedChamberProfile.totalWordCount,
+          last_trained_at: updatedChamberProfile.lastTrainedAt,
+          evolution_history: updatedChamberProfile.evolutionHistory,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,chamber' });
+
+      await supabase
+        .from('voice_profiles_chambers')
+        .upsert({
+          user_id: userId,
+          chamber: 'overall',
+          aggregate_fingerprint: updatedProfile.aggregateFingerprint,
+          confidence_level: updatedProfile.confidenceLevel,
+          document_count: updatedProfile.documentCount,
+          total_word_count: updatedProfile.totalWordCount,
+          last_trained_at: updatedProfile.lastTrainedAt,
+          evolution_history: updatedProfile.evolutionHistory,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,chamber' });
+    } catch (err: any) {
+      if (!String(err?.message || '').includes('does not exist')) {
+        console.warn('Chamber profile update skipped:', err?.message || err);
+      }
     }
 
     // Log activity

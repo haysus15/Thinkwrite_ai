@@ -212,33 +212,33 @@ export default function OnboardingTour({ isFirstTime, onComplete, onUploadClick 
             <div className={styles.meterLegend}>
               <div className={styles.legendItem}>
                 <span className={`${styles.legendDot} ${styles.dot1}`} />
-                <span className={styles.legendLabel}>0-24%</span>
+                <span className={styles.legendLabel}>Initializing</span>
                 <span className={styles.legendName}>Initializing</span>
               </div>
               <div className={styles.legendItem}>
                 <span className={`${styles.legendDot} ${styles.dot2}`} />
-                <span className={styles.legendLabel}>25-44%</span>
+                <span className={styles.legendLabel}>Learning</span>
                 <span className={styles.legendName}>Learning</span>
               </div>
               <div className={styles.legendItem}>
                 <span className={`${styles.legendDot} ${styles.dot3}`} />
-                <span className={styles.legendLabel}>45-64%</span>
+                <span className={styles.legendLabel}>Developing</span>
                 <span className={styles.legendName}>Developing</span>
               </div>
               <div className={`${styles.legendItem} ${styles.legendItemHighlight}`}>
                 <span className={`${styles.legendDot} ${styles.dot4}`} />
-                <span className={styles.legendLabel}>65-84%</span>
+                <span className={styles.legendLabel}>Confident</span>
                 <span className={styles.legendName}>Confident</span>
               </div>
               <div className={styles.legendItem}>
                 <span className={`${styles.legendDot} ${styles.dot5}`} />
-                <span className={styles.legendLabel}>85-100%</span>
+                <span className={styles.legendLabel}>Mastered</span>
                 <span className={styles.legendName}>Mastered</span>
               </div>
             </div>
           </div>
           <p className={styles.hintText}>
-            At 65%+, your voice is ready for use across all ThinkWrite studios.
+            When your voice is confident, studios can draw from it with precision.
           </p>
         </div>
       ),

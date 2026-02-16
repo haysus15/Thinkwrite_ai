@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { MathfieldElement } from "mathlive";
+type MathfieldElement = any;
 import MathSymbolPalette from "./MathSymbolPalette";
 import MathLatexDisplay from "./MathLatexDisplay";
 
@@ -21,7 +21,9 @@ export default function MathProblemInput({
 
   useEffect(() => {
     if (!containerRef.current || fieldRef.current) return;
-    const mf = new MathfieldElement();
+    const MathfieldElementCtor = (window as any).MathfieldElement;
+    if (!MathfieldElementCtor) return;
+    const mf = new MathfieldElementCtor();
     mf.value = latex;
     mf.addEventListener("input", () => onLatexChange(mf.value));
     mf.addEventListener("focus", () => onActiveFieldChange(mf));

@@ -6,6 +6,7 @@ import { getAuthUser } from '@/lib/auth/getAuthUser';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { Errors } from '@/lib/api/errors';
 import { extractVoiceFingerprint, describeVoice } from '@/lib/mirror-mode/voiceAnalysis';
+import { mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
 import {
   aggregateFingerprints,
   calculateConfidence,
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
 
     // ---- GET DOCUMENT TEXT ----
     let extractedText: string;
+    let writingType: string = 'general';
 
     if (text) {
       // Direct text input (for testing)
@@ -69,6 +71,14 @@ export async function POST(req: NextRequest) {
       }
 
       extractedText = contentRow.extracted_text;
+
+      // Fetch writing type for chamber mapping
+      const { data: docRow } = await supabase
+        .from('mirror_documents')
+        .select('writing_type')
+        .eq('id', documentId)
+        .maybeSingle();
+      writingType = docRow?.writing_type || 'general';
     }
 
     // ---- MINIMUM TEXT CHECK ----
@@ -113,7 +123,12 @@ export async function POST(req: NextRequest) {
     const updatedProfile = aggregateFingerprints(
       existingProfile,
       newFingerprint,
-      documentId || 'direct-text'
+      documentId || 'direct-text',
+      {
+        fileName: documentId ? 'Document' : 'Direct Text',
+        writingType,
+        wordCount,
+      }
     );
 
     // Set userId (needed for initial profile creation)
@@ -144,6 +159,70 @@ export async function POST(req: NextRequest) {
         },
         { status: 500 }
       );
+    }
+
+    // Best-effort chamber profile update
+    try {
+      const chamber = mapWritingTypeToChamber(writingType);
+      const { data: existingChamberRow } = await supabase
+        .from('voice_profiles_chambers')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('chamber', chamber)
+        .maybeSingle();
+
+      let existingChamberProfile: VoiceProfile | null = null;
+      if (existingChamberRow) {
+        existingChamberProfile = {
+          userId: existingChamberRow.user_id,
+          aggregateFingerprint: existingChamberRow.aggregate_fingerprint,
+          confidenceLevel: existingChamberRow.confidence_level || 0,
+          documentCount: existingChamberRow.document_count || 0,
+          totalWordCount: existingChamberRow.total_word_count || 0,
+          lastTrainedAt: existingChamberRow.last_trained_at || new Date().toISOString(),
+          evolutionHistory: existingChamberRow.evolution_history || [],
+        };
+      }
+
+      const updatedChamberProfile = aggregateFingerprints(
+        existingChamberProfile,
+        newFingerprint,
+        documentId || 'direct-text',
+        { fileName: documentId ? 'Document' : 'Direct Text', writingType, wordCount }
+      );
+      updatedChamberProfile.userId = userId;
+
+      await supabase
+        .from('voice_profiles_chambers')
+        .upsert({
+          user_id: userId,
+          chamber,
+          aggregate_fingerprint: updatedChamberProfile.aggregateFingerprint,
+          confidence_level: updatedChamberProfile.confidenceLevel,
+          document_count: updatedChamberProfile.documentCount,
+          total_word_count: updatedChamberProfile.totalWordCount,
+          last_trained_at: updatedChamberProfile.lastTrainedAt,
+          evolution_history: updatedChamberProfile.evolutionHistory,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,chamber' });
+
+      await supabase
+        .from('voice_profiles_chambers')
+        .upsert({
+          user_id: userId,
+          chamber: 'overall',
+          aggregate_fingerprint: updatedProfile.aggregateFingerprint,
+          confidence_level: updatedProfile.confidenceLevel,
+          document_count: updatedProfile.documentCount,
+          total_word_count: updatedProfile.totalWordCount,
+          last_trained_at: updatedProfile.lastTrainedAt,
+          evolution_history: updatedProfile.evolutionHistory,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,chamber' });
+    } catch (err: any) {
+      if (!String(err?.message || '').includes('does not exist')) {
+        console.warn('Chamber profile update skipped:', err?.message || err);
+      }
     }
 
     // ---- MARK DOCUMENT AS LEARNED (if documentId provided) ----

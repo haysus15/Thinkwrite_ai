@@ -122,7 +122,12 @@ export default function CoverLetterGenerator({
   const [voiceMetadata, setVoiceMetadata] = useState<{
     usedVoiceProfile: boolean;
     confidenceLevel: number;
+    guardrails?: {
+      sufficientData: boolean;
+      warnings: string[];
+    } | null;
   } | null>(null);
+  const [voiceSources, setVoiceSources] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -133,6 +138,38 @@ export default function CoverLetterGenerator({
   useEffect(() => {
     loadOptions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const fetchSources = async () => {
+      try {
+        const response = await fetch("/api/voice-profile/gatekeeper", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            requesting_studio: "career",
+            context: "cover_letter",
+            requested_chambers: ["career", "general", "overall"],
+          }),
+        });
+        const data = await response.json();
+        if (!active) return;
+        const sources: string[] = [];
+        const primaryLabel = data?.voice_profile?.primary_chamber;
+        if (primaryLabel) sources.push(primaryLabel);
+        if (data?.voice_profile?.general) sources.push("general");
+        if (data?.voice_profile?.overall) sources.push("overall");
+        setVoiceSources(sources.length ? sources : ["standard"]);
+      } catch {
+        if (!active) return;
+        setVoiceSources(["standard"]);
+      }
+    };
+    fetchSources();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Handle extract mode
@@ -706,6 +743,18 @@ export default function CoverLetterGenerator({
                   {coverLetter.scores.overall}%
                 </div>
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/60">
+              <span className="uppercase tracking-[0.2em] text-white/40">Voice sources:</span>
+              {voiceSources.map((source) => (
+                <span
+                  key={source}
+                  className="px-2 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] uppercase tracking-[0.2em]"
+                >
+                  {source}
+                </span>
+              ))}
             </div>
 
             {/* Lex Commentary */}

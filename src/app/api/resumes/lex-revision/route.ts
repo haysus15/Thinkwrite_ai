@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser, createSupabaseAdmin } from "@/lib/auth/getAuthUser";
 import { Errors } from "@/lib/api/errors";
 import ContentAwareEducationalScoringEngine from "@/lib/educational-scoring-engine";
+import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
 
 const scoringEngine = new ContentAwareEducationalScoringEngine();
 
@@ -100,6 +101,84 @@ export async function POST(request: NextRequest) {
 
     if (insertError || !newResume) {
       return Errors.databaseError(insertError?.message || "Failed to save revised resume");
+    }
+
+    // Mirror Mode: Learn + archive accepted resume revision in career chamber
+    try {
+      await ingestStudioWriting({
+        supabase,
+        userId,
+        sourceStudio: "career",
+        text: cleanedContent,
+        sessionId: newResume.id,
+        context: "lex_resume_revision",
+        fileName: newFileName,
+        mimeType: sourceResume.file_type || "text/plain",
+        fileSize: cleanedContent.length,
+        writingType: "professional",
+        registerInArchive: true,
+      });
+    } catch {
+      // Silent fail
+    }
+
+    // Mirror Mode: Update lineage (best effort). This is a user-accepted revision.
+    try {
+      const { data: existingLineage } = await supabase
+        .from("document_lineage")
+        .select("id, version_history")
+        .eq("user_id", userId)
+        .eq("original_document_id", sourceResumeId)
+        .maybeSingle();
+
+      if (existingLineage?.id) {
+        const nextHistory = Array.isArray(existingLineage.version_history)
+          ? [...existingLineage.version_history]
+          : [];
+        nextHistory.push({
+          version_type: "user_modified",
+          document_id: newResume.id,
+          source_studio: "career",
+          document_type: "resume_revision",
+          created_at: new Date().toISOString(),
+        });
+
+        await supabase
+          .from("document_lineage")
+          .update({
+            current_version_id: newResume.id,
+            version_history: nextHistory,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingLineage.id);
+      } else {
+        await supabase
+          .from("document_lineage")
+          .insert({
+            user_id: userId,
+            original_document_id: sourceResumeId,
+            studio_origin: "career",
+            current_version_id: newResume.id,
+            version_history: [
+              {
+                version_type: "original",
+                document_id: sourceResumeId,
+                source_studio: "career",
+                document_type: "resume",
+                created_at: new Date().toISOString(),
+              },
+              {
+                version_type: "user_modified",
+                document_id: newResume.id,
+                source_studio: "career",
+                document_type: "resume_revision",
+                created_at: new Date().toISOString(),
+              },
+            ],
+          });
+      }
+    } catch (e) {
+      // Silent fail
     }
 
     return NextResponse.json({

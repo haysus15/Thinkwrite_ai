@@ -1,5 +1,5 @@
 // src/app/api/mirror-mode/document/[id]/route.ts
-// DELETE endpoint for removing a document from voice training
+// DELETE endpoint for hiding a document (soft delete)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
@@ -43,44 +43,26 @@ export async function DELETE(
       );
     }
 
-    // Delete file from storage (if storage_path exists)
-    if (document.storage_path) {
-      const { error: storageError } = await supabase.storage
-        .from('user-documents')
-        .remove([document.storage_path]);
-
-      if (storageError) {
-        console.error('Storage delete error:', storageError);
-        // Continue with database deletion even if storage fails
-      }
-    }
-
-    // Delete document content first (if exists)
-    await supabase
-      .from('mirror_document_content')
-      .delete()
-      .eq('document_id', documentId);
-
-    // Delete the document
+    // Soft delete: hide from archive, keep data for voice continuity
     const { error: deleteError } = await supabase
       .from('mirror_documents')
-      .delete()
+      .update({
+        deleted_at: new Date().toISOString(),
+        visibility_status: 'hidden',
+      })
       .eq('id', documentId);
 
     if (deleteError) {
       console.error('Delete error:', deleteError);
       return NextResponse.json(
-        { error: 'Failed to delete document' },
+        { error: 'Failed to hide document (schema upgrade required?)' },
         { status: 500 }
       );
     }
 
-    // Recalculate voice profile based on remaining documents
-    await recalculateVoiceProfile(supabase, user.id);
-
     return NextResponse.json({ 
       success: true,
-      message: 'Document deleted successfully'
+      message: 'Document hidden successfully'
     });
 
   } catch (error) {
@@ -92,36 +74,4 @@ export async function DELETE(
   }
 }
 
-async function recalculateVoiceProfile(supabase: any, userId: string) {
-  // Get remaining documents
-  const { data: documents } = await supabase
-    .from('mirror_documents')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('analyzed', true);
-
-  if (!documents || documents.length === 0) {
-    // No documents left - reset voice profile to empty state
-    await supabase
-      .from('voice_profiles')
-      .update({
-        aggregate_fingerprint: null,
-        confidence_level: 0,
-        document_count: 0,
-        total_word_count: 0,
-        last_trained_at: null,
-        evolution_history: [],
-        updated_at: new Date().toISOString(),
-      })
-      .eq('user_id', userId);
-    return;
-  }
-
-  // If documents remain, just update the timestamp to trigger a refresh
-  await supabase
-    .from('voice_profiles')
-    .update({
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
-}
+// Soft delete keeps derived metrics intact; no recalculation needed.

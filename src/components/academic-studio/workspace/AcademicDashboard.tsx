@@ -1,7 +1,14 @@
 // src/components/academic-studio/workspace/AcademicDashboard.tsx
 "use client";
 
-import { BookOpen, FileText, GraduationCap, Layers, ListChecks } from "lucide-react";
+import {
+  BookOpen,
+  FileText,
+  GraduationCap,
+  Layers,
+  ListChecks,
+  Code2,
+} from "lucide-react";
 
 type AcademicWorkspaceView =
   | "dashboard"
@@ -9,7 +16,8 @@ type AcademicWorkspaceView =
   | "study-materials"
   | "study-library"
   | "assignments"
-  | "math-mode";
+  | "math-mode"
+  | "coding-review";
 
 const featureCards: Array<{
   id: AcademicWorkspaceView;
@@ -46,6 +54,12 @@ const featureCards: Array<{
     title: "Math mode",
     description: "Step-by-step verification workspace.",
     icon: GraduationCap,
+  },
+  {
+    id: "coding-review",
+    title: "Coding review",
+    description: "Run code, see output, get Victor’s review.",
+    icon: Code2,
   },
 ];
 

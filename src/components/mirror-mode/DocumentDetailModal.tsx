@@ -399,13 +399,11 @@ export default function DocumentDetailModal({ documentId, isOpen, onClose }: Pro
                 <div className="impact-card">
                   <div className="impact-stats">
                     <div className="impact-stat">
-                      <span className={`impact-value ${impact.confidenceDelta >= 0 ? 'positive' : 'negative'}`}>
-                        {impact.confidenceDelta >= 0 ? '+' : ''}{impact.confidenceDelta.toFixed(1)}%
-                      </span>
-                      <span className="impact-label">Confidence Change</span>
+                      <span className="impact-value">Voice shift recorded</span>
+                      <span className="impact-label">Impact</span>
                     </div>
                     <div className="impact-stat">
-                      <span className="impact-value">{impact.confidenceLevel}%</span>
+                      <span className="impact-value">Voice strength updated</span>
                       <span className="impact-label">Total Confidence</span>
                     </div>
                     <div className="impact-stat">

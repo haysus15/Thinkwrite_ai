@@ -13,6 +13,7 @@ import { WorkspaceState, WorkspaceView, WorkspaceContext } from '@/types/career-
 import CareerStudioTour from '../CareerStudioTour';
 import ResumeManagerResultsPanel from '../resume-manager/ResumeManagerResultsPanel';
 import { ResumeManagerPanelProvider, useResumeManagerPanel } from '../resume-manager/ResumeManagerPanelContext';
+import StudioConsentModal from '@/components/mirror-mode/StudioConsentModal';
 
 function UnifiedCareerStudioContent() {
   const searchParams = useSearchParams();
@@ -39,6 +40,10 @@ function UnifiedCareerStudioContent() {
   const [leftWidth, setLeftWidth] = useState(320);
   const [rightWidth, setRightWidth] = useState(520);
   const [resizing, setResizing] = useState<'left' | 'right' | null>(null);
+  const [showConsent, setShowConsent] = useState(false);
+  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentRecorded, setConsentRecorded] = useState(false);
+  const [tourCompleted, setTourCompleted] = useState(false);
 
   // Update workspace when URL changes
   useEffect(() => {
@@ -50,6 +55,52 @@ function UnifiedCareerStudioContent() {
 
   useEffect(() => {
     setIsFirstTime(true);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/mirror-mode/consent?studio=career')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        setConsentRecorded(Boolean(data?.consented));
+        setConsentChecked(true);
+      })
+      .catch(() => {
+        if (!active) return;
+        setConsentChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const dismissed = window.localStorage.getItem('career-tour-dismissed') === 'true';
+    if (dismissed) {
+      setTourCompleted(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!consentChecked) return;
+    if (consentRecorded) {
+      setShowConsent(false);
+      return;
+    }
+    const shouldBlockForTour = isFirstTime && !tourCompleted;
+    setShowConsent(!shouldBlockForTour);
+  }, [consentChecked, consentRecorded, isFirstTime, tourCompleted]);
+
+  const handleConsentAcknowledge = useCallback(() => {
+    fetch('/api/mirror-mode/consent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ studio: 'career' }),
+    })
+      .then(() => setShowConsent(false))
+      .catch(() => setShowConsent(false));
   }, []);
 
   useEffect(() => {
@@ -90,20 +141,20 @@ function UnifiedCareerStudioContent() {
   }, [leftWidth, rightWidth]);
 
   useEffect(() => {
-    if (workspaceState.currentView !== 'resume-manager') return;
+    if (!['resume-manager', 'tailor'].includes(workspaceState.currentView)) return;
     if (!panel?.active) return;
     if (rightTouchedRef.current) return;
     setRightCollapsed(false);
   }, [workspaceState.currentView, panel?.active]);
 
   useEffect(() => {
-    if (workspaceState.currentView !== 'resume-manager') return;
+    if (!['resume-manager', 'tailor'].includes(workspaceState.currentView)) return;
     if (panel?.active) return;
     setRightCollapsed(true);
   }, [workspaceState.currentView, panel?.active]);
 
   useEffect(() => {
-    if (workspaceState.currentView !== 'resume-manager') return;
+    if (!['resume-manager', 'tailor'].includes(workspaceState.currentView)) return;
     if (!panel?.active) return;
     if (!panel?.openDraftEditorSignal) return;
     setRightCollapsed(false);
@@ -180,6 +231,12 @@ function UnifiedCareerStudioContent() {
 
   return (
     <div className="career-studio-root font-['Orbitron']">
+      {consentChecked && showConsent ? (
+        <StudioConsentModal
+          studioLabel="Career Studio"
+          onAcknowledge={handleConsentAcknowledge}
+        />
+      ) : null}
       <div className="career-sky-layer">
         <div className="career-stars-layer" />
         <div className="career-nebula-layer" />
@@ -235,7 +292,7 @@ function UnifiedCareerStudioContent() {
           />
 
           {/* Center: Dynamic Workspace */}
-          <div className="career-panel flex-1">
+          <div className="career-panel career-panel-middle flex-1">
             <WorkspaceContainer
               workspaceState={workspaceState}
               onWorkspaceSwitch={switchWorkspace}
@@ -243,7 +300,7 @@ function UnifiedCareerStudioContent() {
             />
           </div>
 
-          {workspaceState.currentView === 'resume-manager' ? (
+          {['resume-manager', 'tailor'].includes(workspaceState.currentView) ? (
             <>
               <div
                 className="career-resize-handle"
@@ -306,7 +363,7 @@ function UnifiedCareerStudioContent() {
 
       <CareerStudioTour
         isFirstTime={isFirstTime && workspaceState.currentView === 'dashboard'}
-        onComplete={() => {}}
+        onComplete={() => setTourCompleted(true)}
         onStartResumeManager={() => switchWorkspace('resume-manager')}
       />
     </div>

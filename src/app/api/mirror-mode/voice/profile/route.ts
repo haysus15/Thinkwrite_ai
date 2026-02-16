@@ -133,21 +133,14 @@ export async function DELETE(req: NextRequest) {
     const { userId, error: authError } = await getAuthUser();
     if (authError || !userId) return Errors.unauthorized();
 
-    const supabase = await createSupabaseServerClient();
-
-    const { error } = await supabase.from("voice_profiles").delete().eq("user_id", userId);
-    if (error) {
-      return NextResponse.json(
-        { success: false, error: error.message },
-        { status: 500, headers: noStoreHeaders }
-      );
-    }
-
-    await supabase.from("mirror_documents").update({ learned_at: null }).eq("user_id", userId);
-
+    // Mirror Mode does not hard-delete profiles.
+    // Use /api/mirror-mode/reset for epoch reset or /api/mirror-mode/purge for legal/privacy erase.
     return NextResponse.json(
-      { success: true, message: "Voice profile deleted. Upload documents to start fresh." },
-      { status: 200, headers: noStoreHeaders }
+      {
+        success: false,
+        error: "Profile deletion is not supported. Use /api/mirror-mode/reset or /api/mirror-mode/purge.",
+      },
+      { status: 400, headers: noStoreHeaders }
     );
   } catch (error: any) {
     console.error("[Voice profile DELETE]:", error?.message);

@@ -8,7 +8,7 @@ import MathVictorGuidance from "./MathVictorGuidance";
 import MathGraphPanel from "./MathGraphPanel";
 import MathCalculator from "./MathCalculator";
 import MathProblemHistory from "./MathProblemHistory";
-import { MathfieldElement } from "mathlive";
+type MathfieldElement = any;
 
 export default function MathModeContainer({ onExit }: { onExit: () => void }) {
   const [currentProblem, setCurrentProblem] = useState<MathProblem | null>(null);

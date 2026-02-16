@@ -25,6 +25,29 @@ function detectModeIntent(message: string): VictorMode | null {
     return "math";
   }
   if (
+    text.includes("code") ||
+    text.includes("coding") ||
+    text.includes("programming") ||
+    text.includes("python") ||
+    text.includes("javascript") ||
+    text.includes("sql") ||
+    text.includes("function") ||
+    text.includes("variable") ||
+    text.includes("loop") ||
+    text.includes("array") ||
+    text.includes("class") ||
+    text.includes("object") ||
+    text.includes("database") ||
+    text.includes("query") ||
+    text.includes("algorithm") ||
+    text.includes("data structure") ||
+    text.includes("debug") ||
+    text.includes("syntax error") ||
+    text.includes("runtime error")
+  ) {
+    return "coding_review";
+  }
+  if (
     text.includes("i have an idea") ||
     text.includes("thinking about") ||
     text.includes("what if")
@@ -60,6 +83,8 @@ function modeLabel(mode: VictorMode) {
       return "Study";
     case "math":
       return "Math";
+    case "coding_review":
+      return "Coding Review";
     default:
       return "Default";
   }
@@ -74,6 +99,10 @@ function buildSystemPrompt(
     ? `\n\nCurrent student context:\n${workspaceContext}\nUse this to keep the guidance aligned with the active workspace.`
     : "";
   switch (mode) {
+    case "coding_review":
+      return `You are Victor in Coding Review Mode.
+Students write code, run it, and you teach from the output.
+Never write code for the student. Guide them to write it themselves.${contextNote}`;
     case "math":
       return `You are Victor in Math Mode.
 

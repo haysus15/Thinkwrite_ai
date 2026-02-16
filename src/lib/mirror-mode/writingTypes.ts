@@ -5,8 +5,15 @@ export type WritingType =
   | "professional"
   | "academic"
   | "creative"
+  | "general"
   | "personal"
   | "technical";
+
+export type Chamber =
+  | "career"
+  | "academic"
+  | "creative"
+  | "general";
 
 export type WritingTypeOption = {
   value: WritingType;
@@ -17,45 +24,51 @@ export type WritingTypeOption = {
 export const WRITING_TYPE_OPTIONS: WritingTypeOption[] = [
   {
     value: "professional",
-    label: "Professional/Business",
-    description: "Work emails, reports, LinkedIn posts",
+    label: "Career",
+    description: "Resumes, cover letters, professional writing",
   },
   {
     value: "academic",
-    label: "Academic Writing",
+    label: "Academic",
     description: "Essays, research papers, thesis work",
   },
   {
     value: "creative",
-    label: "Creative Writing",
+    label: "Creative",
     description: "Stories, poetry, personal blogs",
   },
   {
-    value: "personal",
-    label: "Personal/Casual",
-    description: "Journals, letters, reflections",
-  },
-  {
-    value: "technical",
-    label: "Technical Documentation",
-    description: "Technical docs, guides, specifications",
+    value: "general",
+    label: "General/Unclassified",
+    description: "Everyday writing that doesn’t fit a specific context",
   },
 ];
 
 const WRITING_TYPE_LABELS: Record<WritingType, string> = {
-  professional: "Professional/Business",
-  academic: "Academic Writing",
-  creative: "Creative Writing",
-  personal: "Personal/Casual",
-  technical: "Technical Documentation",
+  professional: "Career",
+  academic: "Academic",
+  creative: "Creative",
+  general: "General/Unclassified",
+  personal: "General/Unclassified",
+  technical: "General/Unclassified",
 };
 
 const WRITING_TYPE_ABBREVS: Record<WritingType, string> = {
-  professional: "PRO",
+  professional: "CAR",
   academic: "ACA",
   creative: "CRE",
-  personal: "PER",
-  technical: "TEC",
+  general: "GEN",
+  personal: "GEN",
+  technical: "GEN",
+};
+
+const WRITING_TYPE_TO_CHAMBER: Record<WritingType, Chamber> = {
+  professional: "career",
+  academic: "academic",
+  creative: "creative",
+  general: "general",
+  personal: "general",
+  technical: "general",
 };
 
 export function isWritingType(value: string | null | undefined): value is WritingType {
@@ -70,4 +83,9 @@ export function getWritingTypeLabel(type: string | null | undefined): string {
 export function getWritingTypeAbbrev(type: string | null | undefined): string {
   if (!type) return "GEN";
   return WRITING_TYPE_ABBREVS[type as WritingType] || "GEN";
+}
+
+export function mapWritingTypeToChamber(type: string | null | undefined): Chamber {
+  if (!type) return "general";
+  return WRITING_TYPE_TO_CHAMBER[type as WritingType] || "general";
 }

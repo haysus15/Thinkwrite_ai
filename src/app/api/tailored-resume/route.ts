@@ -6,7 +6,6 @@ import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import { checkRateLimit } from '@/lib/api/rateLimiter';
 import { TailoredResumeEngine } from '@/lib/tailored-resume-engine';
-import { learnFromTextDirect } from '@/lib/mirror-mode/liveLearning';
 import { VoiceProfileService } from '@/services/voice-profile';
 import {
   transformTailoredResumeFromDB,
@@ -167,34 +166,7 @@ ${voiceContext.readiness.shouldWarn ? `Note: ${voiceContext.readiness.lexMessage
 
     console.log(`✅ Tailored resume created: ${tailoredResume.id}`);
 
-    // Mirror Mode: Learn from tailored resume content (fire-and-forget)
-    try {
-      // Extract text from tailored content for voice learning
-      const tailoredContent = result.tailoredContent;
-      const textForLearning = [
-        tailoredContent?.summary?.content,
-        ...(tailoredContent?.experience?.jobs?.flatMap((job: any) =>
-          job.bullets?.map((b: any) => b.content) || []
-        ) || [])
-      ].filter(Boolean).join('\n');
-
-      if (textForLearning.length > 100) {
-        await learnFromTextDirect({
-          userId,
-          text: textForLearning,
-          source: 'tailored-resume',
-          metadata: {
-            documentId: tailoredResume.id,
-            title: `Tailored for ${jobAnalysis.job_title} at ${jobAnalysis.company_name}`,
-            context: `level:${tailoringLevel}`
-          }
-        });
-        console.log('🔮 Mirror Mode: Learned from tailored resume');
-      }
-    } catch (e) {
-      console.log('Mirror Mode learning skipped:', e);
-      // Don't throw - learning failure shouldn't break main feature
-    }
+    // Mirror Mode: Do NOT learn from AI-generated output (spec compliant)
 
     return NextResponse.json({
       success: true,
@@ -203,6 +175,10 @@ ${voiceContext.readiness.shouldWarn ? `Note: ${voiceContext.readiness.lexMessage
         usedVoiceProfile: voiceContext.hasVoiceProfile && voiceContext.readiness.isReady,
         confidenceLevel: voiceContext.readiness.score,
         shouldAskFeedback: voiceContext.readiness.shouldWarn,
+        sufficientData: voiceContext.gatekeeper?.sufficientData ?? true,
+        warnings: voiceContext.gatekeeper?.warnings || [],
+        counts: voiceContext.gatekeeper?.counts || null,
+        thresholds: voiceContext.gatekeeper?.thresholds || null,
       }
     });
 
