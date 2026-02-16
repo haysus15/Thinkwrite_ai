@@ -1501,25 +1501,25 @@ math-field::part(content) {
   font-weight: 400;
 }
 
-.career-panel-middle .text-white\\/60,
-.career-panel-middle .text-white\\/70,
-.career-panel-middle .text-white\\/80 {
+.career-panel-middle .text-white\/60,
+.career-panel-middle .text-white\/70,
+.career-panel-middle .text-white\/80 {
   color: rgba(255, 255, 255, 1) !important;
   font-weight: 500;
 }
 
-.career-panel-middle .text-white\\/50,
-.career-panel-middle .text-white\\/40 {
+.career-panel-middle .text-white\/50,
+.career-panel-middle .text-white\/40 {
   color: rgba(255, 255, 255, 0.9) !important;
   font-weight: 500;
 }
 
-.career-panel-middle .text-white\\/50.text-sm,
-.career-panel-middle .text-white\\/50.text-xs,
-.career-panel-middle .text-white\\/50.text-base,
-.career-panel-middle .text-white\\/40.text-sm,
-.career-panel-middle .text-white\\/40.text-xs,
-.career-panel-middle .text-white\\/40.text-base {
+.career-panel-middle .text-white\/50.text-sm,
+.career-panel-middle .text-white\/50.text-xs,
+.career-panel-middle .text-white\/50.text-base,
+.career-panel-middle .text-white\/40.text-sm,
+.career-panel-middle .text-white\/40.text-xs,
+.career-panel-middle .text-white\/40.text-base {
   color: rgba(255, 255, 255, 0.78) !important;
   font-weight: 400;
 }
@@ -1542,11 +1542,11 @@ math-field::part(content) {
   color: rgba(255, 255, 255, 0.95) !important;
 }
 
-.career-panel-middle .engine-text-large .text-white\\/60,
-.career-panel-middle .engine-text-large .text-white\\/70,
-.career-panel-middle .engine-text-large .text-white\\/80,
-.career-panel-middle .engine-text-large .text-white\\/50,
-.career-panel-middle .engine-text-large .text-white\\/40 {
+.career-panel-middle .engine-text-large .text-white\/60,
+.career-panel-middle .engine-text-large .text-white\/70,
+.career-panel-middle .engine-text-large .text-white\/80,
+.career-panel-middle .engine-text-large .text-white\/50,
+.career-panel-middle .engine-text-large .text-white\/40 {
   color: rgba(255, 255, 255, 0.95) !important;
   font-weight: 500;
 }
