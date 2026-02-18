@@ -12,6 +12,7 @@ interface LexHeaderProps {
   onNew?: () => void;
   onClear?: () => void;
   showControls?: boolean;
+  extraControls?: React.ReactNode;
 }
 
 export default function LexHeader({
@@ -23,6 +24,7 @@ export default function LexHeader({
   onNew,
   onClear,
   showControls = true,
+  extraControls,
 }: LexHeaderProps) {
   return (
     <div className="border-b border-white/10 bg-black/70 backdrop-blur-xl">
@@ -67,6 +69,8 @@ export default function LexHeader({
                 <span>Save</span>
               </button>
             )}
+
+            {extraControls}
 
             {onNew && (
               <button

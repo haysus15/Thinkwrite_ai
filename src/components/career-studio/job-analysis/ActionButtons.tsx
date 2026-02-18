@@ -181,7 +181,7 @@ export default function ActionButtons({
       const data = await res.json();
       if (!data?.success) throw new Error(data?.error || "Transition failed");
 
-      router.push("/career-studio/applications");
+      router.push("/career-studio/workspace?workspace=applications");
     } catch (e: any) {
       console.error("Save → Applied failed:", e);
       setTransitionError(e?.message || "Save → Applied failed");
@@ -235,7 +235,7 @@ const handleTrackApplication = async () => {
       
       setTrackedToApps(true);
       
-      const navUrl = "/career-studio/applications";
+      const navUrl = "/career-studio/workspace?workspace=applications";
       console.log(' [Track App] Will navigate to:', navUrl);
       
       setTimeout(() => {

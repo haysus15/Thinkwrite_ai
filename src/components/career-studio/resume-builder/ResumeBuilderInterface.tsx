@@ -587,7 +587,7 @@ export default function ResumeBuilderInterface({
                   {Math.round(completion)}%
                 </span>
               </div>
-              <div className="h-2 bg-white/8 rounded-full overflow-hidden">
+              <div className="h-2 bg-white/[0.08] rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-[#9333EA] to-[#A855F7] transition-all duration-500"
                   style={{ width: `${completion}%` }}
@@ -719,8 +719,8 @@ export default function ResumeBuilderInterface({
               disabled={isLoadingFeedback || !canRequestFeedback}
               className={`px-4 py-2 rounded-xl text-[11px] font-medium flex items-center gap-2 transition-all ${
                 canRequestFeedback
-                  ? "bg-[#9333EA] text-white hover:bg-[#A855F7]"
-                  : "bg-white/8 text-white/35 cursor-not-allowed"
+                  ? "career-btn-primary"
+                  : "bg-white/[0.08] text-white/35 cursor-not-allowed"
               }`}
             >
               {isLoadingFeedback ? (
@@ -1017,14 +1017,14 @@ function OnboardingModal({
           <button
             type="button"
             onClick={onSkip}
-            className="flex-1 px-6 py-3 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+            className="career-btn-ghost flex-1 px-6 py-3 rounded-lg transition-colors"
           >
             Skip for Now
           </button>
           <button
             type="button"
             onClick={() => onComplete(targetRole, targetIndustry)}
-            className="flex-1 px-6 py-3 bg-[#9333EA] text-white rounded-lg hover:bg-[#A855F7] font-medium transition-colors"
+            className="career-btn-primary flex-1 px-6 py-3 rounded-lg font-medium transition-colors"
           >
             Let&apos;s Go!
           </button>

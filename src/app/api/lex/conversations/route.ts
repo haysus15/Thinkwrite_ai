@@ -67,22 +67,22 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseAdmin();
     const body = await request.json();
-    const { title, description, messages, topic } = body;
+    const { title, description, messages, topic, context } = body;
 
     if (!title || !messages || !Array.isArray(messages)) {
       return Errors.validationError('Missing required fields: title, messages');
     }
 
-    // Check conversation limit (10 max per user)
+    // Check conversation limit (25 max per user)
     const { count } = await supabase
       .from('saved_conversations')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
       .eq('is_archived', false);
 
-    if (count && count >= 10) {
+    if (count && count >= 25) {
       return NextResponse.json({ 
-        error: 'Maximum of 10 saved conversations allowed. Please archive or delete old conversations first.' 
+        error: 'Maximum of 25 saved conversations allowed. Please archive or delete old conversations first.' 
       }, { status: 400 });
     }
 
@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
         title: title,
         description: description,
         conversation_topic: topic || 'general',
+        context_json: context || null,
         last_message_at: lastMessage?.timestamp || new Date().toISOString(),
         is_pinned: false,
         is_archived: false
@@ -381,6 +382,7 @@ async function loadConversation(conversationId: string, userId: string) {
       createdAt: conversation.created_at,
       updatedAt: conversation.updated_at
     },
+    context: conversation.context_json || null,
     messages: formattedMessages
   });
 }

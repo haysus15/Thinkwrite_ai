@@ -33,6 +33,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const status = url.searchParams.get("status");
     const includeArchived = url.searchParams.get("includeArchived") === "true";
+    const debug = url.searchParams.get("debug") === "true";
     const q = (url.searchParams.get("q") || "").trim();
     const limit = Math.min(Number(url.searchParams.get("limit") || 50), 200);
 
@@ -60,7 +61,7 @@ export async function GET(req: Request) {
       .from("application_insights")
       .select("*")
       .eq("user_id", userId)
-      .eq("is_archived", false)
+      .or("is_archived.is.null,is_archived.eq.false")
       .order("updated_at", { ascending: false })
       .limit(limit);
 
@@ -73,7 +74,11 @@ export async function GET(req: Request) {
       return Errors.databaseError(error.message);
     }
 
-    return NextResponse.json({ success: true, applications: data ?? [] });
+    return NextResponse.json({
+      success: true,
+      applications: data ?? [],
+      ...(debug ? { debug: { user_id: userId } } : {})
+    });
   } catch (e: any) {
     console.error("[Applications GET]:", e?.message);
     return Errors.internal();
@@ -93,6 +98,9 @@ export async function POST(req: Request) {
 
     const supabase = createSupabaseAdmin();
     const body = await req.json();
+    if (body?.user_id && body.user_id !== userId) {
+      console.warn("[Applications POST] Ignoring mismatched user_id from client");
+    }
 
     const jobAnalysisId = body.job_analysis_id ?? body.jobAnalysisId ?? null;
     let job_title = body.job_title;
@@ -133,6 +141,17 @@ export async function POST(req: Request) {
 
       if (existingList && existingList.length > 0) {
         const existing = existingList[0];
+        // If we have new linked docs, attach them to the existing application
+        if (body.tailored_resume_id || body.cover_letter_id) {
+          await supabase
+            .from("applications")
+            .update({
+              tailored_resume_id: body.tailored_resume_id ?? undefined,
+              cover_letter_id: body.cover_letter_id ?? undefined,
+            })
+            .eq("id", existing.id)
+            .eq("user_id", userId);
+        }
         return NextResponse.json({
           success: true,
           existing: { id: existing.id },
@@ -141,6 +160,7 @@ export async function POST(req: Request) {
       }
     }
 
+    // Guard: always enforce authenticated user id
     const payload = {
       user_id: userId,
       job_analysis_id: jobAnalysisId,
@@ -175,6 +195,16 @@ export async function POST(req: Request) {
           .single();
 
         if (existing) {
+          if (body.tailored_resume_id || body.cover_letter_id) {
+            await supabase
+              .from("applications")
+              .update({
+                tailored_resume_id: body.tailored_resume_id ?? undefined,
+                cover_letter_id: body.cover_letter_id ?? undefined,
+              })
+              .eq("id", existing.id)
+              .eq("user_id", userId);
+          }
           return NextResponse.json({
             success: true,
             existing: existing,

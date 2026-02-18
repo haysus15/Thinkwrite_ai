@@ -1593,6 +1593,46 @@ math-field::part(content) {
   letter-spacing: 0.01em;
 }
 
+.career-btn-primary {
+  background: #8B5CF6;
+  color: #ffffff;
+  border: 1px solid rgba(139, 92, 246, 0.55);
+  box-shadow: 0 10px 24px rgba(139, 92, 246, 0.25);
+  transition: background 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.career-btn-primary:hover {
+  background: #7C3AED;
+  border-color: rgba(124, 58, 237, 0.7);
+  box-shadow: 0 12px 28px rgba(124, 58, 237, 0.35);
+}
+
+.career-btn-secondary {
+  background: rgba(139, 92, 246, 0.12);
+  color: #E9D5FF;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.career-btn-secondary:hover {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.6);
+  color: #F5F3FF;
+}
+
+.career-btn-ghost {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.career-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.95);
+}
+
 .career-panel-right {
   transition: width 0.28s ease, transform 0.28s ease, opacity 0.28s ease;
 }

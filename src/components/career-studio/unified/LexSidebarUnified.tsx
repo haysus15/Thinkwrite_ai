@@ -6,6 +6,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bot, Send, Sparkles } from 'lucide-react';
+import LexConversationModal, { type LexSaveMessage } from '@/components/lex/shared/LexConversationModal';
 import { WorkspaceState, WorkspaceView, WorkspaceContext } from '@/types/career-studio-workspace';
 import { detectWorkspaceIntent } from '@/lib/career-studio/workspaceManager';
 import {
@@ -95,6 +96,7 @@ export default function LexSidebarUnified({
   } | null>(null);
   const [showBlendConsent, setShowBlendConsent] = useState(false);
   const [voiceSources, setVoiceSources] = useState<string[]>([]);
+  const [sessionTypeOverride, setSessionTypeOverride] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastModeRef = useRef<WorkspaceView | null>(null);
   const messagesRef = useRef<Message[]>(messages);
@@ -102,9 +104,52 @@ export default function LexSidebarUnified({
   const currentIntentRef = useRef<LexPromptPayload['intent']>(undefined);
   const pendingSummaryRef = useRef<LexPromptPayload['contextTag'] | null>(null);
   const pendingSummaryMetaRef = useRef<{ resumeId?: string; jobId?: string } | null>(null);
+  const assessmentPromptedRef = useRef(false);
+  const coverLetterStrategyRef = useRef(false);
+  const coverLetterStrategyMetaRef = useRef<{ resumeId?: string; jobId?: string } | null>(null);
+
+  const saveMessages: LexSaveMessage[] = messages.map((m) => ({
+    id: m.id,
+    sender: m.role === 'assistant' ? 'lex' : 'user',
+    text: m.content,
+    timestamp: m.timestamp,
+    context: m.kind === 'mode' ? 'mode' : 'text',
+  }));
+
+  const sessionTypeMap: Record<WorkspaceView, string> = {
+    'dashboard': 'general',
+    'job-analysis': 'job-discussion',
+    'tailor': 'resume-tailoring',
+    'cover-letter': 'cover-letter',
+    'assessment': 'career-assessment',
+    'applications': 'general',
+    'resume-manager': 'general',
+    'resume-builder': 'resume-tailoring'
+  };
+
+  const currentSessionType = sessionTypeMap[workspaceState.currentView] || 'general';
 
   useEffect(() => {
     messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!coverLetterStrategyRef.current) return;
+    if (messages.length === 0) return;
+    const payload = {
+      resumeId: coverLetterStrategyMetaRef.current?.resumeId,
+      jobId: coverLetterStrategyMetaRef.current?.jobId,
+      messages: messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp?.toISOString?.() || undefined,
+      })),
+    };
+    try {
+      sessionStorage.setItem('lexCoverLetterStrategy', JSON.stringify(payload));
+    } catch (err) {
+      console.warn('Unable to store cover letter strategy conversation', err);
+    }
   }, [messages]);
 
   const fetchGuardrails = useCallback(async () => {
@@ -195,26 +240,6 @@ export default function LexSidebarUnified({
       suppressModeMessageRef.current = false;
       return;
     }
-
-    const modeLabel = modeLabelMap[currentMode] || 'General';
-    const prompt = modePromptMap[currentMode] || 'How do you want to proceed?';
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `mode-${Date.now()}`,
-        role: 'assistant',
-        content: `Mode: ${modeLabel}`,
-        timestamp: new Date(),
-        kind: 'mode'
-      },
-      {
-        id: `mode-prompt-${Date.now() + 1}`,
-        role: 'assistant',
-        content: prompt,
-        timestamp: new Date()
-      }
-    ]);
   }, [workspaceState.currentView]);
 
   useEffect(() => {
@@ -394,6 +419,8 @@ export default function LexSidebarUnified({
       displayPrompt?: string;
       contextOverride?: { resumeId?: string; jobId?: string };
       sessionTypeOverride?: string;
+      silent?: boolean;
+      captureForMirror?: boolean;
     }
   ) => {
     const trimmed = prompt.trim();
@@ -401,6 +428,8 @@ export default function LexSidebarUnified({
 
     const intentForRequest = currentIntentRef.current;
     const displayPrompt = options?.displayPrompt?.trim() || trimmed;
+    const silent = Boolean(options?.silent);
+    const captureForMirror = options?.captureForMirror ?? !silent;
 
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -410,9 +439,11 @@ export default function LexSidebarUnified({
       intent: intentForRequest
     };
 
-    const nextMessages = [...messagesRef.current, userMsg];
-    setMessages(nextMessages);
-    setInput('');
+    if (!silent) {
+      const nextMessages = [...messagesRef.current, userMsg];
+      setMessages(nextMessages);
+      setInput('');
+    }
     setIsTyping(true);
 
     try {
@@ -423,18 +454,11 @@ export default function LexSidebarUnified({
           ? null
           : detectWorkspaceIntent(trimmed);
 
-      const sessionTypeMap: Record<WorkspaceView, string> = {
-        'dashboard': 'general',
-        'job-analysis': 'job-discussion',
-        'tailor': 'resume-tailoring',
-        'cover-letter': 'cover-letter',
-        'assessment': 'career-assessment',
-        'applications': 'general',
-        'resume-manager': 'general',
-        'resume-builder': 'resume-tailoring'
-      };
-
-      const sessionType = options?.sessionTypeOverride || sessionTypeMap[workspaceState.currentView] || 'general';
+      const sessionType =
+        options?.sessionTypeOverride ||
+        sessionTypeOverride ||
+        currentSessionType ||
+        'general';
       const overrideJobId = options?.contextOverride?.jobId;
 
       const requestMessages = [
@@ -465,7 +489,8 @@ export default function LexSidebarUnified({
             ? { jobId: overrideJobId }
             : workspaceState.context.selectedJobId
             ? { jobId: workspaceState.context.selectedJobId }
-            : undefined
+            : undefined,
+          captureForMirror
         })
       });
 
@@ -475,10 +500,25 @@ export default function LexSidebarUnified({
         onWorkspaceSwitch(intendedWorkspace);
       }
 
+        const rawContent = data?.response?.text || data?.message || data?.content || "I'm here to help with your career work.";
+        let panelContent = rawContent;
+        let chatContent = rawContent;
+
+        if (pendingSummaryRef.current === 'application-final-review') {
+          const split = rawContent.split(/CHAT SUMMARY:/i);
+          if (split.length > 1) {
+            panelContent = split[0].replace(/PANEL REVIEW:/i, '').trim();
+            chatContent = split.slice(1).join('CHAT SUMMARY:').trim();
+          } else {
+            panelContent = rawContent;
+            chatContent = rawContent;
+          }
+        }
+
         const lexMsg: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: data?.response?.text || data?.message || data?.content || "I'm here to help with your career work.",
+          content: chatContent,
           timestamp: new Date(),
           intent: intentForRequest
         };
@@ -489,7 +529,7 @@ export default function LexSidebarUnified({
           dispatchStrategySummary({
             resumeId: pendingSummaryMetaRef.current?.resumeId,
             jobId: pendingSummaryMetaRef.current?.jobId,
-            text: lexMsg.content,
+            text: pendingSummaryRef.current === 'application-final-review' ? panelContent : lexMsg.content,
             contextTag: pendingSummaryRef.current
           });
           pendingSummaryRef.current = null;
@@ -534,7 +574,43 @@ export default function LexSidebarUnified({
     lexResumeContext,
     resumeAnalysisContext,
     onWorkspaceSwitch,
+    sessionTypeOverride,
   ]);
+
+  useEffect(() => {
+    if (workspaceState.currentView !== 'assessment') return;
+    if (assessmentPromptedRef.current) return;
+    const userCount = messages.filter((m) => m.role === 'user').length;
+    if (userCount > 0) return;
+
+    if (!lexResumeContext) return;
+
+    if (!lexResumeContext.hasResume) {
+      assessmentPromptedRef.current = true;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `lex-assessment-no-resume-${Date.now()}`,
+          role: 'assistant',
+          content:
+            "I don’t have your resume loaded yet. Open Resume Manager, set your master resume, then come back here and I’ll start the assessment.",
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
+
+    const resumeName = lexResumeContext.masterResume?.fileName;
+    const opening = resumeName
+      ? `I reviewed your resume (${resumeName}).`
+      : `Let's get started.`;
+
+    assessmentPromptedRef.current = true;
+    void sendLexMessage(
+      `You are Lex. Start the career assessment now. Say: "${opening} Let's start the career assessment." Then ask the current reality check question: "What's your current role, and what drains you vs. what brings out your best?"`,
+      { sessionTypeOverride: 'career-assessment', silent: true, captureForMirror: false }
+    );
+  }, [workspaceState.currentView, messages, lexResumeContext, sendLexMessage]);
 
   const handleSend = async () => {
     await sendLexMessage(input);
@@ -561,6 +637,14 @@ export default function LexSidebarUnified({
       if (payload.contextTag === 'tailor-strategy' || payload.contextTag === 'tailor-edit-passes') {
         pendingSummaryRef.current = payload.contextTag;
         pendingSummaryMetaRef.current = { resumeId: payload.resumeId, jobId: payload.jobId };
+      }
+      if (payload.contextTag === 'application-final-review') {
+        pendingSummaryRef.current = payload.contextTag;
+        pendingSummaryMetaRef.current = { resumeId: payload.resumeId, jobId: payload.jobId };
+      }
+      if (payload.contextTag === 'cover-letter-strategy') {
+        coverLetterStrategyRef.current = true;
+        coverLetterStrategyMetaRef.current = { resumeId: payload.resumeId, jobId: payload.jobId };
       }
 
       const promptToSend = payload.intent === 'recruiter-review'
@@ -616,13 +700,20 @@ export default function LexSidebarUnified({
         : payload.prompt;
 
       const sessionTypeOverride =
-        payload.contextTag === 'tailor-strategy' || payload.contextTag === 'tailor-edit-passes'
+        payload.contextTag === 'tailor-strategy' ||
+        payload.contextTag === 'tailor-edit-passes' ||
+        payload.contextTag === 'tailor-debrief'
           ? 'resume-tailoring'
+          : payload.contextTag === 'cover-letter-strategy'
+          ? 'cover-letter'
+          : payload.contextTag === 'application-final-review'
+          ? 'general'
           : undefined;
       void sendLexMessage(promptToSend, {
         displayPrompt,
         contextOverride: { resumeId: payload.resumeId, jobId: payload.jobId },
-        sessionTypeOverride
+        sessionTypeOverride,
+        captureForMirror: false
       });
     };
 
@@ -735,37 +826,98 @@ export default function LexSidebarUnified({
   }, [workspaceState.context.selectedResumeId, importingBuilderDraft, onContextUpdate, onWorkspaceSwitch]);
 
   return (
-    <div className="h-full min-h-0 w-full flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]">
+    <div className="h-full min-h-0 w-full flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0b1020]/40">
       {/* Header */}
-      <div className="p-4 border-b border-white/[0.08] flex-shrink-0">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-[#9333EA]/30 to-[#DB2777]/30 rounded-full flex items-center justify-center border border-[#9333EA]/30">
-            <Bot className="w-5 h-5 text-[#C084FC]" />
+      <div className="p-4 border-b border-white/[0.06] flex-shrink-0">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-white/[0.04] rounded-full flex items-center justify-center border border-white/10">
+              <Bot className="w-5 h-5 text-white/80" />
+            </div>
+            <div>
+              <h3 className="text-white/90 font-medium text-sm">Lex</h3>
+              <p className="text-white/50 text-xs">Your Career Coach</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-white/90 font-semibold text-sm">Lex</h3>
-            <p className="text-[#C084FC]/80 text-xs">Your Career Coach</p>
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] text-white/40">
+            <span className="uppercase tracking-[0.2em]">Active</span>
+            <span className="px-2 py-0.5 rounded-full border border-white/10 bg-white/5 text-white/60 uppercase tracking-[0.2em]">
+              {workspaceState.currentView.replace('-', ' ')}
+            </span>
+            <span className="ml-1 uppercase tracking-[0.2em]">Voice</span>
+            {(voiceSources.length > 0 ? voiceSources : ['standard']).map((source) => (
+              <span
+                key={source}
+                className="px-2 py-0.5 rounded-full border border-white/10 bg-white/5 text-white/60 uppercase tracking-[0.2em]"
+              >
+                {source}
+              </span>
+            ))}
           </div>
+          <LexConversationModal
+            messages={saveMessages}
+            topic={workspaceState.currentView}
+            context={{
+              sessionType: sessionTypeOverride || currentSessionType,
+              workspaceView: workspaceState.currentView,
+              resumeId: workspaceState.context.selectedResumeId,
+              jobId: workspaceState.context.selectedJobId
+            }}
+            onLoad={({ messages: loaded, context }) => {
+              const mapped: Message[] = loaded.map((msg, idx) => ({
+                id: msg.id || `loaded-${idx}-${Date.now()}`,
+                role: msg.sender === 'lex' ? 'assistant' : 'user',
+                content: msg.text,
+                timestamp: new Date(msg.timestamp),
+                kind: msg.context === 'mode' ? 'mode' : undefined,
+              }));
+              const shouldNudgeResume = Boolean(context?.sessionType);
+              const modeNudge =
+                context?.sessionType === 'career-assessment'
+                  ? "Welcome back. Let’s continue your career assessment. Pick up from your last answer and we’ll move to the next phase."
+                  : context?.sessionType === 'resume-tailoring'
+                  ? "Welcome back. Let’s continue tailoring this resume. Start where you left off."
+                  : context?.sessionType === 'cover-letter'
+                  ? "Welcome back. Let’s continue your cover letter strategy. Pick up from your last answer."
+                  : context?.sessionType === 'job-discussion'
+                  ? "Welcome back. Let’s continue breaking down this job. Start where you left off."
+                  : context?.sessionType === 'match-analysis'
+                  ? "Welcome back. Let’s continue the match analysis. Pick up from your last answer."
+                  : "Welcome back. Let’s continue where we left off.";
+              const withNudge = shouldNudgeResume
+                ? [
+                    ...mapped,
+                    {
+                      id: `lex-assessment-resume-${Date.now()}`,
+                      role: 'assistant' as const,
+                      content: modeNudge,
+                      timestamp: new Date(),
+                    },
+                  ]
+                : mapped;
+              setMessages(withNudge);
+              if (context?.sessionType) {
+                setSessionTypeOverride(context.sessionType);
+              } else {
+                setSessionTypeOverride(null);
+              }
+              if (context?.workspaceView && context.workspaceView !== workspaceState.currentView) {
+                onWorkspaceSwitch(context.workspaceView as WorkspaceView);
+              }
+              if (context?.resumeId || context?.jobId) {
+                onContextUpdate({
+                  selectedResumeId: context.resumeId,
+                  selectedJobId: context.jobId
+                });
+              }
+            }}
+            triggerLabel="Save Chat"
+            triggerClassName="career-btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-semibold whitespace-nowrap"
+          />
         </div>
 
-        {/* Current workspace indicator */}
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-[10px] text-white/40 uppercase tracking-wider">Active:</span>
-          <span className="px-2 py-0.5 bg-[#9333EA]/10 border border-[#9333EA]/30 rounded text-[10px] text-[#C084FC]">
-            {workspaceState.currentView.replace('-', ' ')}
-          </span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-[10px] text-white/40 uppercase tracking-wider">Voice sources:</span>
-          {(voiceSources.length > 0 ? voiceSources : ['standard']).map((source) => (
-            <span
-              key={source}
-              className="px-2 py-0.5 rounded text-[10px] uppercase tracking-[0.2em] border border-white/10 bg-white/5 text-white/60"
-            >
-              {source}
-            </span>
-          ))}
-        </div>
         {guardrails && guardrails.blendRequired && (
           <div className="mt-2 rounded-lg border border-purple-400/40 bg-purple-500/10 px-3 py-2 text-[11px] text-purple-100">
             Cross-chamber blending needs explicit consent.
@@ -790,7 +942,7 @@ export default function LexSidebarUnified({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5 space-y-5">
         {messages.map((msg) => {
           const revisionText = msg.role === 'assistant' ? extractResumeRevision(msg.content) : null;
           const canSaveRevision =
@@ -804,30 +956,14 @@ export default function LexSidebarUnified({
               key={msg.id}
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-            {msg.kind === 'mode' ? (
-              <div className="max-w-[85%] rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/60">
-                {msg.content}
-              </div>
-            ) : (
-              <div
-                className={`max-w-[85%] rounded-2xl p-3 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-[#9333EA]/20 border border-[#9333EA]/30 text-white/90'
-                    : 'bg-white/[0.05] border border-white/[0.08] text-white/80'
-                }`}
-              >
-                {msg.role === 'assistant' && msg.content.length > 600 ? (
-                  <details className="group">
-                    <summary className="cursor-pointer text-[11px] text-white/60 uppercase tracking-[0.2em] mb-2">
-                      Show full response
-                    </summary>
-                    <p className="leading-relaxed whitespace-pre-wrap text-white/80">
-                      {msg.content}
-                    </p>
-                  </details>
-                ) : (
-                  <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                )}
+            <div
+              className={`max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                msg.role === 'user'
+                  ? 'bg-white/[0.08] text-white/90'
+                  : 'bg-white/[0.04] text-white/80'
+              }`}
+            >
+                <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 <p className="text-[10px] opacity-50 mt-1.5">
                   {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
@@ -839,7 +975,7 @@ export default function LexSidebarUnified({
                     <button
                       type="button"
                       onClick={() => setPreviewRevisionText(revisionText)}
-                      className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition"
+                      className="px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-[10px] text-white/70 hover:bg-white/10 transition"
                     >
                       Preview Updated Resume
                     </button>
@@ -847,21 +983,20 @@ export default function LexSidebarUnified({
                       type="button"
                       onClick={() => handleSaveRevision(revisionText)}
                       disabled={savingRevision}
-                      className="px-2.5 py-1 rounded border border-white/15 bg-white/5 text-[10px] text-white/80 hover:bg-white/10 transition disabled:opacity-60"
+                      className="px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-[10px] text-white/70 hover:bg-white/10 transition disabled:opacity-60"
                     >
                       {savingRevision ? 'Saving…' : 'Save As New Resume Version'}
                     </button>
                   </div>
                 )}
               </div>
-            )}
             </div>
           );
         })}
 
         {isTyping && (
           <div className="flex justify-start">
-            <div className="bg-white/[0.05] border border-white/[0.08] rounded-2xl p-3">
+            <div className="bg-white/[0.04] rounded-2xl px-4 py-3">
               <div className="flex space-x-1.5">
                 <div className="w-2 h-2 bg-[#9333EA] rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                 <div className="w-2 h-2 bg-[#DB2777] rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -888,7 +1023,7 @@ export default function LexSidebarUnified({
 
       {/* Quick Actions */}
       <div className="px-4 pb-2 flex-shrink-0">
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {workspaceState.currentView === 'dashboard' && (
             <>
               <QuickAction onClick={() => onWorkspaceSwitch('job-analysis')}>
@@ -913,13 +1048,13 @@ export default function LexSidebarUnified({
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-white/[0.08] flex-shrink-0">
+      <div className="p-4 border-t border-white/[0.06] flex-shrink-0">
         {showGeneratePlan && (
           <>
             <button
               onClick={handleGeneratePlan}
               disabled={isGeneratingPlan || !canGeneratePlan}
-              className="w-full mb-3 px-3 py-2 rounded-lg border border-white/20 bg-white/5 text-white/80 text-xs uppercase tracking-[0.2em] hover:bg-white/10 transition disabled:opacity-50"
+              className="career-btn-primary w-full mb-3 px-3 py-2 rounded-lg text-xs uppercase tracking-[0.2em] disabled:opacity-50"
             >
               {isGeneratingPlan
                 ? 'Generating Plan...'
@@ -944,22 +1079,22 @@ export default function LexSidebarUnified({
             )}
           </>
         )}
-        <div className="flex space-x-2">
+        <div className="flex items-end gap-2">
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder="Ask Lex anything..."
-            rows={1}
-            className="flex-1 px-3 py-2 bg-white/[0.03] border border-white/[0.08] rounded-lg text-white placeholder-white/30 text-sm focus:outline-none focus:ring-1 focus:ring-[#9333EA]/50 focus:border-[#9333EA]/50 resize-none"
+            rows={2}
+            className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white placeholder-white/30 text-sm focus:outline-none focus:ring-1 focus:ring-white/20 resize-none"
             disabled={isTyping}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isTyping}
-            className="px-3 py-2 bg-[#9333EA] hover:bg-[#7E22CE] disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-all"
+            className="h-[42px] px-4 rounded-xl bg-white/[0.12] text-white/90 hover:bg-white/[0.16] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
           >
-            <Send className="w-4 h-4 text-white" />
+            <Send className="w-4 h-4" />
           </button>
         </div>
       </div>

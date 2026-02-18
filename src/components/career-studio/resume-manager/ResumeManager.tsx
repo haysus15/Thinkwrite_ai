@@ -949,14 +949,14 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
                       onClick={handleOpenDraftEditor}
-                      className="px-3 py-1.5 rounded-lg border border-[#A855F7]/40 bg-[#A855F7]/10 text-[11px] text-white/85 hover:bg-[#A855F7]/20 transition"
+                      className="career-btn-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold"
                     >
                       Open Draft Editor
                     </button>
                     <button
                       onClick={() => reAnalyzeResume(selectedResume.id)}
                       disabled={isReanalyzing === selectedResume.id}
-                      className="bg-[#F97316] hover:bg-[#FB923C] text-white px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors disabled:opacity-50"
+                      className="career-btn-primary px-3 py-1.5 rounded-lg text-[11px] font-semibold disabled:opacity-50"
                     >
                       {isReanalyzing === selectedResume.id
                         ? "Analyzing..."
@@ -982,7 +982,7 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                       <button
                         onClick={handleLexCoaching}
                         disabled={!selectedResume.analysisResults}
-                        className="px-3 py-1.5 rounded-lg border border-[#EC4899]/40 bg-[#EC4899]/10 text-[10px] text-white/85 hover:bg-[#EC4899]/20 transition disabled:opacity-50"
+                        className="career-btn-secondary px-3 py-1.5 rounded-lg text-[10px] disabled:opacity-50"
                       >
                         Ask Lex (Career Coach)
                       </button>
@@ -1396,7 +1396,7 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
                   </p>
                   <button
                     onClick={() => reAnalyzeResume(selectedResume.id)}
-                    className="bg-[#F97316] hover:bg-[#FB923C] text-white px-4 py-2 rounded-lg text-[11px] font-semibold"
+                    className="career-btn-primary px-4 py-2 rounded-lg text-[11px] font-semibold"
                   >
                      Analyze resume
                   </button>

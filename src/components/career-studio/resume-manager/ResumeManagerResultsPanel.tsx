@@ -76,7 +76,7 @@ export default function ResumeManagerResultsPanel({ data }: ResumeManagerResults
               type="button"
               onClick={data.onSaveDraft}
               disabled={data.draftSaving || !data.draftResumeText.trim()}
-              className="px-2.5 py-1 rounded border border-[#A855F7]/40 bg-[#A855F7]/10 text-[10px] text-white/85 hover:bg-[#A855F7]/20 transition disabled:opacity-50"
+              className="career-btn-primary px-2.5 py-1 rounded text-[10px] disabled:opacity-50"
             >
               {data.draftSaving ? 'Saving...' : 'Save Draft'}
             </button>

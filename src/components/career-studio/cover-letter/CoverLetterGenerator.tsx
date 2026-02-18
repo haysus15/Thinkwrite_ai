@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   FileText, 
@@ -15,6 +15,7 @@ import {
   X
 } from 'lucide-react';
 import { VoiceFeedbackPrompt } from "@/components/voice-feedback";
+import { dispatchLexPrompt } from "@/lib/career-studio/lexBus";
 
 // ============================================================================
 // SAVED LETTERS SECTION - IMPORT
@@ -75,6 +76,7 @@ interface CoverLetter {
 interface CoverLetterGeneratorProps {
   resumeId?: string;
   jobAnalysisId?: string;
+  onOpenLex?: () => void;
 }
 
 const GENERATION_APPROACH = {
@@ -102,6 +104,7 @@ const GENERATION_APPROACH = {
 export default function CoverLetterGenerator({
   resumeId: initialResumeId,
   jobAnalysisId: initialJobId,
+  onOpenLex,
 }: CoverLetterGeneratorProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -133,6 +136,7 @@ export default function CoverLetterGenerator({
 
   // NEW: Saved letters refresh key
   const [savedLettersKey, setSavedLettersKey] = useState(0);
+  const linkedApplicationRef = useRef(false);
 
   // Load options on mount
   useEffect(() => {
@@ -190,6 +194,24 @@ export default function CoverLetterGenerator({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (viewMode !== 'finalized') return;
+    if (linkedApplicationRef.current) return;
+    if (!coverLetter?.id || !selectedJobId) return;
+
+    linkedApplicationRef.current = true;
+    void fetch('/api/applications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        job_analysis_id: selectedJobId,
+        cover_letter_id: coverLetter.id,
+      })
+    }).catch((err) => {
+      console.warn('Failed to link cover letter to application:', err);
+    });
+  }, [viewMode, coverLetter?.id, selectedJobId]);
 
   // ============================================================================
   // DATA LOADING
@@ -295,9 +317,36 @@ export default function CoverLetterGenerator({
   const handleApproachSelected = (approach: 'quick' | 'conversation') => {
     setSelectedApproach(approach);
     if (approach === 'conversation') {
-      router.push(
-        `/career-studio/lex?mode=cover-letter-strategy&resumeId=${selectedResumeId}&jobId=${selectedJobId}&returnTo=cover-letter`
-      );
+      if (!selectedResumeId || !selectedJobId) {
+        setError('Please select both a resume and a job');
+        return;
+      }
+      setError(null);
+      dispatchLexPrompt({
+        workspace: 'cover-letter',
+        resumeId: selectedResumeId,
+        jobId: selectedJobId,
+        intent: 'general',
+        contextTag: 'cover-letter-strategy',
+        displayPrompt: 'Starting cover letter strategy with Lex…',
+        prompt: [
+          "You are Lex. This is a COVER LETTER STRATEGY session.",
+          "You have the selected resume and analyzed job in context.",
+          "Start by telling the user you're gathering the right information.",
+          "Then ask focused questions to build a strong, honest cover letter.",
+          "Do NOT draft the cover letter yet. This is just discovery.",
+          "",
+          "Ask 4-6 questions that cover:",
+          "- Motivation for this role/company",
+          "- Best-fit accomplishments from their resume",
+          "- Any gaps or transitions that need context",
+          "- Why this role now",
+          "- What tone they want (confident, warm, direct)",
+          "",
+          "Keep it tight and professional. End with: \"Answer these and I'll draft it.\""
+        ].join("\n"),
+      });
+      onOpenLex?.();
     } else {
       handleQuickGenerate();
     }
@@ -488,7 +537,7 @@ export default function CoverLetterGenerator({
                       <p className="text-white/60 mb-4">No resumes found</p>
                       <button
                         onClick={() => router.push('/career-studio/resume-manager')}
-                        className="px-5 py-2.5 bg-[#9333EA] text-white rounded-lg text-sm font-semibold hover:bg-[#A855F7] transition"
+                        className="career-btn-primary px-5 py-2.5 rounded-lg text-sm font-semibold"
                       >
                         Upload Resume
                       </button>
@@ -544,7 +593,7 @@ export default function CoverLetterGenerator({
                       </p>
                       <button
                         onClick={() => router.push('/career-studio/job-analysis')}
-                        className="px-5 py-2.5 bg-[#9333EA] text-white rounded-lg text-sm font-semibold hover:bg-[#A855F7] transition"
+                        className="career-btn-primary px-5 py-2.5 rounded-lg text-sm font-semibold"
                       >
                         Analyze Job Posting
                       </button>
@@ -597,7 +646,7 @@ export default function CoverLetterGenerator({
                         disabled={!selectedResumeId || !selectedJobId}
                         className={`px-8 py-4 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${
                           selectedResumeId && selectedJobId
-                            ? 'bg-[#9333EA] text-white hover:bg-[#A855F7] shadow-lg'
+                            ? 'career-btn-primary shadow-lg'
                             : 'bg-white/10 text-white/40 cursor-not-allowed'
                         }`}
                       >
@@ -618,7 +667,7 @@ export default function CoverLetterGenerator({
                         disabled={!selectedResumeId || !selectedJobId}
                         className={`px-8 py-4 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all border ${
                           selectedResumeId && selectedJobId
-                            ? 'bg-purple-500/20 border-purple-400/50 text-purple-200 hover:bg-purple-500/30'
+                            ? 'career-btn-secondary'
                             : 'bg-white/5 border-white/10 text-white/40 cursor-not-allowed'
                         }`}
                       >
@@ -823,7 +872,7 @@ export default function CoverLetterGenerator({
               </button>
               <button
                 onClick={handleFinalize}
-                className="flex-1 py-3 rounded-xl bg-[#9333EA] text-white font-semibold hover:bg-[#7E22CE] transition"
+                className="career-btn-primary flex-1 py-3 rounded-xl font-semibold"
               >
                 Finalize
               </button>
@@ -844,13 +893,13 @@ export default function CoverLetterGenerator({
             <div className="flex gap-4 justify-center">
               <button
                 onClick={startOver}
-                className="px-6 py-3 rounded-xl border border-white/20 hover:bg-white/5 transition"
+                className="career-btn-ghost px-6 py-3 rounded-xl"
               >
                 Create Another
               </button>
               <button
                 onClick={() => router.push('/career-studio')}
-                className="px-6 py-3 rounded-xl bg-[#9333EA] text-white font-semibold hover:bg-[#7E22CE] transition"
+                className="career-btn-primary px-6 py-3 rounded-xl font-semibold"
               >
                 Back to Dashboard
               </button>

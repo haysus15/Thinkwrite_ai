@@ -19,19 +19,28 @@ interface WorkspaceContainerProps {
   workspaceState: WorkspaceState;
   onWorkspaceSwitch: (view: WorkspaceView, context?: Partial<WorkspaceContext>) => void;
   onContextUpdate: (context: Partial<WorkspaceContext>) => void;
+  onOpenLex?: () => void;
+  onOpenApplicationViewer?: (payload: any) => void;
+  lexCollapsed?: boolean;
 }
 
 export default function WorkspaceContainer({
   workspaceState,
   onWorkspaceSwitch,
-  onContextUpdate
+  onContextUpdate,
+  onOpenLex,
+  onOpenApplicationViewer,
+  lexCollapsed
 }: WorkspaceContainerProps) {
   // Common props for all workspace wrappers
   const commonProps = {
     workspaceContext: workspaceState.context,
     onNavigate: onWorkspaceSwitch,
     onContextUpdate,
-    workspaceView: workspaceState.currentView
+    workspaceView: workspaceState.currentView,
+    onOpenLex,
+    onOpenApplicationViewer,
+    lexCollapsed
   };
 
   // Render the appropriate workspace component

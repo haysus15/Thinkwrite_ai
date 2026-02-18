@@ -19,6 +19,8 @@ interface CareerAssessmentInterfaceProps {
   onViewResults?: () => void;
   variant?: "landing" | "progress";
   currentPhase?: number;
+  lexCollapsed?: boolean;
+  onOpenLex?: () => void;
 }
 
 export default function CareerAssessmentInterface({
@@ -27,6 +29,8 @@ export default function CareerAssessmentInterface({
   onViewResults,
   variant = "landing",
   currentPhase,
+  lexCollapsed,
+  onOpenLex,
 }: CareerAssessmentInterfaceProps) {
   const router = useRouter();
   const [isLoadingStatus, setIsLoadingStatus] = React.useState(true);
@@ -97,8 +101,18 @@ export default function CareerAssessmentInterface({
                 Lex is guiding the assessment on the left. Answer each phase to unlock your plan.
               </p>
             </div>
-            <div className="rounded-full border border-white/20 bg-white/[0.04] px-3 py-1 text-[11px] text-white/60 uppercase tracking-[0.2em]">
-              Phase {activePhase}
+            <div className="flex items-center gap-2">
+              <div className="rounded-full border border-white/20 bg-white/[0.04] px-3 py-1 text-[11px] text-white/60 uppercase tracking-[0.2em]">
+                Phase {activePhase}
+              </div>
+              {lexCollapsed && (
+                <button
+                  onClick={onOpenLex}
+                  className="career-btn-primary px-3 py-1 rounded-full text-[10px] uppercase tracking-[0.2em]"
+                >
+                  Open Lex
+                </button>
+              )}
             </div>
           </div>
 

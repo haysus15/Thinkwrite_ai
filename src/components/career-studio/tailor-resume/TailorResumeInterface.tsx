@@ -3,7 +3,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { dispatchLexPrompt, subscribeToStrategySummary } from "@/lib/career-studio/lexBus";
@@ -44,6 +44,7 @@ import { VoiceFeedbackPrompt } from "@/components/voice-feedback";
 interface TailorResumeInterfaceProps {
   jobAnalysisId?: string;
   masterResumeId?: string;
+  onOpenLex?: () => void;
 }
 
 interface ResumeOption {
@@ -149,6 +150,7 @@ function parseStrategyInsights(text: string): StrategyInsight[] {
 export default function TailorResumeInterface({
   jobAnalysisId: initialJobAnalysisId,
   masterResumeId: initialMasterResumeId,
+  onOpenLex,
 }: TailorResumeInterfaceProps) {
   const router = useRouter();
 
@@ -179,6 +181,8 @@ export default function TailorResumeInterface({
   const [strategySummaryText, setStrategySummaryText] = useState<string | null>(null);
   const [editPassInsights, setEditPassInsights] = useState<StrategyInsight[]>([]);
   const [editPassSummaryText, setEditPassSummaryText] = useState<string | null>(null);
+  const linkedApplicationRef = useRef(false);
+  const persistedTailoredIdRef = useRef<string | null>(null);
 
   //  ADDED: Save button state
   const [isSaving, setIsSaving] = useState(false);
@@ -212,6 +216,44 @@ export default function TailorResumeInterface({
       }
     }
   }, [initialJobAnalysisId, initialMasterResumeId, resumes, jobAnalyses, viewMode]);
+
+  useEffect(() => {
+    if (viewMode !== "finalized") return;
+    if (linkedApplicationRef.current) return;
+    if (!tailoredResume?.id || !selectedJobId) return;
+
+    linkedApplicationRef.current = true;
+    void (async () => {
+      let persistedId = persistedTailoredIdRef.current;
+      if (!persistedId && tailoredResume) {
+        try {
+          const res = await fetch("/api/tailored-resume/persist", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tailoredResume }),
+          });
+          const data = await res.json();
+          if (data?.success && data?.id) {
+            persistedId = data.id;
+            persistedTailoredIdRef.current = data.id;
+          }
+        } catch (err) {
+          console.warn("Failed to persist tailored resume:", err);
+        }
+      }
+
+      await fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_analysis_id: selectedJobId,
+          tailored_resume_id: persistedId || tailoredResume.id,
+        }),
+      }).catch((err) => {
+        console.warn("Failed to link tailored resume to application:", err);
+      });
+    })();
+  }, [viewMode, tailoredResume?.id, selectedJobId]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -804,6 +846,31 @@ export default function TailorResumeInterface({
       if (data.success) {
         setSaveSuccess(true);
         console.log(" Resume saved:", data.fileName);
+        if (selectedJobId && tailoredResume?.id) {
+          try {
+            if (!persistedTailoredIdRef.current && tailoredResume) {
+              const persistRes = await fetch("/api/tailored-resume/persist", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ tailoredResume }),
+              });
+              const persistData = await persistRes.json();
+              if (persistData?.success && persistData?.id) {
+                persistedTailoredIdRef.current = persistData.id;
+              }
+            }
+            await fetch("/api/applications", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                job_analysis_id: selectedJobId,
+                tailored_resume_id: persistedTailoredIdRef.current || tailoredResume.id,
+              }),
+            });
+          } catch (linkErr) {
+            console.warn("Failed to link tailored resume on save:", linkErr);
+          }
+        }
       } else {
         setError(data.error || "Failed to save resume");
       }
@@ -817,7 +884,61 @@ export default function TailorResumeInterface({
 
   const handleDiscussWithLex = () => {
     if (!tailoredResume) return;
-    router.push(`/career-studio/lex?tailoredResumeId=${tailoredResume.id}`);
+    const originalText =
+      tailoredResume?.originalContent
+        ? buildTailoredResumeText(tailoredResume.originalContent)
+        : originalResumeText || "No original resume available.";
+    const finalText =
+      tailoredResume?.tailoredContent
+        ? buildTailoredResumeText(tailoredResume.tailoredContent)
+        : tailoredContentText || "No tailored resume available.";
+
+    const appliedChanges = (tailoredResume?.changes || [])
+      .filter((c) => c.status === "accepted")
+      .slice(0, 6)
+      .map((c) => {
+        const snippetOriginal = c.original?.trim() || "N/A";
+        const snippetTailored = c.tailored?.trim() || "N/A";
+        return `- [${c.section}] "${snippetOriginal}" → "${snippetTailored}" (Reason: ${c.reason || "No reason provided"})`;
+      })
+      .join("\n");
+
+    dispatchLexPrompt({
+      workspace: "tailor",
+      resumeId: selectedResumeId,
+      jobId: selectedJobId,
+      intent: "general",
+      contextTag: "tailor-debrief",
+      displayPrompt: "Debriefing the tailored resume with Lex…",
+      prompt: [
+        "You are Lex. This is a DEBRIEF of a tailored resume after changes were accepted.",
+        "Your job: explain what changed, why it works, and what still needs attention.",
+        "Do NOT rewrite the resume. Do NOT generate new content. This is explanation only.",
+        "",
+        "Output format:",
+        "DEBRIEF SUMMARY",
+        "1) Change themes (3-5 bullets)",
+        "2) High-impact diffs (quote original vs tailored, 3-5 items)",
+        "3) Why this is stronger for the target role",
+        "4) Remaining risks / gaps (be honest)",
+        "5) Next actions (short checklist)",
+        "",
+        "APPLIED CHANGES (sample):",
+        appliedChanges || "- No accepted changes recorded.",
+        "",
+        "ORIGINAL RESUME:",
+        "---BEGIN ORIGINAL---",
+        originalText,
+        "---END ORIGINAL---",
+        "",
+        "TAILORED RESUME:",
+        "---BEGIN TAILORED---",
+        finalText,
+        "---END TAILORED---",
+      ].join("\n"),
+    });
+
+    onOpenLex?.();
   };
 
   const handleAcceptAll = async () => {
@@ -1007,7 +1128,7 @@ export default function TailorResumeInterface({
                         </p>
                         <button
                           onClick={() => router.push("/career-studio/resume-manager")}
-                          className="px-5 py-2.5 bg-[#9333EA] text-white rounded-lg text-xs font-semibold hover:bg-[#A855F7] transition-colors"
+                        className="career-btn-primary px-5 py-2.5 rounded-lg text-xs font-semibold"
                         >
                           Go to Resume Manager
                         </button>
@@ -1093,7 +1214,7 @@ export default function TailorResumeInterface({
                         </p>
                         <button
                           onClick={() => router.push("/career-studio/job-analysis")}
-                          className="px-5 py-2.5 bg-[#9333EA] text-white rounded-lg text-xs font-semibold hover:bg-[#A855F7] transition-colors"
+                        className="career-btn-primary px-5 py-2.5 rounded-lg text-xs font-semibold"
                         >
                           Go to Job Decoder
                         </button>
@@ -1161,7 +1282,7 @@ export default function TailorResumeInterface({
                           disabled={!selectedResumeId || !selectedJobId}
                           className={`px-7 py-3 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
                             selectedResumeId && selectedJobId
-                              ? "bg-[#9333EA] text-white hover:bg-[#A855F7]"
+                              ? "career-btn-primary"
                               : "bg-white/10 text-white/40 cursor-not-allowed"
                           }`}
                         >
@@ -1540,7 +1661,7 @@ export default function TailorResumeInterface({
                     disabled={!tailoringLevel}
                     className={`px-7 py-3 rounded-lg text-sm font-semibold flex items-center gap-2 transition-all ${
                       tailoringLevel
-                        ? "bg-[#9333EA] text-white hover:bg-[#A855F7]"
+                        ? "career-btn-primary"
                         : "bg-white/10 text-white/40 cursor-not-allowed"
                     }`}
                   >
@@ -2012,14 +2133,9 @@ export default function TailorResumeInterface({
                   <button
                     onClick={handleDownload}
                     disabled={isLoading}
-                    className="w-full sm:w-auto px-7 py-3 rounded-lg bg-[#9333EA] text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-[#A855F7] disabled:opacity-50 transition-all shadow-lg"
+                    className="career-btn-primary w-full sm:w-auto px-7 py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 transition-all shadow-lg"
                   >
-                    {isLoading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    Download DOCX
+                    {isLoading ? "Downloading..." : "Download DOCX"}
                   </button>
 
                   {/*  ADDED: SAVE TO MY RESUMES BUTTON */}
@@ -2028,33 +2144,23 @@ export default function TailorResumeInterface({
                     disabled={isSaving || saveSuccess}
                     className={`w-full sm:w-auto px-7 py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50 ${
                       saveSuccess
-                        ? 'bg-green-600 text-white'
-                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                        ? 'career-btn-secondary'
+                        : 'career-btn-primary'
                     }`}
                   >
                     {isSaving ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Saving...
-                      </>
+                      "Saving..."
                     ) : saveSuccess ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        Saved to My Resumes!
-                      </>
+                      "Saved to My Resumes!"
                     ) : (
-                      <>
-                        <Save className="w-4 h-4" />
-                        Save to My Resumes
-                      </>
+                      "Save to My Resumes"
                     )}
                   </button>
 
                   <button
                     onClick={handleDiscussWithLex}
-                    className="w-full sm:w-auto px-7 py-3 rounded-lg bg-white/10 text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-white/20 transition-all"
+                    className="career-btn-secondary w-full sm:w-auto px-7 py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-all"
                   >
-                    <MessageCircle className="w-4 h-4" />
                     De-brief with Lex
                   </button>
 
@@ -2064,6 +2170,7 @@ export default function TailorResumeInterface({
                     onTransformed={(newContent) => {
                       setVoiceTransformedContent(newContent);
                     }}
+                    className="w-full sm:w-auto px-7 py-3 rounded-lg text-sm font-semibold"
                   />
                 </div>
 
@@ -2074,17 +2181,42 @@ export default function TailorResumeInterface({
                       setViewMode("review");
                       setCurrentChangeIndex(0);
                     }}
-                    className="w-full sm:w-auto px-5 py-2 rounded-lg border border-white/20 bg-white/5 text-white/80 text-xs font-medium flex items-center justify-center gap-2 hover:bg-white/10 transition-all"
+                    className="career-btn-ghost w-full sm:w-auto px-5 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all"
                   >
-                    <ChevronLeft className="w-3 h-3" />
                     Review Changes Again
                   </button>
 
                   <button
-                    onClick={() => router.push("/career-studio/applications")}
-                    className="w-full sm:w-auto px-5 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-medium flex items-center justify-center gap-2 hover:bg-emerald-500/20 transition-all"
+                    onClick={async () => {
+                      if (selectedJobId && tailoredResume?.id) {
+                        try {
+                          if (!persistedTailoredIdRef.current && tailoredResume) {
+                            const persistRes = await fetch("/api/tailored-resume/persist", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ tailoredResume }),
+                            });
+                            const persistData = await persistRes.json();
+                            if (persistData?.success && persistData?.id) {
+                              persistedTailoredIdRef.current = persistData.id;
+                            }
+                          }
+                          await fetch("/api/applications", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              job_analysis_id: selectedJobId,
+                              tailored_resume_id: persistedTailoredIdRef.current || tailoredResume.id,
+                            }),
+                          });
+                        } catch (linkErr) {
+                          console.warn("Failed to link tailored resume on track:", linkErr);
+                        }
+                      }
+                      router.push("/career-studio/workspace?workspace=applications");
+                    }}
+                    className="career-btn-secondary w-full sm:w-auto px-5 py-2 rounded-lg text-xs font-medium flex items-center justify-center gap-2 transition-all"
                   >
-                    <Rocket className="w-3 h-3" />
                     Track Application
                   </button>
                 </div>

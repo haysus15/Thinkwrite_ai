@@ -8,6 +8,7 @@ import { useResumeContext } from "../hooks/useResumeContext";
 import LexMessage from "../shared/LexMessage";
 import LexInput from "../shared/LexInput";
 import LexHeader from "../shared/LexHeader";
+import LexConversationModal from "../shared/LexConversationModal";
 import LexTypingIndicator from "../shared/LexTypingIndicator";
 import QuickActionButtons from "../shared/QuickActionButtons";
 import ContextChip from "../shared/ContextChips";
@@ -82,13 +83,6 @@ export default function GeneralLex() {
   }, [messages, saveToLocalStorage]);
 
   // Handlers
-  const handleSave = () => {
-    const title = prompt("Name this conversation:");
-    if (title) {
-      saveConversation(messages, title);
-    }
-  };
-
   const handleNew = () => {
     if (
       confirm(
@@ -141,10 +135,40 @@ export default function GeneralLex() {
           title="Career Coach"
           subtitle="AI-powered career strategist"
           messageCount={messages.length}
-          onSave={handleSave}
           onNew={handleNew}
           onClear={handleClear}
           showControls={true}
+          extraControls={
+            <LexConversationModal
+              messages={messages.map((m) => ({
+                id: m.id,
+                sender: m.sender,
+                text: m.text,
+                timestamp: m.timestamp,
+              }))}
+              topic="general"
+              context={{ sessionType: 'general' }}
+              onLoad={({ messages: loaded }) => {
+                const mapped = loaded.map((msg) => ({
+                  id: msg.id,
+                  text: msg.text,
+                  sender: msg.sender,
+                  timestamp: new Date(msg.timestamp),
+                }));
+                setMessages([
+                  ...mapped,
+                  {
+                    id: `lex-general-resume-${Date.now()}`,
+                    text: "Welcome back. Let’s continue your career strategy. Pick up from your last answer.",
+                    sender: "lex",
+                    timestamp: new Date(),
+                  },
+                ]);
+              }}
+              triggerLabel="Save Chat"
+              triggerClassName="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#EAAA00] text-[11px] text-black font-medium hover:bg-[#d89b00] transition-colors shadow-lg"
+            />
+          }
         />
 
         {/* 🆕 Context Chips */}

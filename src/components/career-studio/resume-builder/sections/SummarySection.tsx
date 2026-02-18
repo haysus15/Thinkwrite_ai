@@ -13,17 +13,22 @@ interface SummarySectionProps {
 }
 
 export default function SummarySection({ data, targetRole, onChange }: SummarySectionProps) {
-  const [charCount, setCharCount] = useState(data.length);
+  const countWords = (value: string) =>
+    value
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+  const [wordCount, setWordCount] = useState(countWords(data));
 
   const handleChange = (value: string) => {
-    setCharCount(value.length);
+    setWordCount(countWords(value));
     onChange(value);
   };
 
-  const getCharCountColor = () => {
-    if (charCount === 0) return 'text-white/40';
-    if (charCount < 100) return 'text-violet-400';
-    if (charCount > 500) return 'text-orange-400';
+  const getWordCountColor = () => {
+    if (wordCount === 0) return 'text-white/40';
+    if (wordCount < 40) return 'text-violet-400';
+    if (wordCount > 100) return 'text-orange-400';
     return 'text-green-400';
   };
 
@@ -50,10 +55,10 @@ export default function SummarySection({ data, targetRole, onChange }: SummarySe
         />
         <div className="flex items-center justify-between mt-2">
           <p className="text-xs text-white/40">
-            Aim for 100-300 characters. Be specific and impactful.
+            Aim for 40-100 words (about 3-4 sentences). Be specific and impactful.
           </p>
-          <span className={`text-xs font-medium ${getCharCountColor()}`}>
-            {charCount} characters
+          <span className={`text-xs font-medium ${getWordCountColor()}`}>
+            {wordCount} words
           </span>
         </div>
       </div>
@@ -92,10 +97,10 @@ export default function SummarySection({ data, targetRole, onChange }: SummarySe
       <div className="bg-white/5 border border-white/10 rounded-xl p-5">
         <h4 className="text-white font-medium mb-3">Example Summary</h4>
         <p className="text-white/70 text-sm italic">
-          "Results-driven Data Analyst with 5+ years of experience transforming complex datasets 
+          &quot;Results-driven Data Analyst with 5+ years of experience transforming complex datasets 
           into actionable business insights. Proficient in SQL, Python, and Tableau, with a proven 
           track record of reducing reporting time by 40% and identifying $2M in cost savings. 
-          Passionate about leveraging data to drive strategic decision-making."
+          Passionate about leveraging data to drive strategic decision-making.&quot;
         </p>
         <p className="text-xs text-white/40 mt-3">
           Notice: specific years, tools, quantified achievements, and clear value proposition.

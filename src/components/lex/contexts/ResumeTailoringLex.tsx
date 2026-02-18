@@ -12,6 +12,7 @@ import LexTypingIndicator from "../shared/LexTypingIndicator";
 import QuickActionButtons from "../shared/QuickActionButtons";
 import ContextChip from "../shared/ContextChips";
 import { QuickAction } from "../types/lex.types";
+import LexConversationModal from "../shared/LexConversationModal";
 
 interface ResumeTailoringLexProps {
   resumeId: string;
@@ -197,6 +198,35 @@ useEffect(() => {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
+              <LexConversationModal
+                messages={messages.map((m) => ({
+                  id: m.id,
+                  sender: m.sender,
+                  text: m.text,
+                  timestamp: m.timestamp,
+                }))}
+                topic="resume-tailoring"
+                context={{ sessionType: 'resume-tailoring' }}
+                onLoad={({ messages: loaded }) => {
+                  const mapped = loaded.map((msg) => ({
+                    id: msg.id,
+                    text: msg.text,
+                    sender: msg.sender,
+                    timestamp: new Date(msg.timestamp),
+                  }));
+                  setMessages([
+                    ...mapped,
+                    {
+                      id: `lex-resume-tailoring-resume-${Date.now()}`,
+                      text: "Welcome back. Let’s continue tailoring this resume. Start where you left off.",
+                      sender: "lex",
+                      timestamp: new Date(),
+                    },
+                  ]);
+                }}
+                triggerLabel="Save Chat"
+                triggerClassName="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#EAAA00] text-[11px] text-black font-medium hover:bg-[#d89b00] transition-colors shadow-lg"
+              />
               {/* Extract Changes Button */}
               {showExtractButton && (
                 <button

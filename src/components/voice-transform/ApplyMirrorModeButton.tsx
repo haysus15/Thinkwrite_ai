@@ -22,9 +22,8 @@ export function ApplyMirrorModeButton({
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-violet-400 hover:text-violet-300 bg-violet-900/20 hover:bg-violet-900/30 border border-violet-800/50 rounded-lg transition-colors ${className}`}
+        className={`career-btn-secondary flex items-center justify-center px-3 py-1.5 text-sm font-medium rounded-lg ${className}`}
       >
-        <span>✨</span>
         Apply Mirror Mode
       </button>
 

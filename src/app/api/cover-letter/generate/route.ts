@@ -914,29 +914,98 @@ function calculateScores(params: {
 }): { voiceMatch: number; jobAlignment: number; overall: number } {
   const { content, jobData, matchData } = params;
 
-  let jobAlignment = 70;
-  let voiceMatch = 75;
+  const contentLower = content.toLowerCase();
+  const length = content.length;
 
-  if (jobData?.requirements) {
-    const contentLower = content.toLowerCase();
-    const mentioned = jobData.requirements.filter((req) =>
-      contentLower.includes(req.toLowerCase().split(" ")[0])
-    );
-    jobAlignment += Math.min(20, mentioned.length * 5);
+  // ----------------------------------------------------------
+  // Job Alignment (role fit + requirements + match data)
+  // ----------------------------------------------------------
+  let jobAlignment = 60;
+
+  const requirements = Array.isArray(jobData?.requirements) ? jobData!.requirements : [];
+  const topRequirements = requirements.slice(0, 3);
+  const stopWords = new Set([
+    "the", "and", "or", "of", "to", "in", "for", "with", "a", "an",
+    "preferred", "required", "strong", "strongly", "excellent", "working",
+    "knowledge", "experience", "skills", "ability", "high", "level",
+    "attention", "detail", "accuracy", "comfortable"
+  ]);
+
+  const tokenize = (text: string) =>
+    text
+      .toLowerCase()
+      .replace(/[^\w\s/+.-]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w && !stopWords.has(w));
+
+  const requirementMatches = topRequirements.filter((req) => {
+    const tokens = tokenize(req);
+    if (tokens.length === 0) return false;
+    return tokens.some((t) => contentLower.includes(t));
+  });
+
+  jobAlignment += Math.min(24, requirementMatches.length * 8);
+
+  if (jobData?.job_title) {
+    const title = jobData.job_title.toLowerCase();
+    const titleSegments = title
+      .split(/[\/|,-]/g)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const titleHit = titleSegments.some((seg) => seg && contentLower.includes(seg));
+    if (titleHit) {
+      jobAlignment += 5;
+    } else {
+      const titleTokens = tokenize(title);
+      const tokenHits = titleTokens.filter((t) => contentLower.includes(t)).length;
+      if (titleTokens.length > 0 && tokenHits / titleTokens.length >= 0.6) {
+        jobAlignment += 5;
+      }
+    }
+  }
+
+  if (jobData?.company_name) {
+    const company = jobData.company_name.toLowerCase();
+    if (contentLower.includes(company)) {
+      jobAlignment += 5;
+    }
   }
 
   if (matchData?.match_score) {
-    jobAlignment = Math.round((jobAlignment + matchData.match_score) / 2);
+    jobAlignment += Math.min(20, Math.round(matchData.match_score * 0.2));
   }
 
-  const goodPractices = [
-    !content.toLowerCase().includes("i am excited to apply"),
-    !content.toLowerCase().includes("i believe i would be"),
-    jobData?.company_name ? content.includes(jobData.company_name) : true,
-    content.length > 200 && content.length < 650,
-  ];
+  // ----------------------------------------------------------
+  // Voice Match (structure + authenticity + evidence)
+  // ----------------------------------------------------------
+  let voiceMatch = 65;
 
-  voiceMatch += goodPractices.filter(Boolean).length * 3;
+  const bannedPhrases = [
+    "i am excited to apply",
+    "i believe i would be",
+  ];
+  const hasBanned = bannedPhrases.some((p) => contentLower.includes(p));
+  if (!hasBanned) voiceMatch += 5;
+
+  // Professional length window (characters, not words)
+  if (length >= 1200 && length <= 2400) {
+    voiceMatch += 10;
+  }
+
+  // Basic structure: 3+ paragraphs
+  const paragraphs = content.split(/\n\s*\n/).filter((p) => p.trim().length > 0);
+  if (paragraphs.length >= 3) {
+    voiceMatch += 5;
+  }
+
+  // Evidence strength: quantified achievements
+  const metricMatches = content.match(/(\$?\d[\d,]*\+?%?|\d+\s?(years?|yrs?|months?|k|m|b))/gi);
+  const metricCount = metricMatches ? metricMatches.length : 0;
+  if (metricCount >= 2) {
+    voiceMatch += 12;
+  } else if (metricCount >= 1) {
+    voiceMatch += 8;
+  }
 
   voiceMatch = Math.min(100, voiceMatch);
   jobAlignment = Math.min(100, jobAlignment);

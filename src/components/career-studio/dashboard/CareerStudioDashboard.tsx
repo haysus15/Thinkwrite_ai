@@ -519,7 +519,7 @@ export default function CareerStudioDashboardV2() {
 
       if (res.ok && data?.success && data.application?.id) {
         await loadApplicationsCount();
-        router.push(`/career-studio/applications`);
+        router.push(`/career-studio/workspace?workspace=applications`);
         return;
       }
 
@@ -704,7 +704,7 @@ export default function CareerStudioDashboardV2() {
       { title: "Job Analysis", subtitle: jobAnalysisStats.totalAnalyses > 0 ? `${jobAnalysisStats.totalAnalyses} analyzed` : "Decode postings", icon: "JA", href: "/career-studio/job-analysis", onClick: undefined, isNew: false, highlight: false },
       { title: "Tailor Resume", subtitle: tailorStatus.subtitle, icon: "TR", href: tailorStatus.href, onClick: handleTailorResumeClick, isNew: false, highlight: tailorStatus.enabled },
       { title: "Assessment", subtitle: "Get your roadmap", icon: "AS", href: "/career-studio/assessment", onClick: undefined, isNew: true, highlight: false },
-      { title: "Applications", subtitle: `Track ${stats.applications}`, icon: "AP", href: "/career-studio/applications", onClick: undefined, isNew: false, highlight: false },
+      { title: "Applications", subtitle: `Track ${stats.applications}`, icon: "AP", href: "/career-studio/workspace?workspace=applications", onClick: undefined, isNew: false, highlight: false },
     ];
   };
 

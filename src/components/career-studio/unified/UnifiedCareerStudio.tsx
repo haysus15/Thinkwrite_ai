@@ -9,6 +9,7 @@ import Link from 'next/link';
 import LexSidebarUnified from './LexSidebarUnified';
 import WorkspaceContainer from './WorkspaceContainer';
 import ContextPanelUnified from './ContextPanelUnified';
+import ApplicationsDocumentViewer, { ApplicationViewerPayload } from './ApplicationsDocumentViewer';
 import { WorkspaceState, WorkspaceView, WorkspaceContext } from '@/types/career-studio-workspace';
 import CareerStudioTour from '../CareerStudioTour';
 import ResumeManagerResultsPanel from '../resume-manager/ResumeManagerResultsPanel';
@@ -44,6 +45,7 @@ function UnifiedCareerStudioContent() {
   const [consentChecked, setConsentChecked] = useState(false);
   const [consentRecorded, setConsentRecorded] = useState(false);
   const [tourCompleted, setTourCompleted] = useState(false);
+  const [applicationViewer, setApplicationViewer] = useState<ApplicationViewerPayload | null>(null);
 
   // Update workspace when URL changes
   useEffect(() => {
@@ -82,6 +84,20 @@ function UnifiedCareerStudioContent() {
       setTourCompleted(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (workspaceState.currentView !== 'applications') return;
+    if (!applicationViewer) {
+      rightTouchedRef.current = true;
+      setRightCollapsed(true);
+    }
+  }, [workspaceState.currentView, applicationViewer]);
+
+  useEffect(() => {
+    if (workspaceState.currentView !== 'applications' && applicationViewer) {
+      setApplicationViewer(null);
+    }
+  }, [workspaceState.currentView]);
 
   useEffect(() => {
     if (!consentChecked) return;
@@ -297,6 +313,16 @@ function UnifiedCareerStudioContent() {
               workspaceState={workspaceState}
               onWorkspaceSwitch={switchWorkspace}
               onContextUpdate={updateContext}
+              onOpenLex={() => {
+                leftTouchedRef.current = true;
+                setLeftCollapsed(false);
+              }}
+              onOpenApplicationViewer={(payload) => {
+                setApplicationViewer(payload);
+                rightTouchedRef.current = true;
+                setRightCollapsed(false);
+              }}
+              lexCollapsed={leftCollapsed}
             />
           </div>
 
@@ -320,7 +346,47 @@ function UnifiedCareerStudioContent() {
                 )}
               </div>
             </>
-          ) : (
+          ) : workspaceState.currentView === 'applications' && applicationViewer ? (
+            <>
+              <div
+                className="career-resize-handle"
+                onMouseDown={() => {
+                  if (rightCollapsed) return;
+                  rightTouchedRef.current = true;
+                  setResizing('right');
+                }}
+              />
+
+              <div
+                className="career-panel flex-shrink-0"
+                style={{ width: rightCollapsed ? 36 : rightWidth }}
+              >
+                <div className="career-panel-toggle career-panel-toggle-right">
+                  <button
+                    type="button"
+                    className="career-panel-toggle-button"
+                    onClick={() => {
+                      rightTouchedRef.current = true;
+                      setRightCollapsed((prev) => !prev);
+                    }}
+                    aria-label={rightCollapsed ? 'Expand document viewer' : 'Collapse document viewer'}
+                  >
+                    {rightCollapsed ? '‹' : '›'}
+                  </button>
+                </div>
+                {!rightCollapsed && (
+                  <ApplicationsDocumentViewer
+                    payload={applicationViewer}
+                    onClose={() => {
+                      setApplicationViewer(null);
+                      rightTouchedRef.current = true;
+                      setRightCollapsed(true);
+                    }}
+                  />
+                )}
+              </div>
+            </>
+          ) : workspaceState.currentView === 'applications' ? null : (
             <>
               <div
                 className="career-resize-handle"

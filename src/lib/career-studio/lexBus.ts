@@ -8,7 +8,7 @@ export interface LexPromptPayload {
   resumeId?: string;
   jobId?: string;
   intent?: "recruiter-review" | "quote-review" | "general";
-  contextTag?: "tailor-strategy" | "tailor-edit-passes";
+  contextTag?: "tailor-strategy" | "tailor-edit-passes" | "tailor-debrief" | "cover-letter-strategy" | "application-final-review";
   displayPrompt?: string;
 }
 
@@ -122,7 +122,7 @@ export interface StrategySummaryPayload {
   resumeId?: string;
   jobId?: string;
   text: string;
-  contextTag?: "tailor-strategy" | "tailor-edit-passes";
+  contextTag?: "tailor-strategy" | "tailor-edit-passes" | "tailor-debrief" | "cover-letter-strategy" | "application-final-review";
 }
 
 export function dispatchStrategySummary(payload: StrategySummaryPayload) {

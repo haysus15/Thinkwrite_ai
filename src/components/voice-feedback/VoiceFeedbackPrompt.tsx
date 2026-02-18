@@ -70,28 +70,30 @@ export function VoiceFeedbackPrompt({
   }
 
   return (
-    <div className={`p-4 bg-zinc-800/50 border border-zinc-700 rounded-lg ${className}`}>
-      <p className="text-sm text-zinc-300 mb-3">Does this sound like you?</p>
+    <div
+      className={`p-4 rounded-lg border border-violet-500/40 bg-transparent ${className}`}
+    >
+      <p className="text-sm text-zinc-200/90 mb-3">Does this sound like you?</p>
 
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => submitFeedback("accepted")}
           disabled={isSubmitting}
-          className="px-3 py-1.5 text-sm font-medium text-emerald-400 bg-emerald-900/30 border border-emerald-800/50 rounded-lg hover:bg-emerald-900/50 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm font-medium text-violet-200 bg-violet-600/20 border border-violet-500/60 rounded-lg hover:bg-violet-600/30 disabled:opacity-50"
         >
           Yes, this is my voice
         </button>
         <button
           onClick={() => setShowNoteInput(true)}
           disabled={isSubmitting}
-          className="px-3 py-1.5 text-sm font-medium text-amber-400 bg-amber-900/30 border border-amber-800/50 rounded-lg hover:bg-amber-900/50 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm font-medium text-cyan-200 bg-cyan-600/20 border border-cyan-500/60 rounded-lg hover:bg-cyan-600/30 disabled:opacity-50"
         >
           Mostly, with edits
         </button>
         <button
           onClick={() => submitFeedback("rejected")}
           disabled={isSubmitting}
-          className="px-3 py-1.5 text-sm font-medium text-zinc-400 bg-zinc-800 border border-zinc-700 rounded-lg hover:bg-zinc-700 disabled:opacity-50"
+          className="px-3 py-1.5 text-sm font-medium text-pink-200 bg-pink-600/20 border border-pink-500/60 rounded-lg hover:bg-pink-600/30 disabled:opacity-50"
         >
           Doesn't sound like me
         </button>

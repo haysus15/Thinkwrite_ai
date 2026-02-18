@@ -11,6 +11,7 @@ import LexTypingIndicator from "../shared/LexTypingIndicator";
 import QuickActionButtons from "../shared/QuickActionButtons";
 import ContextChip from "../shared/ContextChips";
 import { QuickAction } from "../types/lex.types";
+import LexConversationModal from "../shared/LexConversationModal";
 
 interface JobAnalysisLexProps {
   jobId: string;
@@ -115,6 +116,35 @@ export default function JobAnalysisLex({ jobId }: JobAnalysisLexProps) {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-3">
+              <LexConversationModal
+                messages={messages.map((m) => ({
+                  id: m.id,
+                  sender: m.sender,
+                  text: m.text,
+                  timestamp: m.timestamp,
+                }))}
+                topic="job-discussion"
+                context={{ sessionType: 'job-discussion' }}
+                onLoad={({ messages: loaded }) => {
+                  const mapped = loaded.map((msg) => ({
+                    id: msg.id,
+                    text: msg.text,
+                    sender: msg.sender,
+                    timestamp: new Date(msg.timestamp),
+                  }));
+                  setMessages([
+                    ...mapped,
+                    {
+                      id: `lex-job-discussion-resume-${Date.now()}`,
+                      text: "Welcome back. Let’s continue breaking down this job. Start where you left off.",
+                      sender: "lex",
+                      timestamp: new Date(),
+                    },
+                  ]);
+                }}
+                triggerLabel="Save Chat"
+                triggerClassName="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#EAAA00] text-[11px] text-black font-medium hover:bg-[#d89b00] transition-colors shadow-lg"
+              />
               <div className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[11px] text-white/60">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#EAAA00]" />
                 <span>{messages.length} messages</span>

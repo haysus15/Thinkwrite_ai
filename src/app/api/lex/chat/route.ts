@@ -377,6 +377,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       conversationId,
+      sessionId,
       resumeContext,
       resumeAnalysisContext,
       jobContext,
@@ -385,7 +386,8 @@ export async function POST(request: NextRequest) {
       sessionType,
       intent,
       isStrategySession,
-      strategyModeData
+      strategyModeData,
+      captureForMirror = true
     } = body;
 
     const rawMessages =
@@ -539,7 +541,7 @@ export async function POST(request: NextRequest) {
 
       // Mirror Mode: Learn from user's conversational voice
       // Only learn from user messages, not AI responses
-      if (userId && messages.length > 0) {
+      if (captureForMirror && userId && messages.length > 0) {
         const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user');
         if (lastUserMessage?.text) {
           try {

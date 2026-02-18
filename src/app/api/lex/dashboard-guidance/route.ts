@@ -180,7 +180,7 @@ function parseNavigationFromResponse(response: string, originalMessage: string) 
   if (lowerResponse.includes('applications tracker') || lowerResponse.includes('track')) {
     return {
       text: "Track Applications",
-      href: "/career-studio/applications"
+      href: "/career-studio/workspace?workspace=applications"
     };
   }
   
@@ -230,7 +230,7 @@ function getNavigationSuggestion(message: string) {
   if (lowerMessage.includes('track') || lowerMessage.includes('application')) {
     return {
       text: "Track Applications",
-      href: "/career-studio/applications"
+      href: "/career-studio/workspace?workspace=applications"
     };
   }
   

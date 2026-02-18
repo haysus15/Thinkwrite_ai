@@ -595,13 +595,20 @@ export class RigorousConsistentScoringEngine {
       score -= points;
     };
     
-    // Professional summary - strict evaluation
+    // Professional summary - strict evaluation (word-based)
     const summaryContent = contentAnalysis.sections.summary.join(' ');
-    if (summaryContent.length === 0) {
+    const summaryWordCount = summaryContent
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean).length;
+    if (summaryWordCount === 0) {
       addDeduction("Missing professional summary - critical first impression failure", 5);
-    } else if (summaryContent.length < 80) {
+    } else if (summaryWordCount < 40) {
       addDeduction("Professional summary too brief - fails to establish value proposition", 3);
       examplesFromResume.push(`Brief summary: "${summaryContent}"`);
+    } else if (summaryWordCount > 100) {
+      addDeduction("Professional summary too long - tighten to strongest value points", 2);
+      examplesFromResume.push(`Long summary (${summaryWordCount} words): "${summaryContent.substring(0, 120)}..."`);
     } else {
       positives.push("Professional summary present");
       examplesFromResume.push(`Summary: "${summaryContent.substring(0, 80)}..."`);
