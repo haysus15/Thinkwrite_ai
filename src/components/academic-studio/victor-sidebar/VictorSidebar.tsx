@@ -1,7 +1,7 @@
 // src/components/academic-studio/victor-sidebar/VictorSidebar.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   BookOpen,
   Calculator,
@@ -88,7 +88,7 @@ export default function VictorSidebar({
     }
   }, [mode, onWorkspaceSwitch]);
 
-  const fetchGuardrails = async () => {
+  const fetchGuardrails = useCallback(async () => {
       try {
         const response = await fetch("/api/voice-profile/gatekeeper", {
           method: "POST",
@@ -100,7 +100,6 @@ export default function VictorSidebar({
           }),
         });
         const data = await response.json();
-        if (!active) return;
         if (data?.warnings && data?.sufficient_data !== undefined) {
           setGuardrails({
             sufficientData: Boolean(data.sufficient_data),
@@ -120,11 +119,11 @@ export default function VictorSidebar({
         setGuardrails(null);
         setVoiceSources([]);
       }
-    };
+    }, [workspaceContext]);
 
   useEffect(() => {
     fetchGuardrails();
-  }, [workspaceContext]);
+  }, [fetchGuardrails]);
 
   const handleApproveBlend = async () => {
     if (!guardrails?.blendDenied?.length || !guardrails.primaryChamber) return;
@@ -308,8 +307,17 @@ export default function VictorSidebar({
             Math mode active in the workspace. Use the center panel for step-by-step verification.
           </div>
         ) : mode === "coding_review" ? (
-          <div className="rounded-2xl border border-amber-400/20 bg-amber-500/5 p-4 text-xs text-amber-100">
-            Coding Review active. Use the right panel to run code and review output.
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs text-amber-100">
+              Coding Review active. Ask Victor for hints, debugging help, or code review while you test in the center panel.
+            </div>
+            <div className="min-h-0 flex-1">
+              <VictorChatContainer
+                workspaceContext={workspaceContext}
+                showStudyPanel={false}
+                variant="sidebar"
+              />
+            </div>
           </div>
         ) : (
           <VictorChatContainer

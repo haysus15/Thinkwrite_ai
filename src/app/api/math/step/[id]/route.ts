@@ -4,7 +4,7 @@ import { getAuthUser } from "@/lib/auth/getAuthUser";
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await getAuthUser();
   if (!userId) {
@@ -14,8 +14,9 @@ export async function PUT(
     );
   }
 
+  const { id } = await params;
   const updates = await request.json();
-  const step = mathStore.updateStep(params.id, updates);
+  const step = mathStore.updateStep(id, updates);
   if (!step) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -25,7 +26,7 @@ export async function PUT(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await getAuthUser();
   if (!userId) {
@@ -35,6 +36,7 @@ export async function DELETE(
     );
   }
 
-  mathStore.deleteStep(params.id);
+  const { id } = await params;
+  mathStore.deleteStep(id);
   return NextResponse.json({ success: true });
 }

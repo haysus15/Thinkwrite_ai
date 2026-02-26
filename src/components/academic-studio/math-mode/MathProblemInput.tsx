@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import "mathlive";
 type MathfieldElement = any;
 import MathSymbolPalette from "./MathSymbolPalette";
 import MathLatexDisplay from "./MathLatexDisplay";
@@ -56,22 +57,29 @@ export default function MathProblemInput({
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-            Problem input
+            Step 1
           </p>
           <h3 className="mt-2 text-lg font-semibold text-white">
-            Enter the problem
+            Enter the problem statement
           </h3>
+          <p className="mt-2 text-sm text-slate-300">
+            Use plain text or math notation. Keep it to one clear problem.
+          </p>
         </div>
         <button
           type="button"
           onClick={onStart}
-          className="rounded-xl border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-xs text-sky-100 transition hover:bg-sky-500/30"
+          disabled={!latex.trim()}
+          className="rounded-xl border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-xs text-sky-100 transition hover:bg-sky-500/30 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Start problem
         </button>
       </div>
 
-      <div className="mt-4" ref={containerRef} />
+      <div
+        className="mt-4 rounded-xl border border-white/10 bg-slate-950/30 p-3"
+        ref={containerRef}
+      />
 
       {latex && (
         <MathLatexDisplay

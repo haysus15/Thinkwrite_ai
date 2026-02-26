@@ -27,7 +27,7 @@ import {
   submitCodingReviewPlacement,
   updateCodingReviewPathProgress,
   updateCodingReviewSession,
-  useCodingReviewEmergencySkip,
+  useCodingReviewEmergencySkip as consumeCodingReviewEmergencySkip,
 } from "@/lib/academic/codingReviewApi";
 import { getTemplateByKey } from "@/lib/academic/templates/codingReviewTemplates";
 
@@ -492,16 +492,28 @@ export default function CodingReviewPanel() {
 
   const handleStartPath = async (pathId: string) => {
     const result = await startCodingReviewPlacement(pathId);
-    setPlacementActive(true);
     setPlacementPath(pathId);
     setActivePathId(pathId);
     setGuidedTrackEnabled(true);
-    setPlacementChallenges(result.challenges || []);
-    setPlacementIndex(0);
+    const challenges = result.challenges || [];
+    const placementRequired = result.placementRequired;
+    const nextChallengeIndex = Math.max(
+      0,
+      Math.min(result.nextChallengeIndex || 0, Math.max(0, challenges.length - 1))
+    );
+    setPlacementChallenges(challenges);
+    setPlacementIndex(nextChallengeIndex);
+    setPlacementActive(placementRequired && challenges.length > 0);
     setPlacementNote("");
     setPathPickerOpen(false);
-    if (result.challenges?.length) {
-      setToast(`Placement started: ${pathId.replace(/_/g, " ")}`);
+    if (placementRequired && challenges.length > 0) {
+      setToast(
+        nextChallengeIndex > 0
+          ? `Placement resumed: ${pathId.replace(/_/g, " ")}`
+          : `Placement started: ${pathId.replace(/_/g, " ")}`
+      );
+    } else {
+      setToast("Placement already completed. Continuing to lessons.");
     }
   };
 
@@ -557,7 +569,40 @@ export default function CodingReviewPanel() {
       (item) => item.lesson_index === activeProgress.current_lesson
     );
     if (!lesson) return;
-    setCode(`# ${lesson.title}\\n\\n# ${lesson.challenge_prompt}\\n`);
+    const commentToken = language === "sql" ? "--" : "#";
+    const commentMultiline = (label: string, value: string) => {
+      const normalized = value
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map((line) => line.trimEnd());
+      return normalized
+        .map((line, index) =>
+          index === 0
+            ? `${commentToken} ${label}: ${line.trimStart()}`
+            : `${commentToken} ${line.trimStart()}`
+        )
+        .join("\n");
+    };
+    const header = [
+      commentMultiline("Lesson", lesson.title),
+      commentMultiline("Goal", lesson.challenge_prompt),
+      `${commentToken} Next step: write your solution below, click Run, then use Run checkpoint.`,
+      "",
+    ].join("\n");
+
+    if (language === "python") {
+      setCode(
+        `${header}${commentToken} TODO: replace these starter values with your own solution\nname = "Your Name"\nage = 0\n\nprint(f"My name is {name} and I am {age} years old.")\n`
+      );
+    } else if (language === "javascript") {
+      setCode(
+        `${header}// TODO: replace these starter values with your own solution\nconst name = "Your Name";\nconst age = 0;\n\nconsole.log(\`My name is \${name} and I am \${age} years old.\`);\n`
+      );
+    } else {
+      setCode(
+        `${header}-- TODO: write your SQL solution below\n-- Example:\n-- SELECT 'Your Name' AS name, 0 AS age;\n`
+      );
+    }
     setToast(`Lesson ${lesson.lesson_index + 1}: ${lesson.title}`);
   };
 
@@ -652,7 +697,7 @@ export default function CodingReviewPanel() {
 
   const handleEmergencySkip = async () => {
     try {
-      await useCodingReviewEmergencySkip();
+      await consumeCodingReviewEmergencySkip();
       setSkipEligible(false);
       setCheckpointOpen(false);
       setToast("Emergency skip used.");
@@ -785,6 +830,12 @@ export default function CodingReviewPanel() {
                     (item) => item.lesson_index === activeProgress.current_lesson
                   )?.concept_summary
                 }
+              </p>
+              <p className="mt-2 text-xs text-slate-300">
+                Next: click <span className="font-semibold text-sky-200">Load lesson</span>,
+                complete the TODO in the editor, click{" "}
+                <span className="font-semibold text-emerald-200">Run</span>, then
+                submit <span className="font-semibold text-amber-200">Run checkpoint</span>.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">

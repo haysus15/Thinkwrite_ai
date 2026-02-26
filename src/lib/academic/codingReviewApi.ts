@@ -243,6 +243,8 @@ export async function startCodingReviewPlacement(pathId: string) {
     success: boolean;
     placement: unknown;
     challenges: string[];
+    placementRequired: boolean;
+    nextChallengeIndex: number;
   }>(response);
   return data;
 }

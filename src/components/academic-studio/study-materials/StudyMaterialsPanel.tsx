@@ -22,6 +22,7 @@ export default function StudyMaterialsPanel() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [pastedContent, setPastedContent] = useState("");
   const [title, setTitle] = useState("");
   const [className, setClassName] = useState("");
   const [topic, setTopic] = useState("");
@@ -54,8 +55,8 @@ export default function StudyMaterialsPanel() {
   }, []);
 
   const handleUpload = async () => {
-    if (!file) {
-      setError("Select a file to upload.");
+    if (!file && !pastedContent.trim()) {
+      setError("Select a file or paste study material text.");
       return;
     }
 
@@ -64,7 +65,12 @@ export default function StudyMaterialsPanel() {
 
     try {
       const form = new FormData();
-      form.append("file", file);
+      if (file) {
+        form.append("file", file);
+      }
+      if (pastedContent.trim()) {
+        form.append("content", pastedContent.trim());
+      }
       form.append("title", title);
       form.append("className", className);
       form.append("topic", topic);
@@ -79,9 +85,13 @@ export default function StudyMaterialsPanel() {
       }
       setMaterials((prev) => [data.material, ...prev]);
       setFile(null);
+      setPastedContent("");
       setTitle("");
       setClassName("");
       setTopic("");
+      if (data.warning) {
+        setError(data.warning);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed.");
     } finally {
@@ -107,7 +117,7 @@ export default function StudyMaterialsPanel() {
       <div className="mt-4 space-y-4">
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-            File
+            File Upload (PDF, DOCX, TXT)
           </p>
           <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
             <span className="flex-1 truncate">
@@ -127,6 +137,18 @@ export default function StudyMaterialsPanel() {
             accept=".txt,.docx,.pdf"
             onChange={(event) => setFile(event.target.files?.[0] || null)}
             className="hidden"
+          />
+        </div>
+        <div className="space-y-2">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+            Or Paste Study Text
+          </p>
+          <textarea
+            value={pastedContent}
+            onChange={(event) => setPastedContent(event.target.value)}
+            placeholder="Paste your syllabus, study guide, or manual content here..."
+            rows={8}
+            className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500"
           />
         </div>
         <div className="space-y-3">
@@ -165,7 +187,7 @@ export default function StudyMaterialsPanel() {
           className="inline-flex items-center justify-center gap-2 rounded-2xl border border-sky-400/40 bg-sky-500/15 px-4 py-3 text-sm text-sky-200 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <FilePlus className="h-4 w-4" />
-          {uploading ? "Uploading..." : "Upload materials"}
+          {uploading ? "Saving..." : "Save study material"}
         </button>
       </div>
 
@@ -286,6 +308,30 @@ export default function StudyMaterialsPanel() {
                 className="rounded-full border border-sky-400/40 bg-sky-500/15 px-3 py-2 text-xs text-sky-200"
               >
                 Generate quiz
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const response = await fetch(`/api/study/materials/${material.id}`, {
+                      method: "DELETE",
+                    });
+                    const data = await response.json();
+                    if (!response.ok) {
+                      throw new Error(data.error || "Delete failed.");
+                    }
+                    setMaterials((prev) => prev.filter((item) => item.id !== material.id));
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Delete failed."
+                    );
+                  }
+                }}
+                className="rounded-full border border-red-400/40 bg-red-500/15 px-3 py-2 text-xs text-red-200"
+              >
+                Delete
               </button>
             </div>
           ))}

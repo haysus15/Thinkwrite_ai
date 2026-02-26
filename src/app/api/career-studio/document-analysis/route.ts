@@ -3,10 +3,12 @@
 
 import OpenAI from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
+import { extractTextFromFile } from '@/lib/mirror-mode/extractText';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+export const runtime = 'nodejs';
 
 interface DocumentAnalysis {
   type: 'resume' | 'job_posting' | 'cover_letter' | 'unknown';
@@ -20,41 +22,6 @@ interface DocumentAnalysis {
   gaps?: string[];
   strengths: string[];
   rawAnalysis: any;
-}
-
-// DOCX parsing using mammoth (this was working!)
-async function parseDOCXDocument(buffer: Buffer): Promise<string> {
-  try {
-    const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ buffer });
-    return result.value;
-  } catch (error) {
-    console.error('DOCX parsing failed:', error);
-    throw new Error('DOCX parsing failed. Please try converting to .txt or paste content in chat.');
-  }
-}
-
-// Simple text extraction for supported formats (NO PDF)
-async function extractTextFromFile(file: File): Promise<string> {
-  const fileName = file.name.toLowerCase();
-  const fileBuffer = Buffer.from(await file.arrayBuffer());
-
-  try {
-    if (fileName.endsWith('.txt')) {
-      // Handle plain text file
-      return new TextDecoder('utf-8').decode(fileBuffer);
-      
-    } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
-      // Handle DOCX files (this works!)
-      return await parseDOCXDocument(fileBuffer);
-      
-    } else {
-      throw new Error(`Unsupported file type: ${fileName}. Please use .txt or .docx files. PDF support coming soon!`);
-    }
-  } catch (parseError) {
-    console.error('File parsing error:', parseError);
-    throw parseError;
-  }
 }
 
 const getAnalysisPrompt = (documentType: string, content: string) => {
@@ -156,16 +123,21 @@ export async function POST(request: NextRequest) {
       }, { status: 200 });
     }
 
-    // Validate file type (NO PDF support to avoid webpack issues)
+    // Validate file type (supports TXT, DOCX, and PDF)
     const fileName = file.name.toLowerCase();
-    const supportedExtensions = ['.txt', '.docx', '.doc'];
-    const isSupported = supportedExtensions.some(ext => fileName.endsWith(ext));
+    const supportedExtensions = ['.txt', '.docx', '.pdf'];
+    const supportedMimeTypes = [
+      'text/plain',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/pdf',
+    ];
+    const isSupported = supportedExtensions.some(ext => fileName.endsWith(ext)) || supportedMimeTypes.includes(file.type);
     
     if (!isSupported) {
       return NextResponse.json({
         success: false,
-        error: `Currently supports .txt and .docx files only. PDF support coming soon!`,
-        fallbackMessage: 'Can you convert your document to .docx or .txt format, or paste the content directly in chat?'
+        error: `Currently supports PDF, DOCX, and TXT files.`,
+        fallbackMessage: 'Please upload a PDF, DOCX, or TXT file, or paste the content directly in chat.'
       }, { status: 200 });
     }
 
@@ -182,7 +154,11 @@ export async function POST(request: NextRequest) {
     // Extract text content from file
     let fileContent: string;
     try {
-      fileContent = await extractTextFromFile(file);
+      const extraction = await extractTextFromFile(file);
+      if (!extraction.ok) {
+        throw new Error(extraction.error);
+      }
+      fileContent = extraction.text;
       console.log('Text extracted successfully, length:', fileContent.length);
     } catch (extractError) {
       console.error('Text extraction failed:', extractError);
@@ -273,9 +249,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   return NextResponse.json({ 
-    message: 'Document Analysis API is running! (TXT and DOCX support)',
-    supportedFormats: ['.txt', '.docx', '.doc'],
-    note: 'PDF support coming soon - use .docx for now!',
+    message: 'Document Analysis API is running! (PDF, DOCX, TXT support)',
+    supportedFormats: ['.pdf', '.txt', '.docx'],
+    note: 'For best results, upload text-based PDFs (not scanned images).',
     features: ['Text extraction', 'OpenAI analysis', 'ATS scoring', 'Memory integration']
   });
 }

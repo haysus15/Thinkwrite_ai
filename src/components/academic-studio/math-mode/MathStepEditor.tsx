@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import "mathlive";
 type MathfieldElement = any;
 import { AlertTriangle, CheckCircle2, Circle, XCircle } from "lucide-react";
 import type { MathStep, StepStatus } from "@/types/math-mode";
@@ -76,7 +77,8 @@ export default function MathStepEditor({
           <button
             type="button"
             onClick={() => onVerify(step.id)}
-            className="rounded-full border border-sky-400/40 bg-sky-500/15 px-3 py-1 text-xs text-sky-200"
+            disabled={!step.latex.trim()}
+            className="rounded-full border border-sky-400/40 bg-sky-500/15 px-3 py-1 text-xs text-sky-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Verify
           </button>

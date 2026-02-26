@@ -247,6 +247,34 @@ export default function StudyLibrary({ embedded = false }: { embedded?: boolean 
                   >
                     Generate quiz
                   </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const response = await fetch(`/api/study/materials/${material.id}`, {
+                          method: "DELETE",
+                        });
+                        const data = await response.json();
+                        if (!response.ok) {
+                          throw new Error(
+                            data.error || "Delete failed."
+                          );
+                        }
+                        setMaterials((prev) =>
+                          prev.filter((item) => item.id !== material.id)
+                        );
+                      } catch (err) {
+                        setError(
+                          err instanceof Error
+                            ? err.message
+                            : "Delete failed."
+                        );
+                      }
+                    }}
+                    className="rounded-full border border-red-400/40 bg-red-500/15 px-3 py-2 text-xs text-red-200"
+                  >
+                    Delete
+                  </button>
                 </div>
               ))}
             </div>

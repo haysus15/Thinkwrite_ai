@@ -50,11 +50,11 @@ export default function MathCalculator({
   return (
     <div className="glass-panel p-6">
       <div className="flex items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold text-white">Calculator</h4>
+        <h4 className="text-sm font-semibold text-white">Quick calculator</h4>
         <button
           type="button"
           onClick={onToggle}
-          className="text-xs text-slate-300"
+          className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300 transition hover:bg-white/[0.08]"
         >
           {visible ? "Hide" : "Show"}
         </button>

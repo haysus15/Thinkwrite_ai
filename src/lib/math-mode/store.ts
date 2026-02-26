@@ -33,6 +33,14 @@ export const mathStore = {
   getProblem(id: string) {
     return problems.get(id) || null;
   },
+  listProblems(userId: string) {
+    return Array.from(problems.values())
+      .filter((problem) => problem.user_id === userId)
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+  },
   updateProblem(id: string, updates: Partial<MathProblem>) {
     const current = problems.get(id);
     if (!current) return null;

@@ -4,6 +4,12 @@ import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { VictorMode } from "@/types/academic-studio";
 
+type PersistedVictorMode = Exclude<VictorMode, "coding_review">;
+
+function toPersistedMode(mode: VictorMode): PersistedVictorMode {
+  return mode === "coding_review" ? "default" : mode;
+}
+
 export async function POST(request: NextRequest) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
@@ -16,6 +22,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const conversationId = body?.conversationId as string;
   const toMode = body?.toMode as VictorMode;
+  const persistedToMode = toPersistedMode(toMode);
 
   if (!conversationId || !toMode) {
     return NextResponse.json(
@@ -42,7 +49,7 @@ export async function POST(request: NextRequest) {
   const fromMode = data.mode as VictorMode;
   const { error: updateError } = await supabase
     .from("victor_conversations")
-    .update({ mode: toMode })
+    .update({ mode: persistedToMode })
     .eq("id", conversationId)
     .eq("user_id", userId);
 
@@ -55,8 +62,8 @@ export async function POST(request: NextRequest) {
 
   await supabase.from("mode_transitions").insert({
     conversation_id: conversationId,
-    from_mode: fromMode,
-    to_mode: toMode,
+    from_mode: toPersistedMode(fromMode),
+    to_mode: persistedToMode,
     trigger: "manual",
   });
 

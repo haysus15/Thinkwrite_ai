@@ -7,6 +7,13 @@ import type { VictorMode } from "@/types/academic-studio";
 
 export const runtime = "nodejs";
 
+type PersistedVictorMode = Exclude<VictorMode, "coding_review">;
+
+function toPersistedMode(mode: VictorMode): PersistedVictorMode {
+  // Backward compatibility: some DBs still enforce a mode check that excludes coding_review.
+  return mode === "coding_review" ? "default" : mode;
+}
+
 function getClaudeApiKey() {
   return process.env.CLAUDE_API_KEY || null;
 }
@@ -235,6 +242,7 @@ export async function POST(request: NextRequest) {
   }
 
   const requestedMode = (body?.mode as VictorMode) || "default";
+  const persistedMode = toPersistedMode(requestedMode);
   const suggestedMode = detectModeIntent(message);
 
   const apiKey = getClaudeApiKey();
@@ -279,7 +287,7 @@ export async function POST(request: NextRequest) {
       .from("victor_conversations")
       .insert({
         user_id: userId,
-        mode: requestedMode,
+        mode: persistedMode,
         messages: [],
         saved: false,
         last_message_at: new Date().toISOString(),
@@ -407,7 +415,7 @@ export async function POST(request: NextRequest) {
       .update({
         messages: nextHistory,
         last_message_at: new Date().toISOString(),
-        mode: requestedMode,
+        mode: persistedMode,
       })
       .eq("id", currentId)
       .eq("user_id", userId);
@@ -444,7 +452,7 @@ export async function POST(request: NextRequest) {
       .update({
         messages: nextHistory,
         last_message_at: new Date().toISOString(),
-        mode: requestedMode,
+        mode: persistedMode,
       })
       .eq("id", currentId)
       .eq("user_id", userId);
@@ -489,7 +497,7 @@ export async function POST(request: NextRequest) {
     .update({
       messages: finalHistory,
       last_message_at: new Date().toISOString(),
-      mode: requestedMode,
+      mode: persistedMode,
     })
     .eq("id", currentId)
     .eq("user_id", userId);

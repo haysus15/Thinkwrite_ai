@@ -16,6 +16,42 @@ function safeJsonParse(text: string) {
   }
 }
 
+function parseModelJson(text: string) {
+  const direct = safeJsonParse(text);
+  if (direct) return direct;
+
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    const parsed = safeJsonParse(fenced[1].trim());
+    if (parsed) return parsed;
+  }
+
+  const objectMatch = text.match(/\{[\s\S]*\}/);
+  if (objectMatch?.[0]) {
+    const parsed = safeJsonParse(objectMatch[0]);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+function buildFallbackResults(
+  steps: Array<{ id: string; latex?: string }>
+): MathVerificationResult[] {
+  return steps.map((step) => {
+    const hasLatex = Boolean(step?.latex?.trim());
+    return {
+      step_id: step.id,
+      is_correct: false,
+      status: hasLatex ? "partial" : "error",
+      error_type: hasLatex ? "procedural" : "notation",
+      feedback: hasLatex
+        ? "Step saved. AI verification is unavailable right now, so continue with your next justified move."
+        : "Step is empty. Add a valid math expression before verification.",
+    };
+  });
+}
+
 export async function POST(request: Request) {
   const { userId } = await getAuthUser();
   if (!userId) {
@@ -26,12 +62,6 @@ export async function POST(request: Request) {
   }
 
   const apiKey = getClaudeApiKey();
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Claude API key missing" },
-      { status: 500 }
-    );
-  }
 
   const body = await request.json();
   const problem = body?.problem;
@@ -40,11 +70,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Problem and steps required" }, { status: 400 });
   }
 
-  const anthropic = new Anthropic({ apiKey });
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 700,
-    system: `You are Victor verifying a student's full solution.
+  if (!apiKey) {
+    const results = buildFallbackResults(steps);
+    results.forEach((result) => {
+      mathStore.updateStep(result.step_id, {
+        status: result.status,
+        error_type: result.error_type,
+        feedback: result.feedback,
+        verified_at: new Date().toISOString(),
+      });
+    });
+    const guidance = mathStore.addGuidance({
+      problem_id: problem.id,
+      message:
+        "AI verification is unavailable right now. Continue by justifying each transformation step-by-step.",
+      guidance_type: "concept",
+    });
+    return NextResponse.json({ results, guidance, fallback: true });
+  }
+
+  try {
+    const anthropic = new Anthropic({ apiKey });
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 700,
+      system: `You are Victor verifying a student's full solution.
 Return strict JSON:
 {
   "results": [
@@ -58,46 +108,69 @@ Return strict JSON:
   "guidance": "Socratic summary guidance"
 }
 Do not provide the final answer. Be concise.`,
-    messages: [
-      {
-        role: "user",
-        content: `Problem: ${problem.latex}
+      messages: [
+        {
+          role: "user",
+          content: `Problem: ${problem.latex}
 Steps:
 ${steps
           .map((step: { id: string; latex: string; reasoning?: string }) =>
             `- ${step.id}: ${step.latex} (${step.reasoning || ""})`
           )
           .join("\n")}`,
-      },
-    ],
-  });
-
-  const text = response.content?.[0]?.text || "{}";
-  const parsed = safeJsonParse(text) || {};
-  const results: MathVerificationResult[] = Array.isArray(parsed.results)
-    ? parsed.results.map((result: MathVerificationResult) => ({
-        ...result,
-        is_correct: result.status === "correct",
-      }))
-    : [];
-
-  results.forEach((result) => {
-    mathStore.updateStep(result.step_id, {
-      status: result.status,
-      error_type: result.error_type,
-      feedback: result.feedback,
-      verified_at: new Date().toISOString(),
+        },
+      ],
     });
-  });
 
-  let guidance: MathGuidance | null = null;
-  if (parsed.guidance) {
-    guidance = mathStore.addGuidance({
+    const text = response.content?.[0]?.text || "{}";
+    const parsed = parseModelJson(text) || {};
+    const results: MathVerificationResult[] = Array.isArray(parsed.results)
+      ? parsed.results.map((result: MathVerificationResult) => ({
+          ...result,
+          is_correct: result.status === "correct",
+        }))
+      : [];
+
+    results.forEach((result) => {
+      mathStore.updateStep(result.step_id, {
+        status: result.status,
+        error_type: result.error_type,
+        feedback: result.feedback,
+        verified_at: new Date().toISOString(),
+      });
+    });
+
+    let guidance: MathGuidance | null = null;
+    if (parsed.guidance) {
+      guidance = mathStore.addGuidance({
+        problem_id: problem.id,
+        message: parsed.guidance,
+        guidance_type: "concept",
+      });
+    }
+
+    return NextResponse.json({ results, guidance });
+  } catch (error) {
+    const results = buildFallbackResults(steps);
+    results.forEach((result) => {
+      mathStore.updateStep(result.step_id, {
+        status: result.status,
+        error_type: result.error_type,
+        feedback: result.feedback,
+        verified_at: new Date().toISOString(),
+      });
+    });
+    const guidance = mathStore.addGuidance({
       problem_id: problem.id,
-      message: parsed.guidance,
+      message:
+        "AI verification failed. Keep going step-by-step and justify each rule before the next transformation.",
       guidance_type: "concept",
     });
+    return NextResponse.json({
+      results,
+      guidance,
+      fallback: true,
+      warning: "AI verification failed. Returned fallback feedback.",
+    });
   }
-
-  return NextResponse.json({ results, guidance });
 }

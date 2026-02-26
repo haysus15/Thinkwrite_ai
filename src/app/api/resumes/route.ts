@@ -4,9 +4,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
-import mammoth from 'mammoth';
 import ContentAwareEducationalScoringEngine from '../../../lib/educational-scoring-engine';
 import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
+import { extractTextFromFile } from '@/lib/mirror-mode/extractText';
+
+export const runtime = 'nodejs';
 
 const scoringEngine = new ContentAwareEducationalScoringEngine();
 
@@ -154,14 +156,17 @@ export async function POST(request: NextRequest) {
       return Errors.missingField('file');
     }
 
-    // Validate file type
+    // Validate file type (MIME or extension fallback for browsers that omit MIME)
     const allowedTypes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       'text/plain'
     ];
+    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+    const fileNameLower = (file.name || '').toLowerCase();
+    const hasAllowedExtension = allowedExtensions.some((ext) => fileNameLower.endsWith(ext));
 
-    if (!allowedTypes.includes(file.type)) {
+    if (!allowedTypes.includes(file.type) && !hasAllowedExtension) {
       return Errors.validationError('Invalid file type. Please upload PDF, DOCX, or TXT files.');
     }
 
@@ -170,30 +175,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract file content
-    let rawFileContent: string;
-    try {
-      if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ buffer: Buffer.from(arrayBuffer) });
-        rawFileContent = result.value;
-
-        if (rawFileContent.length < 50) {
-          throw new Error('DOCX extraction returned insufficient content');
-        }
-      } else if (file.type === 'application/pdf') {
-        rawFileContent = await file.text();
-
-        if (rawFileContent.length < 50 || rawFileContent.includes('%PDF')) {
-          return Errors.validationError('PDF text extraction not fully supported. Please upload as DOCX or TXT.');
-        }
-      } else {
-        rawFileContent = await file.text();
-      }
-    } catch (fileReadError) {
-      return Errors.badRequest('Failed to extract text from file. Please ensure the file is not corrupted.');
+    const extraction = await extractTextFromFile(file);
+    if (!extraction.ok) {
+      return Errors.badRequest(extraction.error);
     }
+    const rawFileContent = extraction.text;
 
     const cleanedContent = cleanTextContent(rawFileContent);
+    if (cleanedContent.length < 50) {
+      return Errors.badRequest('Extracted text is too short. Please upload a text-based PDF/DOCX/TXT file.');
+    }
 
     // Check if this is the user's first resume
     const { data: existingResumes } = await supabase

@@ -29,6 +29,10 @@ export default function MathVictorGuidance({
           "State the problem and show your first step. I will check each move."}
       </div>
 
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-slate-300">
+        Workflow: write one step, explain why it is valid, then verify before moving on.
+      </div>
+
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
           Step status

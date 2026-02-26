@@ -4,7 +4,7 @@ import { getAuthUser } from "@/lib/auth/getAuthUser";
 
 export async function GET(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await getAuthUser();
   if (!userId) {
@@ -14,7 +14,8 @@ export async function GET(
     );
   }
 
-  const problem = mathStore.getProblem(params.id);
+  const { id } = await params;
+  const problem = mathStore.getProblem(id);
   if (!problem) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -28,7 +29,7 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await getAuthUser();
   if (!userId) {
@@ -38,8 +39,9 @@ export async function PUT(
     );
   }
 
+  const { id } = await params;
   const updates = await request.json();
-  const problem = mathStore.updateProblem(params.id, updates);
+  const problem = mathStore.updateProblem(id, updates);
   if (!problem) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -49,7 +51,7 @@ export async function PUT(
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = await getAuthUser();
   if (!userId) {
@@ -59,6 +61,7 @@ export async function DELETE(
     );
   }
 
-  mathStore.deleteProblem(params.id);
+  const { id } = await params;
+  mathStore.deleteProblem(id);
   return NextResponse.json({ success: true });
 }
