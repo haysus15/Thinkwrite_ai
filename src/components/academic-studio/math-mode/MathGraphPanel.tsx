@@ -10,10 +10,12 @@ export default function MathGraphPanel({
   expression,
   visible,
   onToggle,
+  showToggle = true,
 }: {
   expression?: string;
   visible: boolean;
   onToggle: () => void;
+  showToggle?: boolean;
 }) {
   const { xValues, yValues } = useMemo(() => {
     if (!expression) return { xValues: [], yValues: [] };
@@ -29,16 +31,18 @@ export default function MathGraphPanel({
   }, [expression]);
 
   return (
-    <div className="glass-panel p-6">
+    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-sm font-semibold text-white">Graph explorer</h4>
-        <button
-          type="button"
-          onClick={onToggle}
-          className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300 transition hover:bg-white/[0.08]"
-        >
-          {visible ? "Hide" : "Show"}
-        </button>
+        {showToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-slate-300 transition hover:bg-white/[0.08]"
+          >
+            {visible ? "Hide" : "Show"}
+          </button>
+        )}
       </div>
       {visible ? (
         <div className="mt-4">
@@ -71,13 +75,13 @@ export default function MathGraphPanel({
               style={{ width: "100%", height: "200px" }}
             />
           ) : (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-slate-500">
               Add a graph expression in the problem input to visualize the function.
             </p>
           )}
         </div>
       ) : (
-        <p className="mt-4 text-sm text-slate-400">Graph hidden.</p>
+        <p className="mt-4 text-sm text-slate-500">Graph hidden.</p>
       )}
     </div>
   );

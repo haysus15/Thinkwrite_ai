@@ -2,8 +2,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Play, Trash2, Code2, Layers } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Play, Trash2, Code2, Layers, Lightbulb } from "lucide-react";
 import CodeMirror from "@uiw/react-codemirror";
 import { python } from "@codemirror/lang-python";
 import { sql } from "@codemirror/lang-sql";
@@ -58,9 +58,15 @@ type OutputState =
   | null;
 
 export default function CodingReviewPanel() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const assignmentId = searchParams.get("assignmentId");
-  const { codingReviewSessionId, setCodingReviewSessionId } = useVictorChat();
+  const {
+    codingReviewSessionId,
+    setCodingReviewSessionId,
+    conversationId,
+    setConversationId,
+  } = useVictorChat();
   const [language, setLanguage] = useState<CodingLanguage>("python");
   const [code, setCode] = useState<string>("# Write your code here\n");
   const [output, setOutput] = useState<OutputState>(null);
@@ -115,8 +121,98 @@ export default function CodingReviewPanel() {
     lessons_completed: number[];
   } | null>(null);
   const saveTimerRef = useRef<number | null>(null);
+  const [assistLoading, setAssistLoading] = useState(false);
+  const [assistError, setAssistError] = useState<string | null>(null);
+  const [assistResponse, setAssistResponse] = useState<string | null>(null);
+  const [creatingStudyGuide, setCreatingStudyGuide] = useState(false);
 
   const canRun = useMemo(() => code.trim().length > 0, [code]);
+  const currentLesson = useMemo(
+    () =>
+      activeLessons.find(
+        (item) => item.lesson_index === (activeProgress?.current_lesson ?? -1)
+      ) || null,
+    [activeLessons, activeProgress]
+  );
+  const activePathTitle = useMemo(
+    () => pathOptions.find((item) => item.id === activePathId)?.title || null,
+    [pathOptions, activePathId]
+  );
+
+  const generateStudyGuide = useCallback(async () => {
+    if (!currentLesson) return;
+    setCreatingStudyGuide(true);
+    setError(null);
+    try {
+      const guideResponse = await fetch("/api/academic/coding-review/study-guide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language,
+          lessonTitle: currentLesson.title,
+          lessonIndex: currentLesson.lesson_index,
+          conceptSummary: currentLesson.concept_summary,
+          challengePrompt: currentLesson.challenge_prompt,
+          requiredSkills: currentLesson.required_skills || [],
+          pathId: activePathId,
+          pathTitle: activePathTitle,
+          struggleTopics,
+          learnerCode: code.trim(),
+        }),
+      });
+      const guideData = await guideResponse.json();
+      if (!guideResponse.ok) {
+        throw new Error(guideData.error || "Failed to generate study guide.");
+      }
+
+      const guideText = (guideData.guide || "").trim();
+      if (!guideText) {
+        throw new Error("Generated guide was empty.");
+      }
+
+      const form = new FormData();
+      form.append("content", guideText);
+      form.append(
+        "title",
+        `${LANGUAGE_LABELS[language]} · Lesson ${currentLesson.lesson_index + 1}: ${currentLesson.title}`
+      );
+      form.append(
+        "className",
+        `Coding Review · Learning Coach · ${LANGUAGE_LABELS[language]}`
+      );
+      form.append(
+        "topic",
+        `${activePathTitle || activePathId || "General path"} · Lesson ${
+          currentLesson.lesson_index + 1
+        }`
+      );
+      form.append("sourceType", "coding_review_learning_coach");
+      const uploadResponse = await fetch("/api/study/upload", {
+        method: "POST",
+        body: form,
+      });
+      const uploadData = await uploadResponse.json();
+      if (!uploadResponse.ok) {
+        throw new Error(uploadData.error || "Failed to save study guide.");
+      }
+      setToast("Study guide saved. Opening Study Library...");
+      router.push("/academic-studio/dashboard?workspace=study-library");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to generate study guide."
+      );
+    } finally {
+      setCreatingStudyGuide(false);
+    }
+  }, [
+    activePathId,
+    activePathTitle,
+    code,
+    currentLesson,
+    language,
+    router,
+    struggleTopics,
+  ]);
 
   useEffect(() => {
     if (language === "sql") {
@@ -527,7 +623,7 @@ export default function CodingReviewPanel() {
     setActivePathId(null);
     setActiveLessons([]);
     setActiveProgress(null);
-    setToast("Guided track paused.");
+    setToast("Learning Coach paused.");
   };
 
   const handleSubmitPlacement = async () => {
@@ -708,6 +804,56 @@ export default function CodingReviewPanel() {
     }
   };
 
+  const requestAssistance = useCallback(
+    async (mode: "steps" | "answer") => {
+      setAssistLoading(true);
+      setAssistError(null);
+      try {
+        const prompt = [
+          mode === "steps"
+            ? "Please break this down step-by-step so I can solve it myself."
+            : "I still don't understand. Show a reference solution and then similar practice with answers.",
+          currentLesson
+            ? `Current challenge: ${currentLesson.challenge_prompt}`
+            : null,
+          `Language: ${language}`,
+          code.trim() ? `My current code:\n${code}` : null,
+          output
+            ? `Current output/error:\n${JSON.stringify(output, null, 2)}`
+            : "No run output yet.",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        const response = await fetch("/api/victor/message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: conversationId || undefined,
+            mode: "coding_review",
+            message: prompt,
+            workspaceContext: "Coding Review assistant panel",
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Assistance request failed.");
+        }
+        if (data.conversationId) {
+          setConversationId(data.conversationId);
+        }
+        setAssistResponse(data.reply || "No response generated.");
+      } catch (err) {
+        setAssistError(
+          err instanceof Error ? err.message : "Assistance request failed."
+        );
+      } finally {
+        setAssistLoading(false);
+      }
+    },
+    [code, conversationId, currentLesson, language, output, setConversationId]
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col coding-review-entrance">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-white/5 px-5 py-4">
@@ -758,7 +904,7 @@ export default function CodingReviewPanel() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">
-              Guided Track
+              Learning Coach
             </p>
             <p className="mt-1 text-sm text-slate-100">
               Structured learning with placement and lessons.
@@ -784,7 +930,7 @@ export default function CodingReviewPanel() {
             </div>
             {!guidedTrackEnabled && (
               <p className="mt-1 text-[11px] text-slate-500">
-                Choose a track to turn it on.
+                Choose a learning path to turn it on.
               </p>
             )}
           </div>
@@ -795,7 +941,7 @@ export default function CodingReviewPanel() {
                 onClick={() => setPathPickerOpen(true)}
                 className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-500/15 px-4 py-2 text-xs text-amber-100 transition hover:bg-amber-500/25"
               >
-                Turn on guided track
+                Turn on Learning Coach
               </button>
             ) : (
               <button
@@ -803,14 +949,14 @@ export default function CodingReviewPanel() {
                 onClick={handleDisableGuidedTrack}
                 className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-200 transition hover:bg-white/10"
               >
-                Turn off guided track
+                Turn off Learning Coach
               </button>
             )}
           </div>
         </div>
       </div>
       {activePathId && activeLessons.length > 0 && activeProgress && !placementActive && (
-        <div className="border-b border-white/10 bg-slate-900/60 px-5 py-3 text-xs text-slate-200">
+        <div className="border-b border-amber-400/25 bg-gradient-to-r from-amber-500/10 to-slate-900/60 px-5 py-3 text-xs text-slate-200">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-[10px] uppercase tracking-[0.25em] text-slate-400">
@@ -848,10 +994,43 @@ export default function CodingReviewPanel() {
               </button>
               <button
                 type="button"
+                onClick={() => requestAssistance("steps")}
+                disabled={assistLoading}
+                className="rounded-full border border-sky-400/40 bg-sky-500/15 px-3 py-2 text-xs text-sky-100 hover:bg-sky-500/25 disabled:opacity-60"
+              >
+                Explain steps
+              </button>
+              <button
+                type="button"
+                onClick={() => requestAssistance("answer")}
+                disabled={assistLoading}
+                className="rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-2 text-xs text-amber-100 hover:bg-amber-500/25 disabled:opacity-60"
+              >
+                I&apos;m stuck
+              </button>
+              <button
+                type="button"
                 onClick={handleOpenCheckpoint}
                 className="rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-2 text-xs text-amber-100 hover:bg-amber-500/25"
               >
                 Run checkpoint
+              </button>
+              <button
+                type="button"
+                onClick={generateStudyGuide}
+                disabled={creatingStudyGuide}
+                className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-xs text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-60"
+              >
+                {creatingStudyGuide ? "Creating guide..." : "Generate study guide"}
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  router.push("/academic-studio/dashboard?workspace=study-library")
+                }
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-200 hover:bg-white/10"
+              >
+                Open Study Library
               </button>
             </div>
           </div>
@@ -1139,13 +1318,50 @@ export default function CodingReviewPanel() {
           <div className="coding-review-output">
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-2 text-[11px] uppercase tracking-[0.25em] text-slate-400">
               Output
-              {output && (
-                <span className="text-[10px] text-slate-500">
-                  {output.executionTime} ms
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => requestAssistance("steps")}
+                  disabled={assistLoading}
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-400/40 bg-sky-500/15 px-2 py-1 text-[10px] normal-case tracking-normal text-sky-100 transition hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Lightbulb className="h-3 w-3" />
+                  Show steps
+                </button>
+                <button
+                  type="button"
+                  onClick={() => requestAssistance("answer")}
+                  disabled={assistLoading}
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-500/15 px-2 py-1 text-[10px] normal-case tracking-normal text-amber-100 transition hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Still stuck: show reference
+                </button>
+                {output && (
+                  <span className="text-[10px] text-slate-500">
+                    {output.executionTime} ms
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto bg-slate-950/30 px-4 py-3 text-xs text-slate-100">
+              {assistLoading && (
+                <p className="mb-3 rounded-md border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-sky-100">
+                  Victor is generating a guided breakdown...
+                </p>
+              )}
+              {assistError && (
+                <p className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
+                  {assistError}
+                </p>
+              )}
+              {assistResponse && !assistLoading && (
+                <div className="mb-3 rounded-md border border-sky-400/30 bg-sky-500/10 px-3 py-2 text-slate-100">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-sky-200">
+                    Guided assistance
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap">{assistResponse}</p>
+                </div>
+              )}
               {error && (
                 <p className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-200">
                   {error}
@@ -1255,7 +1471,7 @@ export default function CodingReviewPanel() {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-900/95 p-5 text-slate-100">
             <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold">Guided Track</p>
+              <p className="text-sm font-semibold">Learning Coach</p>
               <button
                 type="button"
                 onClick={() => setPathPickerOpen(false)}
@@ -1265,9 +1481,9 @@ export default function CodingReviewPanel() {
               </button>
             </div>
             <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-100/90">
-              Guided Track means Victor runs a quick placement, sets your
-              starting lesson, then walks you through a structured sequence.
-              It’s for learning in order, not just ad‑hoc debugging.
+              Learning Coach means Victor runs a quick placement, sets your
+              starting lesson, then teaches through a structured sequence.
+              It is for learning deeply, not just ad-hoc debugging.
             </div>
             <p className="mt-3 text-xs text-slate-400">
               Each option is a language track. This does not use the editor

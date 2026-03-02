@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { normalizeAssignmentType } from "@/lib/academic/assignmentType";
 
 function diffFields(current: Record<string, any>, next: Record<string, any>) {
   const changes: Array<{ field: string; oldValue: string; newValue: string }> =
@@ -22,10 +23,19 @@ function diffFields(current: Record<string, any>, next: Record<string, any>) {
   return changes;
 }
 
+function normalizeDueDate(value: string | null | undefined) {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -55,13 +65,20 @@ export async function PUT(
   const updates: Record<string, any> = {
     class_name: body?.class_name,
     assignment_name: body?.assignment_name,
-    assignment_type: body?.assignment_type,
-    due_date: body?.due_date,
+    assignment_type:
+      body?.assignment_type === undefined
+        ? undefined
+        : normalizeAssignmentType(
+            body?.assignment_type,
+            body?.assignment_name || current.assignment_name
+          ),
+    due_date: normalizeDueDate(body?.due_date),
     requirements: body?.requirements,
     grading_weight: body?.grading_weight,
     notes: body?.notes,
     completed: body?.completed,
     updated_at: new Date().toISOString(),
+    updated_by: userId,
   };
 
   const changes = diffFields(current, updates);

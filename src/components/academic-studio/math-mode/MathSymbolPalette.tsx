@@ -23,17 +23,30 @@ const SYMBOLS = {
 };
 
 type CategoryKey = keyof typeof SYMBOLS;
+type PaletteVariant = "default" | "dock";
+
+const DOCK_KEYPAD: string[][] = [
+  ["(", ")", "|", "[", "]", "√", "∛", "≥"],
+  ["x", "7", "8", "9", "=", "÷", "≠", "π"],
+  ["y", "4", "5", "6", "/", "^", "≤", "∞"],
+  ["z", "1", "2", "3", "-", "+", "<", ">"],
+  ["abc", ",", "0", ".", "%", "∑", "∫", "log"],
+  ["⌫", "←", "→", "", "", "", "", ""],
+];
 
 export default function MathSymbolPalette({
   onInsert,
+  variant = "default",
 }: {
   onInsert: (symbol: string) => void;
+  variant?: PaletteVariant;
 }) {
   const categories = useMemo(() => Object.keys(SYMBOLS) as CategoryKey[], []);
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("basic");
+  const isDock = variant === "dock";
 
   return (
-    <div className="space-y-3">
+    <div className={`space-y-${isDock ? "2" : "3"}`}>
       <div className="flex gap-2 overflow-x-auto text-xs">
         {categories.map((category) => (
           <button
@@ -50,7 +63,7 @@ export default function MathSymbolPalette({
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-6 gap-2">
+      <div className={`grid ${isDock ? "grid-cols-8" : "grid-cols-6"} gap-2`}>
         {SYMBOLS[activeCategory].map((symbol) => (
           <button
             key={symbol}
@@ -62,6 +75,37 @@ export default function MathSymbolPalette({
           </button>
         ))}
       </div>
+      {isDock && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.02] p-2">
+          <div className="space-y-2">
+            {DOCK_KEYPAD.map((row, rowIndex) => (
+              <div key={`row-${rowIndex}`} className="grid grid-cols-8 gap-2">
+                {row.map((symbol, colIndex) => (
+                  <button
+                    key={`dock-${rowIndex}-${colIndex}-${symbol || "empty"}`}
+                    type="button"
+                    disabled={!symbol}
+                    onClick={() => onInsert(symbol)}
+                    className={`rounded-lg border px-2 py-1.5 text-xs transition ${
+                      !symbol
+                        ? "cursor-default border-transparent bg-transparent"
+                        : ""
+                    } ${
+                      ["abc"].includes(symbol)
+                        ? "border-white/10 bg-white/[0.05] text-slate-300"
+                        : ["⌫", "←", "→"].includes(symbol)
+                        ? "border-sky-400/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20"
+                        : "border-white/10 bg-white/[0.03] text-slate-100 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    {symbol}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

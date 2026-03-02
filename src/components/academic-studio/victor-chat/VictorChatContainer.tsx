@@ -1,11 +1,13 @@
 // src/components/academic-studio/victor-chat/VictorChatContainer.tsx
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Save, Send } from "lucide-react";
 import { useVictorChat } from "./VictorChatContext";
 import ModeIndicator from "./ModeIndicator";
 import StudyMaterialsPanel from "../study-materials/StudyMaterialsPanel";
+import type { VictorMode } from "@/types/academic-studio";
 
 export default function VictorChatContainer({
   workspaceContext,
@@ -27,18 +29,32 @@ export default function VictorChatContainer({
     setSuggestedMode,
     refreshSavedSessions,
   } = useVictorChat();
+  const searchParams = useSearchParams();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const autoPromptRef = useRef<string | null>(null);
+
+  const isVictorMode = (value: string | null): value is VictorMode => {
+    return (
+      value === "default" ||
+      value === "idea_expansion" ||
+      value === "challenge" ||
+      value === "study" ||
+      value === "math" ||
+      value === "coding_review"
+    );
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  const sendMessage = useCallback(async (messageText: string) => {
+    const trimmed = messageText.trim();
+    if (!trimmed) return;
     setError(null);
     setLoading(true);
 
@@ -46,7 +62,7 @@ export default function VictorChatContainer({
       ...messages,
       {
         role: "user" as const,
-        content: input.trim(),
+        content: trimmed,
         timestamp: new Date().toISOString(),
       },
     ];
@@ -60,7 +76,7 @@ export default function VictorChatContainer({
         body: JSON.stringify({
           conversationId,
           mode,
-          message: input.trim(),
+          message: trimmed,
           workspaceContext,
         }),
       });
@@ -84,7 +100,32 @@ export default function VictorChatContainer({
     } finally {
       setLoading(false);
     }
+  }, [conversationId, messages, mode, setConversationId, setMessages, setSuggestedMode, workspaceContext]);
+
+  const handleSend = async () => {
+    await sendMessage(input);
   };
+
+  useEffect(() => {
+    const requestedMode = searchParams.get("victorMode");
+    if (isVictorMode(requestedMode) && requestedMode !== mode) {
+      setMode(requestedMode);
+    }
+  }, [searchParams, setMode, mode]);
+
+  useEffect(() => {
+    const prompt = searchParams.get("victorPrompt");
+    if (!prompt) return;
+    const promptKey = `${searchParams.get("assignmentId") || "general"}:${prompt}`;
+    if (autoPromptRef.current === promptKey) return;
+
+    autoPromptRef.current = promptKey;
+    sendMessage(prompt).catch(() => null);
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete("victorPrompt");
+    window.history.replaceState({}, "", url.toString());
+  }, [searchParams, sendMessage]);
 
   const handleSaveSession = async () => {
     if (!conversationId || saving) return;

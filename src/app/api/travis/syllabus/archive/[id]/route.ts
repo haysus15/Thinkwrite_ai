@@ -1,10 +1,9 @@
-// src/app/api/travis/assignment/complete/[id]/route.ts
 import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export async function PUT(
-  request: Request,
+export async function POST(
+  _request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   const params = await context.params;
@@ -18,15 +17,10 @@ export async function PUT(
 
   const supabase = await createSupabaseServerClient();
   const { error: updateError } = await supabase
-    .from("assignments")
-    .update({
-      completed: true,
-      updated_at: new Date().toISOString(),
-      updated_by: userId,
-    })
+    .from("syllabi")
+    .update({ status: "archived" })
     .eq("id", params.id)
-    .eq("user_id", userId)
-    .is("archived_at", null);
+    .eq("user_id", userId);
 
   if (updateError) {
     return NextResponse.json(

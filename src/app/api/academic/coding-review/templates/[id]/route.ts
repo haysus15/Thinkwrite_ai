@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
@@ -14,7 +14,7 @@ export async function GET(
     );
   }
 
-  const templateId = context.params.id;
+  const { id: templateId } = await context.params;
   const supabase = await createSupabaseServerClient();
 
   const { data, error: fetchError } = await supabase

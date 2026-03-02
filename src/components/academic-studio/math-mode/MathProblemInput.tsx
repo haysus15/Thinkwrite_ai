@@ -11,11 +11,13 @@ export default function MathProblemInput({
   onLatexChange,
   onStart,
   onActiveFieldChange,
+  variant = "panel",
 }: {
   latex: string;
   onLatexChange: (value: string) => void;
   onStart: () => void;
   onActiveFieldChange: (field: MathfieldElement | null) => void;
+  variant?: "panel" | "dock";
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<MathfieldElement | null>(null);
@@ -47,49 +49,85 @@ export default function MathProblemInput({
 
   const handleInsert = (symbol: string) => {
     if (fieldRef.current) {
+      if (symbol === "⌫") {
+        if (typeof fieldRef.current.executeCommand === "function") {
+          fieldRef.current.executeCommand("deleteBackward");
+        } else if (typeof fieldRef.current.keystroke === "function") {
+          fieldRef.current.keystroke("Backspace");
+        }
+        fieldRef.current.focus();
+        return;
+      }
+      if (symbol === "←") {
+        if (typeof fieldRef.current.executeCommand === "function") {
+          fieldRef.current.executeCommand("moveToPreviousChar");
+        } else if (typeof fieldRef.current.keystroke === "function") {
+          fieldRef.current.keystroke("Left");
+        }
+        fieldRef.current.focus();
+        return;
+      }
+      if (symbol === "→") {
+        if (typeof fieldRef.current.executeCommand === "function") {
+          fieldRef.current.executeCommand("moveToNextChar");
+        } else if (typeof fieldRef.current.keystroke === "function") {
+          fieldRef.current.keystroke("Right");
+        }
+        fieldRef.current.focus();
+        return;
+      }
       fieldRef.current.insert(symbol);
       fieldRef.current.focus();
     }
   };
 
+  const isDock = variant === "dock";
+
   return (
-    <div className="glass-panel p-6">
+    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-            Step 1
-          </p>
-          <h3 className="mt-2 text-lg font-semibold text-white">
-            Enter the problem statement
-          </h3>
-          <p className="mt-2 text-sm text-slate-300">
-            Use plain text or math notation. Keep it to one clear problem.
-          </p>
+          {!isDock && (
+            <>
+              <h3 className="text-sm font-semibold text-white">Problem</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Use plain text or math notation. Keep it to one clear problem.
+              </p>
+            </>
+          )}
+          {isDock && (
+            <p className="text-xs text-slate-400">
+              Enter a problem to start your worksheet.
+            </p>
+          )}
         </div>
         <button
           type="button"
           onClick={onStart}
           disabled={!latex.trim()}
-          className="rounded-xl border border-sky-400/40 bg-sky-500/20 px-4 py-2 text-xs text-sky-100 transition hover:bg-sky-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-3 py-1.5 text-xs text-sky-100 transition hover:bg-sky-500/30 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Start problem
+          {isDock ? "Start" : "Start problem"}
         </button>
       </div>
 
       <div
-        className="mt-4 rounded-xl border border-white/10 bg-slate-950/30 p-3"
+        className={`${isDock ? "mt-2" : "mt-3"} rounded-lg border border-white/10 bg-white/[0.03] p-3`}
         ref={containerRef}
       />
 
-      {latex && (
+      {latex && !isDock && (
         <MathLatexDisplay
           latex={latex}
-          className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-slate-100"
+          className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-slate-100"
         />
       )}
 
-      <div className="mt-5">
-        <MathSymbolPalette onInsert={handleInsert} />
+      <div className={`${isDock ? "mt-2" : "mt-4"}`}>
+        <MathSymbolPalette
+          onInsert={handleInsert}
+          variant={isDock ? "dock" : "default"}
+        />
       </div>
     </div>
   );

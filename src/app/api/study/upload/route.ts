@@ -96,6 +96,8 @@ export async function POST(request: Request) {
   const title = String(formData.get("title") || "");
   const className = String(formData.get("className") || "");
   const topic = String(formData.get("topic") || "");
+  // Keep source_type on an allowed DB value; store richer source metadata in title/class/topic.
+  const sourceType = "uploaded";
 
   const hasFile = file instanceof File;
   const hasPastedContent = pastedContent.length > 0;
@@ -185,7 +187,7 @@ export async function POST(request: Request) {
       file_type: fileType,
       class_name: className || null,
       topic: topic || null,
-      source_type: "uploaded",
+      source_type: sourceType,
       source_id: null,
     })
     .select("id, title")

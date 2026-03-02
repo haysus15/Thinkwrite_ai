@@ -1,9 +1,9 @@
 // src/app/api/travis/assignments/overdue/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -14,14 +14,23 @@ export async function GET() {
 
   const supabase = await createSupabaseServerClient();
   const now = new Date().toISOString();
-  const { data, error: fetchError } = await supabase
+  const className = request.nextUrl.searchParams.get("class_name");
+
+  let query = supabase
     .from("assignments")
     .select("id, assignment_name, class_name, due_date, assignment_type")
     .eq("user_id", userId)
     .eq("completed", false)
+    .is("archived_at", null)
     .lt("due_date", now)
     .order("due_date", { ascending: true })
     .limit(6);
+
+  if (className) {
+    query = query.eq("class_name", className);
+  }
+
+  const { data, error: fetchError } = await query;
 
   if (fetchError) {
     return NextResponse.json(

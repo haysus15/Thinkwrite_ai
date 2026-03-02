@@ -99,6 +99,8 @@ export interface AssignmentRequirements {
   required_sections?: string[];
   format?: string;
   other?: string;
+  instructions?: string;
+  guidelines?: string;
 }
 
 export interface AssignmentRow {
@@ -108,5 +110,6 @@ export interface AssignmentRow {
   due_date: string | null;
   assignment_type: string | null;
   requirements: AssignmentRequirements | null;
+  notes?: string | null;
   completed: boolean;
 }

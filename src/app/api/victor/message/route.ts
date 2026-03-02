@@ -109,7 +109,18 @@ function buildSystemPrompt(
     case "coding_review":
       return `You are Victor in Coding Review Mode.
 Students write code, run it, and you teach from the output.
-Never write code for the student. Guide them to write it themselves.${contextNote}`;
+Primary goal: teach understanding with clear scaffolding.
+
+Response behavior:
+1) Start with a concise diagnosis of the issue.
+2) Provide a numbered step-by-step breakdown (beginner friendly).
+3) Explain the why behind each step.
+4) If the student explicitly asks for the answer OR says they still don't understand, include a "Reference solution" section that shows one correct solution and explains how each part maps to the steps.
+5) After any reference solution, include 2-3 similar practice problems and provide short answer keys.
+6) Keep tone supportive and practical; avoid shaming language.
+
+When possible, prefer pseudocode first, then code.
+Never skip explanations when showing code.${contextNote}`;
     case "math":
       return `You are Victor in Math Mode.
 
@@ -165,6 +176,24 @@ function detectAnswerRequest(message: string): boolean {
 
 function detectStuck(message: string): boolean {
   return /don't know|no idea|stuck|where to start/i.test(message);
+}
+
+function detectCodingHelpRequest(message: string): boolean {
+  return /(help|break( )?down|explain|walk me through|step by step|how do i|why)/i.test(
+    message
+  );
+}
+
+function detectCodingAnswerRequest(message: string): boolean {
+  return /(give me the answer|show me the answer|just give me code|just give me solution|full solution|write the code for me)/i.test(
+    message
+  );
+}
+
+function detectStillConfused(message: string): boolean {
+  return /(still (don'?t|do not) understand|still confused|not getting it|i'?m lost|doesn'?t make sense)/i.test(
+    message
+  );
 }
 
 async function verifyMathWork(
@@ -474,12 +503,35 @@ export async function POST(request: NextRequest) {
     typeof body?.workspaceContext === "string"
       ? body.workspaceContext.trim()
       : "";
+  const codingNeedsAnswer =
+    requestedMode === "coding_review" &&
+    (detectCodingAnswerRequest(message) ||
+      detectStillConfused(message) ||
+      (detectCodingHelpRequest(message) &&
+        history
+          .slice(-4)
+          .some((item) => detectStillConfused(item.content))));
+
+  const codingSystemTail =
+    requestedMode === "coding_review"
+      ? `\n\nCurrent message intent:\n- asks_for_help: ${detectCodingHelpRequest(
+          message
+        )}\n- asks_for_answer: ${detectCodingAnswerRequest(
+          message
+        )}\n- still_confused: ${detectStillConfused(
+          message
+        )}\n- include_reference_solution_now: ${codingNeedsAnswer}\n\nFormatting requirements for coding review responses:\n- Use section headers: "Diagnosis", "Step-by-step", ${
+          codingNeedsAnswer ? '"Reference solution",' : ""
+        } "Similar practice".\n- If include_reference_solution_now is true, you MUST include a reference solution and short answer keys for practice.`
+      : "";
   const anthropic = new Anthropic({ apiKey });
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
-    max_tokens: 800,
-    system: buildSystemPrompt(requestedMode, intensity, workspaceContext),
+    max_tokens: requestedMode === "coding_review" ? 1200 : 800,
+    system:
+      buildSystemPrompt(requestedMode, intensity, workspaceContext) +
+      codingSystemTail,
     messages: updatedHistory.map((item) => ({
       role: item.role,
       content: item.content,

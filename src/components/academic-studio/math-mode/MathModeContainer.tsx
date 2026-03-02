@@ -18,16 +18,29 @@ export default function MathModeContainer({ onExit }: { onExit: () => void }) {
   const [guidance, setGuidance] = useState<MathGuidance[]>([]);
   const [problemLatex, setProblemLatex] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
-  const [showGraph, setShowGraph] = useState(false);
-  const [showCalculator, setShowCalculator] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [mathTrack, setMathTrack] = useState<
+    "general" | "algebra" | "calculus" | "statistics"
+  >("general");
+  const [activeTool, setActiveTool] = useState<
+    "none" | "guidance" | "graph" | "calculator" | "history"
+  >("none");
+  const [showTools, setShowTools] = useState(false);
+  const [graphSource, setGraphSource] = useState<
+    "problem" | "latest_step" | "custom"
+  >("problem");
+  const [customGraphExpression, setCustomGraphExpression] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const missingStepIdsRef = useRef<Set<string>>(new Set());
   const handleActiveField = (_field: MathfieldElement | null) => {};
 
   const graphExpression = useMemo(() => {
-    return currentProblem?.graph_expression || "";
-  }, [currentProblem]);
+    const latestStep = [...steps]
+      .reverse()
+      .find((step) => (step.latex || "").trim().length > 0);
+    if (graphSource === "latest_step") return latestStep?.latex || "";
+    if (graphSource === "custom") return customGraphExpression;
+    return currentProblem?.graph_expression || problemLatex || "";
+  }, [currentProblem, customGraphExpression, graphSource, problemLatex, steps]);
   const hasProblem = Boolean(currentProblem);
   const hasSteps = steps.length > 0;
   const normalizeStepText = (value: string) =>
@@ -71,8 +84,8 @@ export default function MathModeContainer({ onExit }: { onExit: () => void }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           latex: problemLatex,
-          graph_visible: showGraph,
-          graph_expression: showGraph ? problemLatex : undefined,
+          graph_visible: true,
+          graph_expression: problemLatex,
         }),
       });
       const data = await response.json();
@@ -83,6 +96,9 @@ export default function MathModeContainer({ onExit }: { onExit: () => void }) {
       setProblems((prev) => [data.problem, ...prev.filter((p) => p.id !== data.problem.id)]);
       setSteps([]);
       setGuidance([]);
+      if (!customGraphExpression.trim()) {
+        setCustomGraphExpression(problemLatex);
+      }
       missingStepIdsRef.current.clear();
     } catch (error) {
       setErrorMessage(
@@ -294,114 +310,268 @@ export default function MathModeContainer({ onExit }: { onExit: () => void }) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="glass-panel px-6 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-              Math mode
-            </p>
-            <h2 className="mt-1 text-xl font-semibold text-white">
-              Verified Step Workspace
-            </h2>
-            <p className="mt-2 text-sm text-slate-300">
-              Enter a problem, build steps, then verify each transformation with Victor.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowHistory((prev) => !prev)}
-              className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs text-slate-300 transition hover:bg-white/[0.08]"
-            >
-              {showHistory ? "Hide history" : "Problem history"}
-            </button>
-            <button
-              type="button"
-              onClick={onExit}
-              className="rounded-full border border-red-400/40 bg-red-500/15 px-4 py-2 text-xs text-red-200 transition hover:bg-red-500/25"
-            >
-              Exit
-            </button>
-          </div>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/70">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold text-white">Math Mode</p>
+          <p className="text-xs text-slate-400">
+            Worksheet + tools. Keep all steps explicit.
+          </p>
         </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={mathTrack}
+            onChange={(event) =>
+              setMathTrack(
+                event.target.value as
+                  | "general"
+                  | "algebra"
+                  | "calculus"
+                  | "statistics"
+              )
+            }
+            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-slate-200"
+          >
+            <option value="general">General</option>
+            <option value="algebra">Algebra</option>
+            <option value="calculus">Calculus</option>
+            <option value="statistics">Statistics</option>
+          </select>
+          <button
+            type="button"
+            onClick={onExit}
+            className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs text-red-200 transition hover:bg-red-500/25"
+          >
+            Exit
+          </button>
+        </div>
+      </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-            <p className="flex items-center gap-2 text-xs font-medium text-slate-200">
-              {hasProblem ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-              ) : (
-                <Circle className="h-4 w-4 text-slate-500" />
-              )}
-              1. Define the problem
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-            <p className="flex items-center gap-2 text-xs font-medium text-slate-200">
-              {hasSteps ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-              ) : (
-                <Circle className="h-4 w-4 text-slate-500" />
-              )}
-              2. Build your steps
-            </p>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
-            <p className="flex items-center gap-2 text-xs font-medium text-slate-200">
-              {steps.some((step) => step.status !== "unchecked") ? (
-                <CheckCircle2 className="h-4 w-4 text-emerald-300" />
-              ) : (
-                <Circle className="h-4 w-4 text-slate-500" />
-              )}
-              3. Verify and refine
-            </p>
-          </div>
+      <div className="border-b border-white/10 px-4 py-2">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
+            Mode: {mathTrack}
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
+            {hasProblem ? "Problem set" : "No problem yet"}
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
+            {steps.length} step{steps.length === 1 ? "" : "s"}
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
+            {steps.some((step) => step.status !== "unchecked")
+              ? "Verification started"
+              : "Not verified yet"}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTools((prev) => !prev);
+              if (!showTools && activeTool === "none") {
+                setActiveTool("guidance");
+              }
+            }}
+            className="ml-auto rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
+          >
+            {showTools ? "Hide tools" : "Show tools"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTools(true);
+              setActiveTool("guidance");
+            }}
+            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
+          >
+            Guidance
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTools(true);
+              setActiveTool("graph");
+            }}
+            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
+          >
+            Graph
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTools(true);
+              setActiveTool("calculator");
+            }}
+            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
+          >
+            Calculator
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowTools(true);
+              setActiveTool("history");
+            }}
+            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
+          >
+            History
+          </button>
         </div>
       </div>
 
       {errorMessage && (
-        <div className="rounded-xl border border-rose-400/40 bg-rose-500/15 px-4 py-3 text-sm text-rose-100">
+        <div className="mx-4 mt-3 rounded-xl border border-rose-400/40 bg-rose-500/15 px-4 py-3 text-sm text-rose-100">
           {errorMessage}
         </div>
       )}
 
-      {showHistory && (
-        <MathProblemHistory problems={problems} onSelect={handleSelectProblem} />
-      )}
-
-      <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="flex min-h-0 flex-col gap-4 overflow-hidden">
-          <MathProblemInput
-            latex={problemLatex}
-            onLatexChange={setProblemLatex}
-            onStart={handleStartProblem}
-            onActiveFieldChange={handleActiveField}
-          />
-          <MathStepCanvas
-            steps={steps}
-            onAddStep={handleAddStep}
-            onVerifyAll={handleVerifyAll}
-            onVerifyStep={handleVerifyStep}
-            onUpdateStep={handleUpdateStep}
-            onDeleteStep={handleDeleteStep}
-            onActiveFieldChange={handleActiveField}
-            isVerifying={isVerifying}
-          />
+      <div
+        className={`grid min-h-0 flex-1 gap-3 p-3 ${
+          showTools && activeTool !== "none"
+            ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]"
+            : "grid-cols-1"
+        }`}
+      >
+        <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
+          {!hasProblem && !hasSteps && (
+            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-black/10 text-center">
+              <div>
+                <p className="text-sm text-slate-300">Blank worksheet</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Enter a math problem in the dock below to begin.
+                </p>
+              </div>
+            </div>
+          )}
+          {(hasProblem || hasSteps) && (
+            <MathStepCanvas
+              steps={steps}
+              onAddStep={handleAddStep}
+              onVerifyAll={handleVerifyAll}
+              onVerifyStep={handleVerifyStep}
+              onUpdateStep={handleUpdateStep}
+              onDeleteStep={handleDeleteStep}
+              onActiveFieldChange={handleActiveField}
+              isVerifying={isVerifying}
+            />
+          )}
         </div>
 
-        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto">
-          <MathVictorGuidance guidance={guidance} steps={steps} />
-          <MathGraphPanel
-            expression={graphExpression}
-            visible={showGraph}
-            onToggle={() => setShowGraph((prev) => !prev)}
-          />
-          <MathCalculator
-            visible={showCalculator}
-            onToggle={() => setShowCalculator((prev) => !prev)}
-          />
+        {showTools && activeTool !== "none" && (
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="border-b border-white/10 px-3 py-2">
+            <div className="grid grid-cols-4 gap-1 text-[11px]">
+              {[
+                { id: "guidance", label: "Guidance" },
+                { id: "graph", label: "Graph" },
+                { id: "calculator", label: "Calculator" },
+                { id: "history", label: "History" },
+              ].map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() =>
+                    setActiveTool(
+                      tool.id as "guidance" | "graph" | "calculator" | "history"
+                    )
+                  }
+                  className={`rounded-md border px-2 py-1 transition ${
+                    activeTool === tool.id
+                      ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.08]"
+                  }`}
+                >
+                  {tool.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {activeTool === "guidance" && (
+              <MathVictorGuidance guidance={guidance} steps={steps} />
+            )}
+
+            {activeTool === "graph" && (
+              <div className="space-y-2">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    Graph source
+                  </p>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setGraphSource("problem")}
+                      className={`rounded-md border px-2 py-1 ${
+                        graphSource === "problem"
+                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                          : "border-white/10 bg-white/[0.03] text-slate-300"
+                      }`}
+                    >
+                      Problem
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGraphSource("latest_step")}
+                      className={`rounded-md border px-2 py-1 ${
+                        graphSource === "latest_step"
+                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                          : "border-white/10 bg-white/[0.03] text-slate-300"
+                      }`}
+                    >
+                      Latest step
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGraphSource("custom")}
+                      className={`rounded-md border px-2 py-1 ${
+                        graphSource === "custom"
+                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                          : "border-white/10 bg-white/[0.03] text-slate-300"
+                      }`}
+                    >
+                      Custom
+                    </button>
+                  </div>
+                  {graphSource === "custom" && (
+                    <input
+                      value={customGraphExpression}
+                      onChange={(event) =>
+                        setCustomGraphExpression(event.target.value)
+                      }
+                      placeholder="e.g., x^2 + 3*x - 4"
+                      className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-100"
+                    />
+                  )}
+                </div>
+                <MathGraphPanel
+                  expression={graphExpression}
+                  visible
+                  onToggle={() => null}
+                  showToggle={false}
+                />
+              </div>
+            )}
+
+            {activeTool === "calculator" && (
+              <MathCalculator visible onToggle={() => null} showToggle={false} />
+            )}
+
+            {activeTool === "history" && (
+              <MathProblemHistory problems={problems} onSelect={handleSelectProblem} />
+            )}
+          </div>
         </div>
+        )}
+      </div>
+
+      <div className="border-t border-white/10 p-3">
+        <MathProblemInput
+          latex={problemLatex}
+          onLatexChange={setProblemLatex}
+          onStart={handleStartProblem}
+          onActiveFieldChange={handleActiveField}
+          variant="dock"
+        />
       </div>
     </div>
   );

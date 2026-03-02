@@ -10,7 +10,9 @@ type AcademicWorkspaceView =
   | "study-materials"
   | "study-library"
   | "assignments"
-  | "math-mode";
+  | "syllabi"
+  | "math-mode"
+  | "coding-review";
 
 export default function AcademicContextPanel({
   view,
@@ -26,8 +28,12 @@ export default function AcademicContextPanel({
       return <StudyLibraryContextPanel />;
     case "assignments":
       return <AssignmentsContextPanel />;
+    case "syllabi":
+      return <SyllabiContextPanel />;
     case "math-mode":
       return <MathModeContextPanel />;
+    case "coding-review":
+      return <TravisSidebar />;
     case "dashboard":
     default:
       return <TravisSidebar />;
@@ -145,6 +151,27 @@ function AssignmentsContextPanel() {
         </p>
         <p className="mt-3 text-sm text-slate-400">
           Deadlines and requirements stay locked until verified.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SyllabiContextPanel() {
+  return (
+    <div className="space-y-5">
+      <div className="academic-nested-card rounded-xl p-5">
+        <p className="text-sm font-semibold text-slate-100">Version history</p>
+        <p className="mt-3 text-sm text-slate-400">
+          Keep each syllabus upload as a separate version and review differences
+          before publish.
+        </p>
+      </div>
+      <div className="academic-nested-card rounded-xl p-5">
+        <p className="text-sm font-semibold text-slate-100">Publishing</p>
+        <p className="mt-3 text-sm text-slate-400">
+          Publish drafts only after validation. Previous assignments for that
+          class are archived automatically.
         </p>
       </div>
     </div>

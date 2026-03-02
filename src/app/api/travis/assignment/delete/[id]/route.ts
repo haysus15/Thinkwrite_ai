@@ -5,8 +5,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -16,15 +17,36 @@ export async function DELETE(
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error: deleteError } = await supabase
+  const { data: existing, error: fetchError } = await supabase
     .from("assignments")
-    .delete()
+    .select("id")
     .eq("id", params.id)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .single();
 
-  if (deleteError) {
+  if (fetchError || !existing) {
     return NextResponse.json(
-      { success: false, error: deleteError.message },
+      { success: false, error: "Assignment not found." },
+      { status: 404 }
+    );
+  }
+
+  // Soft-delete to preserve relational history and avoid FK conflicts in change-log tables.
+  const { error: archiveError } = await supabase
+    .from("assignments")
+    .update({
+      archived_at: new Date().toISOString(),
+      archived_reason: "user_removed_from_travis",
+      updated_at: new Date().toISOString(),
+      updated_by: userId,
+    })
+    .eq("id", params.id)
+    .eq("user_id", userId)
+    .is("archived_at", null);
+
+  if (archiveError) {
+    return NextResponse.json(
+      { success: false, error: archiveError.message },
       { status: 500 }
     );
   }

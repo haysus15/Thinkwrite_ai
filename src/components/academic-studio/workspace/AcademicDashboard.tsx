@@ -16,6 +16,7 @@ type AcademicWorkspaceView =
   | "study-materials"
   | "study-library"
   | "assignments"
+  | "syllabi"
   | "math-mode"
   | "coding-review";
 
@@ -46,7 +47,13 @@ const featureCards: Array<{
   {
     id: "assignments",
     title: "Assignments",
-    description: "Deadlines, requirements, and syllabus parsing.",
+    description: "Unified assignment list across all syllabi.",
+    icon: ListChecks,
+  },
+  {
+    id: "syllabi",
+    title: "Syllabi",
+    description: "Manage uploaded syllabus versions.",
     icon: ListChecks,
   },
   {

@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function PUT(
   request: NextRequest,
-  context: { params: { pathId: string } }
+  context: { params: Promise<{ pathId: string }> }
 ) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
@@ -14,7 +14,7 @@ export async function PUT(
     );
   }
 
-  const pathId = context.params.pathId;
+  const { pathId } = await context.params;
   const body = await request.json();
 
   const updates: Record<string, unknown> = {

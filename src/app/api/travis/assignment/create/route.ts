@@ -2,6 +2,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { normalizeAssignmentType } from "@/lib/academic/assignmentType";
+
+function normalizeDueDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
 
 export async function POST(request: NextRequest) {
   const { userId, error } = await getAuthUser();
@@ -31,12 +39,16 @@ export async function POST(request: NextRequest) {
       syllabus_id: body?.syllabus_id || null,
       class_name: className,
       assignment_name: assignmentName,
-      assignment_type: body?.assignment_type || null,
-      due_date: body?.due_date || null,
+      assignment_type: normalizeAssignmentType(
+        body?.assignment_type,
+        assignmentName
+      ),
+      due_date: normalizeDueDate(body?.due_date),
       requirements: body?.requirements || null,
       grading_weight: body?.grading_weight || null,
       notes: body?.notes || null,
       completed: body?.completed || false,
+      updated_by: userId,
     })
     .select("id")
     .single();

@@ -86,6 +86,14 @@ function sanitizeStudyContent(raw: string): string {
   return ranked.join("\n").slice(0, 12000);
 }
 
+function hasHeavyPdfArtifacts(text: string): boolean {
+  const artifactTokens =
+    text.match(
+      /\/BaseFont|\/Font|\/Type|\/Subtype|\/Length|\/Filter|\/ProcSet|CIDInit|CMapName|begincmap|beginbfchar|defineresource|Adobe-Identity-UCS|Identity-H|xref|startxref|trailer|endobj|endstream|ascii85decode|flatedecode|reportlab|pdf library/gi
+    ) || [];
+  return artifactTokens.length >= 4;
+}
+
 function hasSufficientNaturalLanguage(text: string) {
   const lines = text
     .split(/\r?\n/)
@@ -183,18 +191,28 @@ export async function POST(request: NextRequest) {
   const studyContent = sanitizeStudyContent(rawStudyContent);
   const hasStrongSanitized =
     studyContent.length >= 300 && hasSufficientNaturalLanguage(studyContent);
+  const hasUsableRaw =
+    rawStudyContent.length >= 180 &&
+    hasSufficientNaturalLanguage(rawStudyContent) &&
+    !hasHeavyPdfArtifacts(rawStudyContent);
 
-  if (!hasStrongSanitized) {
+  const quizSourceContent = hasStrongSanitized
+    ? studyContent
+    : studyContent.length >= 120
+    ? studyContent
+    : rawStudyContent;
+
+  // Only hard-fail when material is effectively empty.
+  if (quizSourceContent.trim().length < 20) {
     return NextResponse.json(
       {
         success: false,
         error:
-          "This upload still looks like PDF artifact text (not readable study content). Please re-upload as DOCX/TXT or paste the manual text directly.",
+          "Study material content is too short to generate a quiz. Add more text and try again.",
       },
       { status: 400 }
     );
   }
-  const quizSourceContent = studyContent;
 
   const systemPrompt = `You are generating a quiz from study material.
 Return JSON: { "questions": [ { "id": "q-1", "type": "multiple_choice|true_false|short_answer|essay", "text": "...", "options": [], "correct_answer": "...", "explanation": "...", "source_snippet": "exact quote from material" } ] }
@@ -236,6 +254,39 @@ Rules:
     return normalizeQuestionsWithSource(json.questions || []);
   };
 
+  const generateFallbackCandidate = async () => {
+    const fallbackSystemPrompt = `You are generating a quiz from study material.
+Return JSON: { "questions": [ { "id": "q-1", "type": "multiple_choice|true_false|short_answer|essay", "text": "...", "options": [], "correct_answer": "...", "explanation": "..." } ] }
+
+Rules:
+- Total questions: ${questionCount}
+- Types: ${questionTypes.join(", ")}
+- Difficulty: ${difficulty}/5
+- Use only the provided material.
+- Do not include document metadata or PDF internals.
+- Keep answers concise and accurate.`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: fallbackSystemPrompt,
+        },
+        {
+          role: "user",
+          content: userPrompt,
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const json = JSON.parse(
+      response.choices[0]?.message?.content || "{\"questions\":[]}"
+    );
+    return normalizeQuestions(json.questions || []);
+  };
+
   let candidates = await generateCandidate();
   let grounded = candidates.filter((question) =>
     isQuestionGrounded(question, quizSourceContent)
@@ -269,11 +320,53 @@ Rules:
   );
 
   if (questions.length < Math.max(3, Math.floor(questionCount * 0.5))) {
+    const fallbackQuestions = await generateFallbackCandidate();
+    const usableFallback = fallbackQuestions
+      .filter((question) =>
+        !isLikelyArtifactQuestion(
+          `${question.text || ""} ${question.explanation || ""}`
+        )
+      )
+      .slice(0, questionCount);
+
+    if (usableFallback.length >= Math.max(3, Math.floor(questionCount * 0.5))) {
+      const { data: fallbackQuiz, error: fallbackInsertError } = await supabase
+        .from("quizzes")
+        .insert({
+          user_id: userId,
+          study_material_id: studyMaterialId,
+          title: `${material.title} Quiz`,
+          questions: usableFallback,
+          difficulty,
+        })
+        .select("id, title")
+        .single();
+
+      if (fallbackInsertError || !fallbackQuiz) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: fallbackInsertError?.message || "Quiz save failed.",
+          },
+          { status: 500 }
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          quizId: fallbackQuiz.id,
+          title: fallbackQuiz.title,
+        },
+        { status: 200 }
+      );
+    }
+
     return NextResponse.json(
       {
         success: false,
         error:
-          "Could not generate enough grounded, on-topic questions from this material. Please re-upload cleaner text (DOCX/TXT recommended).",
+          "Could not generate enough quiz questions from this material yet. Try increasing material detail and try again.",
       },
       { status: 400 }
     );

@@ -12,6 +12,7 @@ import StudyMaterialsPanel from "./study-materials/StudyMaterialsPanel";
 import StudyLibrary from "./study-materials/StudyLibrary";
 import AcademicDashboard from "./workspace/AcademicDashboard";
 import AssignmentsWorkspace from "./workspace/AssignmentsWorkspace";
+import SyllabiWorkspace from "./workspace/SyllabiWorkspace";
 import AcademicContextPanel from "./workspace/AcademicContextPanel";
 import MathModeContainer from "./math-mode/MathModeContainer";
 import { useVictorChat } from "./victor-chat/VictorChatContext";
@@ -25,8 +26,26 @@ type AcademicWorkspaceView =
   | "study-materials"
   | "study-library"
   | "assignments"
+  | "syllabi"
   | "math-mode"
   | "coding-review";
+
+function normalizeWorkspace(value: string | null): AcademicWorkspaceView {
+  switch (value) {
+    case "paper-workflow":
+    case "study-materials":
+    case "study-library":
+    case "assignments":
+    case "syllabi":
+    case "math-mode":
+    case "coding-review":
+      return value;
+    case "syllabus-review":
+      return "syllabi";
+    default:
+      return "dashboard";
+  }
+}
 
 const workspaceConfig: Record<
   AcademicWorkspaceView,
@@ -50,7 +69,11 @@ const workspaceConfig: Record<
   },
   assignments: {
     title: "Assignments",
-    description: "Deadlines, requirements, and syllabus parsing.",
+    description: "Unified assignment view across all syllabi.",
+  },
+  syllabi: {
+    title: "Syllabi",
+    description: "Uploaded syllabus versions and publish controls.",
   },
   "math-mode": {
     title: "Math mode",
@@ -73,8 +96,7 @@ export default function AcademicStudioContainer() {
 function AcademicStudioLayout() {
   const { mode, setMode } = useVictorChat();
   const searchParams = useSearchParams();
-  const initialWorkspace =
-    (searchParams.get("workspace") as AcademicWorkspaceView) || "dashboard";
+  const initialWorkspace = normalizeWorkspace(searchParams.get("workspace"));
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -89,7 +111,7 @@ function AcademicStudioLayout() {
   });
 
   useEffect(() => {
-    const workspace = searchParams.get("workspace") as AcademicWorkspaceView;
+    const workspace = normalizeWorkspace(searchParams.get("workspace"));
     if (workspace && workspace !== workspaceState.currentView) {
       switchWorkspace(workspace);
     }
@@ -189,6 +211,8 @@ function AcademicStudioLayout() {
         return <StudyLibrary embedded />;
       case "assignments":
         return <AssignmentsWorkspace />;
+      case "syllabi":
+        return <SyllabiWorkspace />;
       case "math-mode":
         return (
           <MathModeContainer
@@ -316,11 +340,12 @@ function AcademicStudioLayout() {
                         { id: "paper-workflow", label: "Paper workflow" },
                         { id: "study-materials", label: "Study materials" },
                         { id: "study-library", label: "Study library" },
-                    { id: "assignments", label: "Assignments" },
-                    { id: "math-mode", label: "Math mode" },
-                    { id: "coding-review", label: "Coding review" },
-                  ] as const
-                ).map((item) => {
+                        { id: "assignments", label: "Assignments" },
+                        { id: "syllabi", label: "Syllabi" },
+                        { id: "math-mode", label: "Math mode" },
+                        { id: "coding-review", label: "Coding review" },
+                      ] as const
+                    ).map((item) => {
                       const isActive = workspaceState.currentView === item.id;
                       return (
                         <button
