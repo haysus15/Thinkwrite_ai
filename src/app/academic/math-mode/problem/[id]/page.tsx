@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAuthRequiredUrl } from "@/lib/auth/redirects";
 import { useParams, useSearchParams } from "next/navigation";
@@ -10,6 +11,14 @@ import { VictorChatProvider } from "@/components/academic-studio/victor-chat/Vic
 import MathModeContainer from "@/components/academic-studio/math-mode/MathModeContainer";
 
 export default function AcademicMathProblemPage() {
+  return (
+    <Suspense fallback={<AcademicMathProblemPageFallback />}>
+      <AcademicMathProblemPageContent />
+    </Suspense>
+  );
+}
+
+function AcademicMathProblemPageContent() {
   const { user, loading } = useAuth();
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -56,5 +65,15 @@ export default function AcademicMathProblemPage() {
         />
       </VictorChatProvider>
     </AcademicPageShell>
+  );
+}
+
+function AcademicMathProblemPageFallback() {
+  return (
+    <div className="academic-studio-root min-h-screen text-slate-100">
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-6">
+        <AcademicLoadingState message="Loading problem..." />
+      </div>
+    </div>
   );
 }

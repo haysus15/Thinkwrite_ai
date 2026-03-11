@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getAuthRequiredUrl } from "@/lib/auth/redirects";
 import { useSearchParams } from "next/navigation";
@@ -14,6 +15,14 @@ import PaperWorkflowErrorBoundary from "@/components/academic-studio/paper-workf
 export const dynamic = "force-dynamic";
 
 export default function AcademicPaperWorkflowPage() {
+  return (
+    <Suspense fallback={<AcademicPaperWorkflowPageFallback />}>
+      <AcademicPaperWorkflowPageContent />
+    </Suspense>
+  );
+}
+
+function AcademicPaperWorkflowPageContent() {
   const { user, loading } = useAuth();
   const searchParams = useSearchParams();
   const assignmentId = searchParams.get("assignmentId");
@@ -68,5 +77,16 @@ export default function AcademicPaperWorkflowPage() {
         )}
       </VictorChatProvider>
     </AcademicPageShell>
+  );
+}
+
+function AcademicPaperWorkflowPageFallback() {
+  return (
+    <div className="academic-studio-root min-h-screen text-slate-100">
+      <div className="sky-layer"><div className="stars" /><div className="nebula-glow" /></div>
+      <div className="relative z-10 flex min-h-screen items-center justify-center px-6">
+        <AcademicLoadingState message="Loading paper workflow..." />
+      </div>
+    </div>
   );
 }
