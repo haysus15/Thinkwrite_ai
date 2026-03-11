@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
+import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
 
 export const runtime = 'nodejs';
 
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
       supabase,
       userId,
       sourceStudio: source_studio,
+      sourceAuthority: SOURCE_AUTHORITY.USER_TYPED,
       text: user_text,
       sessionId: session_id || null,
       context: context || null,

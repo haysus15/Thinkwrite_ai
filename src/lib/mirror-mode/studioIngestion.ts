@@ -1,6 +1,14 @@
 import { learnFromTextDirect } from "@/lib/mirror-mode/liveLearning";
 import type { WritingType } from "@/lib/mirror-mode/writingTypes";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  shouldExcludeFromProfile,
+  type SourceAuthority,
+} from "@/lib/mirror-mode/sourceAuthority";
+import {
+  MINIMUM_WORD_COUNT,
+  shouldIngestForProfile,
+} from "@/lib/mirror-mode/ingestionPolicy";
 
 export type Studio = "career" | "academic" | "creative";
 
@@ -24,6 +32,7 @@ type StudioIngestionParams = {
   supabase: SupabaseClient;
   userId: string;
   sourceStudio: Studio;
+  sourceAuthority: SourceAuthority;
   text: string;
   sessionId?: string | null;
   context?: string | null;
@@ -101,6 +110,7 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
     supabase,
     userId,
     sourceStudio,
+    sourceAuthority,
     text,
     sessionId,
     context,
@@ -115,7 +125,7 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
   const cleanedText = String(text || "").trim();
   const wordCount = cleanedText.split(/\s+/).filter(Boolean).length;
 
-  if (!cleanedText || wordCount < 20) {
+  if (!cleanedText || wordCount < MINIMUM_WORD_COUNT) {
     return {
       captured: false,
       archived: false,
@@ -146,20 +156,27 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
   const canonicalName = (fileName || title || context || `${sourceStudio} writing sample`).trim();
   const canonicalDocKey = sessionId ? `studio:${sourceStudio}:${sessionId}` : null;
 
-  await learnFromTextDirect({
-    userId,
-    text: cleanedText,
-    source: "other",
-    metadata: {
-      context: context || null,
-      documentId: canonicalDocKey || undefined,
-      title: canonicalName,
-      writingType: resolvedWritingType,
-    },
-  });
+  const ingestionDecision = shouldIngestForProfile(wordCount, sourceAuthority);
+  if (ingestionDecision.eligible) {
+    await learnFromTextDirect({
+      userId,
+      text: cleanedText,
+      source: "other",
+      sourceAuthority,
+      metadata: {
+        context: context || null,
+        documentId: canonicalDocKey || undefined,
+        title: canonicalName,
+        writingType: resolvedWritingType,
+      },
+    });
+  }
 
-  const excluded = shouldExcludeFromArchive(context);
-  const canArchive = registerInArchive && !excluded && wordCount >= 50;
+  const excludeFromArchive = shouldExcludeFromArchive(context);
+  const canArchive =
+    registerInArchive &&
+    !excludeFromArchive &&
+    wordCount >= MINIMUM_WORD_COUNT;
 
   if (!canArchive) {
     return {
@@ -183,6 +200,7 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
   }
 
   if (existingDocumentId) {
+    const excluded = shouldExcludeFromProfile(sourceAuthority);
     await supabase
       .from("mirror_documents")
       .update({
@@ -193,6 +211,8 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
         word_count: wordCount,
         status: "learned",
         learned_at: new Date().toISOString(),
+        source_authority: sourceAuthority,
+        excluded_from_profile: excluded,
       })
       .eq("id", existingDocumentId);
 
@@ -208,6 +228,7 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
   }
 
   const epochNumber = await resolveCurrentEpochNumber(supabase, userId);
+  const excluded = shouldExcludeFromProfile(sourceAuthority);
   const insertPayload: Record<string, any> = {
     user_id: userId,
     file_name: canonicalName,
@@ -219,6 +240,8 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
     status: "learned",
     training_allowed: true,
     learned_at: new Date().toISOString(),
+    source_authority: sourceAuthority,
+    excluded_from_profile: excluded,
     visibility_status: "active",
     epoch_number: epochNumber,
   };
@@ -245,6 +268,8 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
       status: "learned",
       training_allowed: true,
       learned_at: new Date().toISOString(),
+      source_authority: sourceAuthority,
+      excluded_from_profile: excluded,
     };
     ({ data: inserted, error: insertError } = await supabase
       .from("mirror_documents")

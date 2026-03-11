@@ -3,11 +3,15 @@
 
 import { useEffect, useState } from "react";
 import { Download, FileText } from "lucide-react";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
 
 type PaperStatus = "locked" | "passed" | "skipped";
 
 interface PaperRow {
   id: string;
+  assignment_id: string | null;
   topic: string;
   created_at: string;
   word_count: number | null;
@@ -18,6 +22,7 @@ interface PaperRow {
 
 interface PaperItem {
   id: string;
+  assignmentId: string | null;
   title: string;
   createdAt: string;
   wordCount: number | null;
@@ -25,48 +30,61 @@ interface PaperItem {
   status: PaperStatus;
 }
 
-export default function PaperLibrary() {
+export default function PaperLibrary({
+  onPaperExport,
+}: {
+  onPaperExport?: (assignmentId: string | null) => void;
+}) {
   const [papers, setPapers] = useState<PaperItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const loadLibrary = async () => {
-      try {
-        const response = await fetch("/api/academic/papers/user");
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to load library.");
+  const loadLibrary = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const response = await fetch("/api/academic/papers/user");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Could not load your paper library. Refresh and try again."
+        );
+      }
+
+      const mapped = (data.papers as PaperRow[]).map((paper) => {
+        let status: PaperStatus = "locked";
+        if (paper.checkpoint_passed) {
+          status = "passed";
+        } else if (paper.emergency_skip_used) {
+          status = "skipped";
         }
 
-        const mapped = (data.papers as PaperRow[]).map((paper) => {
-          let status: PaperStatus = "locked";
-          if (paper.checkpoint_passed) {
-            status = "passed";
-          } else if (paper.emergency_skip_used) {
-            status = "skipped";
-          }
+        return {
+          id: paper.id,
+          assignmentId: paper.assignment_id || null,
+          title: paper.topic,
+          createdAt: paper.created_at,
+          wordCount: paper.word_count ?? null,
+          citationStyle: paper.citation_style ?? null,
+          status,
+        };
+      });
 
-          return {
-            id: paper.id,
-            title: paper.topic,
-            createdAt: paper.created_at,
-            wordCount: paper.word_count ?? null,
-            citationStyle: paper.citation_style ?? null,
-            status,
-          };
-        });
+      setPapers(mapped);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not load your paper library. Refresh and try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        setPapers(mapped);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load library.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadLibrary();
+  useEffect(() => {
+    void loadLibrary();
   }, []);
 
   return (
@@ -79,19 +97,23 @@ export default function PaperLibrary() {
         Checkpoint pass or emergency skip unlocks downloads.
       </p>
       {loading && (
-        <p className="mt-4 text-sm text-slate-500">Loading papers...</p>
+        <AcademicLoadingState message="Loading papers..." className="!min-h-0 py-4" />
       )}
       {error && (
-        <p className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-          {error}
-        </p>
+        <AcademicErrorState
+          message={error}
+          retry={() => void loadLibrary()}
+          className="!min-h-0 py-4"
+        />
       )}
       {!loading && !error && (
         <div className="mt-4 space-y-3">
           {papers.length === 0 && (
-            <p className="text-sm text-slate-500">
-              No papers yet. Generate a draft to get started.
-            </p>
+            <AcademicEmptyState
+              title="No papers yet"
+              description="Generate a draft to get started."
+              className="!min-h-0 py-4"
+            />
           )}
         {papers.map((paper) => {
             const locked = paper.status === "locked";
@@ -163,6 +185,7 @@ export default function PaperLibrary() {
                       link.click();
                       link.remove();
                       window.URL.revokeObjectURL(url);
+                      onPaperExport?.(paper.assignmentId);
                     } catch (err) {
                       setError(
                         err instanceof Error

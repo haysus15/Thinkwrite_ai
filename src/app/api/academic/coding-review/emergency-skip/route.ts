@@ -18,7 +18,8 @@ export async function POST() {
     .from("emergency_skips")
     .select("id")
     .eq("user_id", userId)
-    .eq("month", currentMonth);
+    .eq("month", currentMonth)
+    .eq("feature", "coding_review");
 
   if (skipError) {
     return NextResponse.json(
@@ -40,6 +41,7 @@ export async function POST() {
       user_id: userId,
       paper_id: null,
       month: currentMonth,
+      feature: "coding_review",
       skipped_at: new Date().toISOString(),
     });
 

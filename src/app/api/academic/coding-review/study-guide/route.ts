@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
+import { validateStudyGuide } from "@/lib/academic/contentQualityGuard";
+import { logEvent } from "@/lib/telemetry/logEvent";
 
 export const runtime = "nodejs";
 
@@ -117,6 +119,23 @@ Answer: Clear naming, small steps, and comments where needed.
 Answer: Correctness, clarity, and tested behavior.`;
 }
 
+function extractAnthropicText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  for (const block of content) {
+    if (
+      block &&
+      typeof block === "object" &&
+      "type" in block &&
+      (block as { type?: string }).type === "text" &&
+      "text" in block &&
+      typeof (block as { text?: unknown }).text === "string"
+    ) {
+      return (block as { text: string }).text;
+    }
+  }
+  return "";
+}
+
 export async function POST(request: NextRequest) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
@@ -179,18 +198,29 @@ export async function POST(request: NextRequest) {
     const label = languageLabel(language);
     const lessonNumber =
       typeof lessonIndex === "number" ? lessonIndex + 1 : "N/A";
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1800,
-      temperature: 0.2,
-      system: `You are an expert ${label} instructor creating lesson-accurate study guides.
+    const studyContext = {
+      language: label,
+      lessonTitle,
+      conceptSummary,
+      challengePrompt,
+      requiredSkills,
+      pathTitle,
+    };
+
+    const generateGuide = async (strictMode: boolean) => {
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1800,
+        temperature: strictMode ? 0.1 : 0.2,
+        system: `You are an expert ${label} instructor creating lesson-accurate study guides.
 Return only study-guide content in Markdown.
 Never mention mode switching, tools, chat controls, or "Want me to switch".
-Keep content specific to the provided lesson and language.`,
-      messages: [
-        {
-          role: "user",
-          content: `Create a high-quality ${label} study guide for one coding lesson.
+Keep content specific to the provided lesson and language.
+${strictMode ? "Do not use generic study-guide filler. Tie every section directly to the lesson title, concept summary, challenge prompt, and required skills." : ""}`,
+        messages: [
+          {
+            role: "user",
+            content: `Create a high-quality ${label} study guide for one coding lesson.
 
 Required exact sections:
 1) Lesson Focus
@@ -218,21 +248,62 @@ Quality bar:
 - Keep it practical and beginner-friendly.
 - No generic filler.
 - No references to switching modes or workspace navigation.`,
-        },
-      ],
-    });
+          },
+        ],
+      });
 
-    const guide = response.content?.[0]?.text?.trim() || "";
-    const invalidGuide =
-      !guide ||
-      guide.length < 500 ||
-      /want me to switch|switch to|coding review mode/i.test(guide);
+      return extractAnthropicText(response.content).trim();
+    };
+
+    let guide = await generateGuide(false);
+    let validation = validateStudyGuide(guide, studyContext);
+    let attemptedRetry = false;
+    if (!validation.passed || validation.score < 60) {
+      attemptedRetry = true;
+      if (validation.score < 60) {
+        void logEvent({
+          userId,
+          eventType: "study_guide_below_threshold",
+          workspace: "coding_review",
+          severity: "warn",
+          payload: {
+            score: validation.score,
+            lessonTitle,
+            language,
+            reason: validation.reason,
+          },
+        });
+      }
+      const stricterGuide = await generateGuide(true);
+      const stricterValidation = validateStudyGuide(stricterGuide, studyContext);
+      if (stricterValidation.passed && stricterValidation.score >= validation.score) {
+        guide = stricterGuide;
+        validation = stricterValidation;
+      }
+    }
+
+    const invalidGuide = !validation.passed || validation.score < 60;
+    if (attemptedRetry && invalidGuide) {
+      void logEvent({
+        userId,
+        eventType: "study_guide_retry_failed",
+        workspace: "coding_review",
+        severity: "error",
+        payload: {
+          score: validation.score,
+          lessonTitle,
+          language,
+          reason: validation.reason,
+        },
+      });
+    }
 
     return NextResponse.json(
       {
         success: true,
         guide: invalidGuide ? fallback : guide,
         source: invalidGuide ? "fallback" : "claude",
+        qualityScore: invalidGuide ? 0 : validation.score,
       },
       { status: 200 }
     );
@@ -243,4 +314,3 @@ Quality bar:
     );
   }
 }
-

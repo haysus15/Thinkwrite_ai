@@ -1,6 +1,7 @@
 "use client";
 
 import type { MathProblem } from "@/types/math-mode";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
 
 export default function MathProblemHistory({
   problems,
@@ -14,7 +15,11 @@ export default function MathProblemHistory({
       <h4 className="text-sm font-semibold text-white">Problem history</h4>
       <div className="mt-3 space-y-2 text-xs text-slate-300">
         {problems.length === 0 && (
-          <p className="text-slate-500">No problems yet.</p>
+          <AcademicEmptyState
+            title="No problems yet"
+            description="Start a problem in Math Mode to build your history."
+            className="!min-h-0 py-2"
+          />
         )}
         {problems.map((problem) => (
           <button

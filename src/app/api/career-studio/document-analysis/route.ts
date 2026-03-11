@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     try {
       const extraction = await extractTextFromFile(file);
       if (!extraction.ok) {
-        throw new Error(extraction.error);
+        throw new Error("error" in extraction ? extraction.error : "Failed to extract file text.");
       }
       fileContent = extraction.text;
       console.log('Text extracted successfully, length:', fileContent.length);

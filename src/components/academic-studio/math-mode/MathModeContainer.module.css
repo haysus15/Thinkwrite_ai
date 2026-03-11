@@ -1,0 +1,56 @@
+.root {
+  display: grid;
+  grid-template-columns: 72fr 28fr;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 18px;
+  background: linear-gradient(180deg, #0f172a 0%, #111b33 100%);
+}
+
+.rootTeacherCollapsed {
+  grid-template-columns: minmax(0, 1fr) 58px;
+}
+
+.rootDocumentOnly {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.documentZone {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, #16233f 0%, #13233d 100%);
+}
+
+.teacherZone {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
+  background: #0d172a;
+}
+
+.teacherZoneCollapsed {
+  border-left: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+@media (max-width: 980px) {
+  .root {
+    grid-template-columns: 1fr;
+  }
+
+  .rootTeacherCollapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .teacherZone {
+    border-left: none;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+  }
+
+  .teacherZoneCollapsed {
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+  }
+}

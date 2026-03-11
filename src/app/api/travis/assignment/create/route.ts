@@ -3,13 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeAssignmentType } from "@/lib/academic/assignmentType";
-
-function normalizeDueDate(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
+import { normalizeDueDateInput } from "@/lib/academic/dueDate";
 
 export async function POST(request: NextRequest) {
   const { userId, error } = await getAuthUser();
@@ -43,10 +37,13 @@ export async function POST(request: NextRequest) {
         body?.assignment_type,
         assignmentName
       ),
-      due_date: normalizeDueDate(body?.due_date),
+      due_date: normalizeDueDateInput(body?.due_date),
+      agenda_date: normalizeDueDateInput(body?.agenda_date),
       requirements: body?.requirements || null,
       grading_weight: body?.grading_weight || null,
       notes: body?.notes || null,
+      status: body?.status || "inbox",
+      priority: body?.priority || "medium",
       completed: body?.completed || false,
       updated_by: userId,
     })

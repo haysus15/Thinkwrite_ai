@@ -4,7 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(
   _request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
@@ -14,7 +14,7 @@ export async function GET(
     );
   }
 
-  const { id: sessionId } = await Promise.resolve(context.params);
+  const { id: sessionId } = await context.params;
   const supabase = await createSupabaseServerClient();
   const { data, error: fetchError } = await supabase
     .schema("coding_review")
@@ -36,7 +36,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
@@ -46,7 +46,7 @@ export async function PUT(
     );
   }
 
-  const { id: sessionId } = await Promise.resolve(context.params);
+  const { id: sessionId } = await context.params;
   const body = await request.json();
 
   const updates: Record<string, unknown> = {
@@ -88,7 +88,7 @@ export async function PUT(
 
 export async function DELETE(
   _request: NextRequest,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
@@ -98,7 +98,7 @@ export async function DELETE(
     );
   }
 
-  const { id: sessionId } = await Promise.resolve(context.params);
+  const { id: sessionId } = await context.params;
   const supabase = await createSupabaseServerClient();
   const { data, error: updateError } = await supabase
     .schema("coding_review")

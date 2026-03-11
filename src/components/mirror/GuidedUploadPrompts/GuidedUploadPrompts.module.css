@@ -1,0 +1,36 @@
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(10, 14, 24, 0.55);
+  backdrop-filter: blur(14px);
+}
+
+.collapsed {
+  margin: 0;
+  color: #d8e3fa;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.headline {
+  margin: 0 0 10px;
+  color: #eaf0ff;
+  font-size: 16px;
+}
+
+.list {
+  margin: 0;
+  padding-left: 18px;
+  color: #bdc8df;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.avoid {
+  margin: 12px 0 0;
+  color: #9eaac2;
+  font-size: 12px;
+  line-height: 1.4;
+}

@@ -2,6 +2,14 @@
 // Utility for integrating live voice learning into any feature
 // Fire-and-forget - doesn't block the calling feature
 
+import {
+  isProfileEligible,
+  type SourceAuthority,
+} from "@/lib/mirror-mode/sourceAuthority";
+import {
+  shouldIngestForProfile,
+} from "@/lib/mirror-mode/ingestionPolicy";
+
 export type LearningSource =
   | 'cover-letter'
   | 'lex-chat'
@@ -16,6 +24,7 @@ export type LearnOptions = {
   userId: string;
   text: string;
   source: LearningSource;
+  sourceAuthority: SourceAuthority;
   metadata?: {
     documentId?: string;
     title?: string;
@@ -69,13 +78,13 @@ const SOURCE_WRITING_TYPE: Record<LearningSource, string> = {
  * });
  */
 export function learnFromText(options: LearnOptions): void {
-  const { userId, text, source, metadata } = options;
+  const { userId, text, source, sourceAuthority, metadata } = options;
 
   // Don't block - fire and forget
   fetch('/api/mirror-mode/live-learn', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, text, source, metadata }),
+    body: JSON.stringify({ userId, text, source, sourceAuthority, metadata }),
   }).catch((err) => {
     // Silent fail - learning shouldn't break main features
     console.log('Mirror Mode learning skipped:', err.message);
@@ -90,7 +99,7 @@ export async function learnFromTextServer(
   options: LearnOptions,
   baseUrl?: string
 ): Promise<{ learned: boolean; error?: string }> {
-  const { userId, text, source, metadata } = options;
+  const { userId, text, source, sourceAuthority, metadata } = options;
 
   try {
     // For server-side, we need the full URL
@@ -101,7 +110,7 @@ export async function learnFromTextServer(
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, text, source, metadata }),
+      body: JSON.stringify({ userId, text, source, sourceAuthority, metadata }),
     });
 
     const data = await response.json();
@@ -130,26 +139,16 @@ export async function learnFromTextDirect(
   const { aggregateFingerprints, getConfidenceLabel } = await import('./voiceAggregation');
   const { mapWritingTypeToChamber } = await import('./writingTypes');
 
-  const { userId, text, source, metadata } = options;
-
-  // Minimum word counts by source
-  const minWords: Record<LearningSource, number> = {
-    'cover-letter': 50,
-    'lex-chat': 20,
-    'coding-review': 20,
-    'resume-upload': 50,
-    'resume-builder': 30,
-    'tailored-resume': 50,
-    'manual-upload': 50,
-    'other': 30,
-  };
+  const { userId, text, source, sourceAuthority, metadata } = options;
 
   try {
     const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
-    const requiredWords = minWords[source] || 30;
-
-    if (wordCount < requiredWords) {
-      return { learned: false, error: `Text too short (${wordCount}/${requiredWords} words)` };
+    if (!isProfileEligible(sourceAuthority)) {
+      return { learned: false, error: `Source excluded from profile: ${sourceAuthority}` };
+    }
+    const ingestionDecision = shouldIngestForProfile(wordCount, sourceAuthority);
+    if (!ingestionDecision.eligible) {
+      return { learned: false, error: ingestionDecision.reason };
     }
 
     const supabase = createClient(
@@ -230,7 +229,7 @@ export async function learnFromTextDirect(
     try {
       const chamber = mapWritingTypeToChamber(documentMeta.writingType);
       const { data: existingChamberRow } = await supabase
-        .from('voice_profiles_chambers')
+        .from('voice_chambers')
         .select('*')
         .eq('user_id', userId)
         .eq('chamber', chamber)
@@ -258,7 +257,7 @@ export async function learnFromTextDirect(
       updatedChamberProfile.userId = userId;
 
       await supabase
-        .from('voice_profiles_chambers')
+        .from('voice_chambers')
         .upsert({
           user_id: userId,
           chamber,
@@ -272,7 +271,7 @@ export async function learnFromTextDirect(
         }, { onConflict: 'user_id,chamber' });
 
       await supabase
-        .from('voice_profiles_chambers')
+        .from('voice_chambers')
         .upsert({
           user_id: userId,
           chamber: 'overall',

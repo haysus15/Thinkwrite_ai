@@ -15,7 +15,7 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
   const { data: quizzes, error: quizError } = await supabase
     .from("quizzes")
-    .select("id, title, study_material_id, created_at")
+    .select("id, title, study_material_id, difficulty, questions, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 

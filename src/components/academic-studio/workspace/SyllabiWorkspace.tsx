@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import SyllabusReviewWorkspace from "./SyllabusReviewWorkspace";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
+import shared from "../shared/academic-studio.module.css";
 
 type SyllabusListItem = {
   id: string;
   class_name: string;
-  status: string;
+  status: "draft" | "approved" | "archived" | string;
   uploaded_at: string | null;
   reviewed_at: string | null;
   confirmed: boolean;
+  parse_confidence: number | null;
+  term: string | null;
+  section: string | null;
   counts: {
     drafts: {
       total: number;
@@ -27,71 +34,32 @@ type SyllabusListItem = {
   };
 };
 
-type DiffItem = {
-  key: string;
-  assignment_name: string;
-  assignment_type: string | null;
-  due_date: string | null;
-  grading_weight: number | null;
-  module_reference: string | null;
-};
-
-type SyllabusDiff = {
-  from_id: string;
-  to_id: string;
-  class_name: string | null;
-  counts: {
-    added: number;
-    removed: number;
-    changed: number;
-  };
-  added: DiffItem[];
-  removed: DiffItem[];
-  changed: Array<{ from: DiffItem; to: DiffItem }>;
-};
+function confidencePct(value: number | null): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0;
+  const normalized = value <= 1 ? value * 100 : value;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
+}
 
 export default function SyllabiWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const syllabusIdFromUrl = searchParams.get("syllabusId");
+  const syllabusIdFromUrl = searchParams.get("syllabus");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<SyllabusListItem[]>([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [diffLoadingId, setDiffLoadingId] = useState<string | null>(null);
-  const [diffBySyllabusId, setDiffBySyllabusId] = useState<
-    Record<string, SyllabusDiff | undefined>
-  >({});
-  const [activeReviewSyllabusId, setActiveReviewSyllabusId] = useState<string | null>(null);
-
-  const classGroups = useMemo(() => {
-    const map = new Map<string, SyllabusListItem[]>();
-    items.forEach((item) => {
-      const key = item.class_name || "Uncategorized";
-      const existing = map.get(key) || [];
-      existing.push(item);
-      map.set(key, existing);
-    });
-    Array.from(map.entries()).forEach(([key, group]) => {
-      group.sort((a, b) => {
-        const aTime = new Date(a.uploaded_at || 0).getTime();
-        const bTime = new Date(b.uploaded_at || 0).getTime();
-        return bTime - aTime;
-      });
-      map.set(key, group);
-    });
-    return map;
-  }, [items]);
-
-  const previousVersionById = useMemo(() => {
-    const mapping = new Map<string, SyllabusListItem | null>();
-    classGroups.forEach((group) => {
-      group.forEach((item, idx) => {
-        mapping.set(item.id, group[idx + 1] || null);
-      });
-    });
-    return mapping;
-  }, [classGroups]);
+  const [activeReviewSyllabusId, setActiveReviewSyllabusId] = useState<string | null>(
+    syllabusIdFromUrl
+  );
+  const [uploading, setUploading] = useState(false);
+  const [uploadDraft, setUploadDraft] = useState({
+    class_name: "",
+    term: "",
+    section: "",
+  });
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [historyOpenById, setHistoryOpenById] = useState<Record<string, boolean>>({});
 
   const loadSyllabi = async () => {
     setLoading(true);
@@ -111,41 +79,58 @@ export default function SyllabiWorkspace() {
   };
 
   useEffect(() => {
-    loadSyllabi();
+    void loadSyllabi();
   }, []);
 
   useEffect(() => {
-    if (syllabusIdFromUrl) {
-      setActiveReviewSyllabusId(syllabusIdFromUrl);
-    }
+    if (!syllabusIdFromUrl) return;
+    setActiveReviewSyllabusId(syllabusIdFromUrl);
   }, [syllabusIdFromUrl]);
 
-  const publishSyllabus = async (syllabusId: string) => {
-    setBusyId(syllabusId);
+  const uploadSyllabus = async () => {
+    if (!uploadFile) {
+      setError("Choose a PDF or DOCX syllabus file first.");
+      return;
+    }
+    if (!uploadDraft.class_name.trim()) {
+      setError("Class name is required.");
+      return;
+    }
+    setUploading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/travis/syllabus/confirm/${syllabusId}`, {
+      const form = new FormData();
+      form.append("file", uploadFile);
+      form.append("class_name", uploadDraft.class_name.trim());
+      if (uploadDraft.term.trim()) form.append("term", uploadDraft.term.trim());
+      if (uploadDraft.section.trim()) form.append("section", uploadDraft.section.trim());
+
+      const response = await fetch("/api/travis/syllabus/upload", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approve_all: true }),
+        body: form,
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || "Publish failed.");
+        throw new Error(data.error || "Upload failed.");
       }
+      setUploadFile(null);
+      setUploadDraft({ class_name: "", term: "", section: "" });
+      if (fileInputRef.current) fileInputRef.current.value = "";
       await loadSyllabi();
+      if (data?.syllabus?.id) {
+        setActiveReviewSyllabusId(data.syllabus.id);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Publish failed.");
+      setError(err instanceof Error ? err.message : "Upload failed.");
     } finally {
-      setBusyId(null);
+      setUploading(false);
     }
   };
 
-  const archiveSyllabus = async (syllabusId: string) => {
-    setBusyId(syllabusId);
+  const archiveSyllabus = async (id: string) => {
     setError(null);
     try {
-      const response = await fetch(`/api/travis/syllabus/archive/${syllabusId}`, {
+      const response = await fetch(`/api/travis/syllabus/archive/${id}`, {
         method: "POST",
       });
       const data = await response.json();
@@ -155,243 +140,234 @@ export default function SyllabiWorkspace() {
       await loadSyllabi();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Archive failed.");
-    } finally {
-      setBusyId(null);
     }
   };
 
-  const loadDiffAgainstPrevious = async (item: SyllabusListItem) => {
-    const previous = previousVersionById.get(item.id);
-    if (!previous) return;
-    setDiffLoadingId(item.id);
-    setError(null);
-    try {
-      const params = new URLSearchParams({
-        from_id: previous.id,
-        to_id: item.id,
-      });
-      const response = await fetch(`/api/travis/syllabi/diff?${params.toString()}`);
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to load syllabus diff.");
-      }
-      setDiffBySyllabusId((current) => ({
-        ...current,
-        [item.id]: data.diff as SyllabusDiff,
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load diff.");
-    } finally {
-      setDiffLoadingId(null);
-    }
-  };
+  const confidenceWarningCount = useMemo(
+    () => items.filter((item) => confidencePct(item.parse_confidence) < 80).length,
+    [items]
+  );
 
   return (
-    <div className="space-y-5">
-      <div className="academic-nested-card rounded-2xl p-6">
-        <p className="text-sm font-semibold text-slate-100">Syllabi</p>
-        <p className="mt-2 text-sm text-slate-400">
-          Every uploaded syllabus version is listed here. Review drafts, publish,
-          and archive without losing history.
+    <div className={`${shared.root} ${shared.page} mx-auto max-w-[980px] space-y-5`}>
+      <div className={shared.surfacePanel}>
+        <p className={shared.panelTitle}>Syllabi</p>
+        <p className={shared.panelBody}>
+          Upload a syllabus, review parsed assignments, then publish to Assignments.
         </p>
+        {confidenceWarningCount > 0 ? (
+          <p className="mt-3 text-xs text-amber-200">
+            {confidenceWarningCount} syllabus{confidenceWarningCount === 1 ? "" : "es"} below 80% parser confidence. Review carefully.
+          </p>
+        ) : null}
       </div>
 
-      {loading && (
-        <div className="academic-nested-card rounded-2xl p-6 text-sm text-slate-400">
-          Loading syllabi...
+      <div className={shared.surfacePanel}>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          Upload syllabus
+        </p>
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          <input
+            value={uploadDraft.class_name}
+            onChange={(event) =>
+              setUploadDraft((current) => ({ ...current, class_name: event.target.value }))
+            }
+            placeholder="Class name"
+            className={shared.control}
+          />
+          <input
+            value={uploadDraft.term}
+            onChange={(event) =>
+              setUploadDraft((current) => ({ ...current, term: event.target.value }))
+            }
+            placeholder="Term (optional)"
+            className={shared.control}
+          />
+          <input
+            value={uploadDraft.section}
+            onChange={(event) =>
+              setUploadDraft((current) => ({ ...current, section: event.target.value }))
+            }
+            placeholder="Section (optional)"
+            className={shared.control}
+          />
         </div>
-      )}
-
-      {!loading && items.length === 0 && (
-        <div className="academic-nested-card rounded-2xl p-6 text-sm text-slate-400">
-          No syllabi uploaded yet.
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx"
+            onChange={(event) => setUploadFile(event.target.files?.[0] || null)}
+            className="text-xs text-slate-300 file:mr-3 file:rounded-md file:border file:border-white/20 file:bg-white/5 file:px-2 file:py-1 file:text-xs file:text-slate-100"
+          />
+          <button
+            type="button"
+            onClick={() => void uploadSyllabus()}
+            disabled={uploading}
+            className={`${shared.buttonBase} ${shared.buttonPrimary}`}
+          >
+            {uploading ? "Reading your syllabus..." : "Upload and parse"}
+          </button>
         </div>
-      )}
+      </div>
 
-      {!loading && items.length > 0 && (
+      {loading ? (
+        <div className={shared.surfacePanel}>
+          <AcademicLoadingState message="Loading syllabi..." className="!min-h-0 py-4" />
+        </div>
+      ) : items.length === 0 ? (
+        <div className={shared.surfacePanel}>
+          <AcademicEmptyState
+            title="No syllabi uploaded"
+            description="Add your first class to begin."
+            className="!min-h-0 py-4"
+            action={{
+              label: "Upload syllabus",
+              onClick: () => fileInputRef.current?.click(),
+            }}
+          />
+        </div>
+      ) : (
         <div className="space-y-3">
-          {Array.from(classGroups.entries()).map(([className, group]) => (
-            <div key={className} className="academic-nested-card rounded-2xl p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                {className} timeline
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {group.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveReviewSyllabusId(item.id)}
-                    className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-slate-200 hover:bg-white/10"
-                  >
-                    v{group.length - index} · {item.status}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div className="grid gap-3">
           {items.map((item) => {
-            const isBusy = busyId === item.id;
-            const previous = previousVersionById.get(item.id);
-            const diff = diffBySyllabusId[item.id];
+            const confidence = confidencePct(item.parse_confidence);
+            const lowConfidence = confidence < 80;
             return (
-              <div key={item.id} className="academic-nested-card rounded-2xl p-5">
+              <div key={item.id} className={shared.surfacePanelCompact}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-100">
-                      {item.class_name}
-                    </p>
+                    <p className="text-sm font-semibold text-slate-100">{item.class_name}</p>
                     <p className="mt-1 text-xs text-slate-400">
                       Uploaded{" "}
                       {item.uploaded_at
                         ? new Date(item.uploaded_at).toLocaleString()
-                        : "Unknown"}
+                        : "Unknown"}{" "}
+                      · {item.counts.drafts.total} assignments · Parser {confidence}%
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
-                      Status: {item.status}
+                      {item.term || "Term not set"}
+                      {item.section ? ` · ${item.section}` : ""}
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full border px-2 py-1 text-[11px] ${
+                        item.status === "approved"
+                          ? "border-emerald-300/35 bg-emerald-500/15 text-emerald-100"
+                          : item.status === "archived"
+                            ? "border-slate-300/25 bg-slate-500/10 text-slate-200"
+                            : "border-amber-300/35 bg-amber-500/15 text-amber-100"
+                      }`}
+                    >
+                      {item.status === "approved"
+                        ? "Approved"
+                        : item.status === "archived"
+                          ? "Archived"
+                          : "Draft"}
+                    </span>
+                    {lowConfidence ? (
+                      <span className="rounded-full border border-amber-300/35 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-100">
+                        Review carefully
+                      </span>
+                    ) : null}
                     <button
                       type="button"
-                      onClick={() => setActiveReviewSyllabusId(item.id)}
-                      className="rounded-lg border border-sky-400/40 bg-sky-500/20 px-3 py-1.5 text-xs text-sky-100"
+                      onClick={() => {
+                        setActiveReviewSyllabusId(item.id);
+                        router.replace(`/academic/syllabi?syllabus=${item.id}`);
+                      }}
+                      className={`${shared.buttonBase} ${shared.buttonPrimary}`}
                     >
                       Review
                     </button>
                     <button
                       type="button"
-                      disabled={isBusy}
-                      onClick={() => publishSyllabus(item.id)}
-                      className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs text-emerald-100 disabled:opacity-60"
+                      onClick={() => {
+                        setUploadDraft((current) => ({
+                          ...current,
+                          class_name: item.class_name,
+                          term: item.term || "",
+                          section: item.section || "",
+                        }));
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }}
+                      className={`${shared.buttonBase} ${shared.buttonSecondary}`}
                     >
-                      Publish
+                      Re-upload
                     </button>
                     <button
                       type="button"
-                      disabled={isBusy}
-                      onClick={() => archiveSyllabus(item.id)}
-                      className="rounded-lg border border-amber-400/40 bg-amber-500/15 px-3 py-1.5 text-xs text-amber-100 disabled:opacity-60"
+                      onClick={() =>
+                        setHistoryOpenById((current) => ({
+                          ...current,
+                          [item.id]: !current[item.id],
+                        }))
+                      }
+                      className={`${shared.buttonBase} ${shared.buttonSecondary}`}
+                    >
+                      History
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void archiveSyllabus(item.id)}
+                      className={`${shared.buttonBase} ${shared.buttonDanger}`}
                     >
                       Archive
                     </button>
-                    {previous && (
-                      <button
-                        type="button"
-                        disabled={diffLoadingId === item.id}
-                        onClick={() => loadDiffAgainstPrevious(item)}
-                        className="rounded-lg border border-violet-400/40 bg-violet-500/15 px-3 py-1.5 text-xs text-violet-100 disabled:opacity-60"
-                      >
-                        {diffLoadingId === item.id
-                          ? "Loading diff..."
-                          : "Diff vs previous"}
-                      </button>
-                    )}
                   </div>
                 </div>
-
-                <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
-                    Drafts: {item.counts.drafts.total}
+                {historyOpenById[item.id] ? (
+                  <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300">
+                    <p>Approved drafts: {item.counts.drafts.approved}</p>
+                    <p>Rejected drafts: {item.counts.drafts.rejected}</p>
+                    <p>Published drafts: {item.counts.drafts.published}</p>
+                    <p>Active assignments: {item.counts.assignments.active}</p>
                   </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
-                    Published drafts: {item.counts.drafts.published}
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
-                    Active assignments: {item.counts.assignments.active}
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
-                    Archived assignments: {item.counts.assignments.archived}
-                  </div>
-                </div>
-
-                {diff && (
-                  <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-slate-300">
-                    <p className="font-semibold text-slate-200">
-                      Diff vs previous version
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-3">
-                      <span>Added: {diff.counts.added}</span>
-                      <span>Changed: {diff.counts.changed}</span>
-                      <span>Removed: {diff.counts.removed}</span>
-                    </div>
-                    {diff.added.length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-emerald-300">Added</p>
-                        <ul className="mt-1 space-y-1">
-                          {diff.added.slice(0, 8).map((row) => (
-                            <li key={`added-${row.key}`}>+ {row.assignment_name}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {diff.changed.length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-amber-300">Changed</p>
-                        <ul className="mt-1 space-y-1">
-                          {diff.changed.slice(0, 8).map((row) => (
-                            <li key={`changed-${row.to.key}`}>
-                              ~ {row.from.assignment_name}
-                              {" -> "}
-                              {row.to.assignment_name}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {diff.removed.length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-rose-300">Removed</p>
-                        <ul className="mt-1 space-y-1">
-                          {diff.removed.slice(0, 8).map((row) => (
-                            <li key={`removed-${row.key}`}>- {row.assignment_name}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
+                ) : null}
               </div>
             );
           })}
-          </div>
-
-          {activeReviewSyllabusId && (
-            <div className="academic-nested-card rounded-2xl p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                  Review And Publish
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActiveReviewSyllabusId(null)}
-                  className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-slate-300"
-                >
-                  Close
-                </button>
-              </div>
-              <SyllabusReviewWorkspace
-                syllabusIdOverride={activeReviewSyllabusId}
-                embedded
-                onPublished={(syllabusId) => {
-                  setActiveReviewSyllabusId(null);
-                  loadSyllabi();
-                  router.push(
-                    `/academic-studio/dashboard?workspace=assignments&syllabusId=${syllabusId}`
-                  );
-                }}
-              />
-            </div>
-          )}
         </div>
       )}
 
-      {error && (
-        <p role="alert" className="text-sm text-red-300">
-          {error}
-        </p>
-      )}
+      {activeReviewSyllabusId ? (
+        <div className={shared.surfacePanelCompact}>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Review panel
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveReviewSyllabusId(null);
+                router.replace("/academic/syllabi");
+              }}
+              className="rounded-md border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-slate-300"
+            >
+              Close
+            </button>
+          </div>
+          <SyllabusReviewWorkspace
+            syllabusIdOverride={activeReviewSyllabusId}
+            embedded
+            onPublished={(syllabusId) => {
+              setActiveReviewSyllabusId(null);
+              void loadSyllabi();
+              router.push(`/academic/assignments?syllabusId=${syllabusId}`);
+            }}
+          />
+        </div>
+      ) : null}
+
+      {error ? (
+        <AcademicErrorState
+          message={error}
+          className="!min-h-0 border-red-500/40 bg-red-500/10 py-4"
+          retry={() => {
+            void loadSyllabi();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

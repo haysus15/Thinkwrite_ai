@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { todayDateString } from "@/lib/academic/dueDate";
 
 export async function GET(request: NextRequest) {
   const { userId, error } = await getAuthUser();
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createSupabaseServerClient();
-  const now = new Date().toISOString();
+  const today = todayDateString();
   const className = request.nextUrl.searchParams.get("class_name");
 
   let query = supabase
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
     .eq("user_id", userId)
     .eq("completed", false)
     .is("archived_at", null)
-    .lt("due_date", now)
+    .lt("due_date", today)
     .order("due_date", { ascending: true })
     .limit(6);
 

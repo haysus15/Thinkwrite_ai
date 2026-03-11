@@ -341,6 +341,10 @@ export async function reviewCodingCheckpoint(input: {
     feedback: string;
     submission_id: string;
     review_id: string;
+    mirror?: {
+      learned: boolean;
+      error?: string;
+    } | null;
   }>(response);
   return data;
 }

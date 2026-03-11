@@ -5,6 +5,7 @@ import { Errors } from "@/lib/api/errors";
 import { extractVoiceFingerprint, type VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
 import { aggregateFingerprints, type VoiceProfile } from "@/lib/mirror-mode/voiceAggregation";
 import { mapWritingTypeToChamber } from "@/lib/mirror-mode/writingTypes";
+import { MINIMUM_WORD_COUNT } from "@/lib/mirror-mode/ingestionPolicy";
 
 export const runtime = "nodejs";
 
@@ -75,7 +76,8 @@ async function loadMirrorDocs(supabase: Awaited<ReturnType<typeof createSupabase
   const primary = await supabase
     .from("mirror_documents")
     .select("id, file_name, writing_type, word_count, training_allowed, deleted_at, visibility_status, created_at")
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("excluded_from_profile", false);
 
   if (!primary.error) {
     return (primary.data || []) as MirrorDoc[];
@@ -100,7 +102,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const includeHidden = Boolean(body?.includeHidden);
-    const minWords = Number.isFinite(body?.minWords) ? Math.max(1, Number(body.minWords)) : 50;
+    const minWords = Number.isFinite(body?.minWords)
+      ? Math.max(1, Number(body.minWords))
+      : MINIMUM_WORD_COUNT;
 
     const supabase = await createSupabaseServerClient();
     const docs = await loadMirrorDocs(supabase, userId);
@@ -200,7 +204,7 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        await supabase.from("voice_profiles_chambers").delete().eq("user_id", userId);
+        await supabase.from("voice_chambers").delete().eq("user_id", userId);
       } catch {
         // best effort
       }
@@ -242,7 +246,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      await supabase.from("voice_profiles_chambers").delete().eq("user_id", userId);
+      await supabase.from("voice_chambers").delete().eq("user_id", userId);
 
       const chamberRows = Array.from(chamberProfiles.entries()).flatMap(([chamber, profile]) => {
         if (!profile) return [];
@@ -274,7 +278,7 @@ export async function POST(req: NextRequest) {
       });
 
       if (chamberRows.length > 0) {
-        await supabase.from("voice_profiles_chambers").insert(chamberRows);
+        await supabase.from("voice_chambers").insert(chamberRows);
       }
     } catch {
       // best effort; overall profile already rebuilt

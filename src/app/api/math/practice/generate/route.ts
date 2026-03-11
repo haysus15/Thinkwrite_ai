@@ -1,10 +1,22 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
-import { mathStore } from "@/lib/math-mode/store";
+import { createMathPractice } from "@/lib/math-mode/db";
 
 function getClaudeApiKey() {
   return process.env.CLAUDE_API_KEY || null;
+}
+
+function readFirstText(content: unknown): string {
+  if (!Array.isArray(content) || content.length === 0) return "";
+  const first = content[0];
+  if (first && typeof first === "object" && "type" in first) {
+    const block = first as { type?: string; text?: unknown };
+    if (block.type === "text" && typeof block.text === "string") {
+      return block.text;
+    }
+  }
+  return "";
 }
 
 export async function POST(request: Request) {
@@ -42,13 +54,25 @@ Difficulty: ${difficulty}`,
     ],
   });
 
-  const practiceLatex = response.content?.[0]?.text || latex;
-  const practice = mathStore.createPractice({
-    latex: practiceLatex.trim(),
-    difficulty,
-    attempted: false,
-    completed: false,
-  });
+  try {
+    const practiceLatex = readFirstText(response.content) || latex;
+    const practice = await createMathPractice({
+      userId,
+      latex: practiceLatex.trim(),
+      difficulty,
+      problemType: body?.problem_type || "other",
+    });
 
-  return NextResponse.json({ practice });
+    return NextResponse.json({ practice });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unable to create practice problem.",
+      },
+      { status: 500 }
+    );
+  }
 }

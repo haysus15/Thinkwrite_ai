@@ -539,13 +539,21 @@ export async function POST(request: NextRequest) {
         console.warn('Memory update failed:', memoryUpdateError);
       }
 
+      let mirrorCapture: {
+        captured?: boolean;
+        archived?: boolean;
+        needs_consent?: boolean;
+        mirror_document_id?: string | null;
+        word_count?: number;
+      } | null = null;
+
       // Mirror Mode: Learn from user's conversational voice
       // Only learn from user messages, not AI responses
       if (captureForMirror && userId && messages.length > 0) {
         const lastUserMessage = [...messages].reverse().find((msg) => msg.role === 'user');
         if (lastUserMessage?.text) {
           try {
-            await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/mirror-mode/capture`, {
+            const captureRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/mirror-mode/capture`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -555,6 +563,10 @@ export async function POST(request: NextRequest) {
                 context: sessionType || 'general',
               }),
             });
+            const captureJson = await captureRes.json().catch(() => null);
+            if (captureJson) {
+              mirrorCapture = captureJson;
+            }
           } catch (e) {
             // Silent fail - capture shouldn't break chat
           }
@@ -573,7 +585,8 @@ export async function POST(request: NextRequest) {
                    matchContext ? 'with-match-analysis' : 
                    tailoredResumeContext ? 'with-tailoring-context' : 
                    jobContext ? 'with-job-context' : 'standard'
-        }
+        },
+        mirror: mirrorCapture,
       });
 
     } catch (claudeError) {
@@ -1554,7 +1567,7 @@ function normalizeMessages(input: any): NormalizedMessage[] {
   const raw = Array.isArray(input) ? input : input ? [input] : [];
 
   return raw
-    .map((message: any) => {
+    .map((message: any): NormalizedMessage | null => {
       if (typeof message === 'string') {
         return { role: 'user', sender: 'user', text: message };
       }
@@ -1569,7 +1582,7 @@ function normalizeMessages(input: any): NormalizedMessage[] {
 
       return { role, sender, text: String(text) };
     })
-    .filter((message) => message.text.trim().length > 0);
+    .filter((message): message is NormalizedMessage => Boolean(message && message.text.trim().length > 0));
 }
 
 async function updateLexMemoryAfterResponse(

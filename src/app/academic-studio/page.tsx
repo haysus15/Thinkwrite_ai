@@ -1,7 +1,7 @@
-// Academic Studio Entry
-// src/app/academic-studio/page.tsx
+// Legacy route retained for backwards compatibility.
+// Canonical route: /academic-studio/welcome
 import { redirect } from "next/navigation";
 
 export default function AcademicStudioPage() {
-  redirect("/academic-studio/landing");
+  redirect("/academic-studio/welcome");
 }

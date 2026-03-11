@@ -18,7 +18,24 @@ export async function POST(request: Request) {
     typeof body?.assignmentType === "string" ? body.assignmentType.trim() : "";
   const className =
     typeof body?.className === "string" ? body.className.trim() : "";
+  const assignmentId =
+    typeof body?.assignmentId === "string" ? body.assignmentId.trim() : "";
   const outline = body?.outline;
+  const studentDeclaration =
+    body?.studentDeclaration && typeof body.studentDeclaration === "object"
+      ? body.studentDeclaration
+      : null;
+  const sectionConfidence =
+    body?.sectionConfidence && typeof body.sectionConfidence === "object"
+      ? body.sectionConfidence
+      : null;
+  const sourceRequirements =
+    body?.sourceRequirements && typeof body.sourceRequirements === "object"
+      ? body.sourceRequirements
+      : null;
+  const conversationHistory = Array.isArray(body?.conversationHistory)
+    ? body.conversationHistory
+    : [];
 
   if (!topic || !outline?.thesis) {
     return NextResponse.json(
@@ -35,8 +52,12 @@ export async function POST(request: Request) {
       topic,
       assignment_type: assignmentType,
       class_name: className,
+      assignment_id: assignmentId || null,
       outline_structure: outline,
-      conversation_history: [],
+      conversation_history: conversationHistory,
+      student_declaration: studentDeclaration,
+      section_confidence: sectionConfidence,
+      source_requirements: sourceRequirements,
     })
     .select("id")
     .single();

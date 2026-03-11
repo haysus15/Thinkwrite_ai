@@ -4,6 +4,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import QuestionReview from "./QuestionReview";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
 import type { QuizResultItem } from "@/types/academic-studio";
 
 interface QuizResultsProps {
@@ -44,7 +46,7 @@ export default function QuizResults({ attemptId }: QuizResultsProps) {
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-white/60">Loading results...</p>
+        <AcademicLoadingState message="Loading your quiz results..." className="!min-h-0 border-0 bg-transparent py-0" />
       </div>
     );
   }
@@ -52,9 +54,7 @@ export default function QuizResults({ attemptId }: QuizResultsProps) {
   if (error) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p role="alert" className="text-red-300">
-          {error}
-        </p>
+        <AcademicErrorState message={error} className="!min-h-0 border-red-500/40 bg-red-500/10 py-4" />
       </div>
     );
   }
@@ -96,7 +96,7 @@ export default function QuizResults({ attemptId }: QuizResultsProps) {
                     throw new Error(data.error || "Victor review failed.");
                   }
                   router.push(
-                    `/academic-studio/dashboard?conversationId=${data.conversationId}`
+                    `/academic/agenda?conversationId=${data.conversationId}`
                   );
                 } catch (err) {
                   setError(
@@ -112,7 +112,7 @@ export default function QuizResults({ attemptId }: QuizResultsProps) {
             </button>
             <button
               type="button"
-              onClick={() => router.push("/academic-studio/dashboard")}
+              onClick={() => router.push("/academic/agenda")}
               className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-300"
             >
               Back to studio

@@ -5,8 +5,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(
   request: Request,
-  { params }: { params: { paperId: string } }
+  { params }: { params: Promise<{ paperId: string }> }
 ) {
+  const { paperId } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -21,7 +22,7 @@ export async function POST(
   const { data: paper, error: paperError } = await supabase
     .from("academic_papers")
     .select("id")
-    .eq("id", params.paperId)
+    .eq("id", paperId)
     .eq("user_id", userId)
     .single();
 
@@ -36,7 +37,8 @@ export async function POST(
     .from("emergency_skips")
     .select("id")
     .eq("user_id", userId)
-    .eq("month", currentMonth);
+    .eq("month", currentMonth)
+    .eq("feature", "paper");
 
   if (skipError) {
     return NextResponse.json(
@@ -53,13 +55,14 @@ export async function POST(
   }
 
   const { error: insertError } = await supabase
-    .from("emergency_skips")
-    .insert({
-      user_id: userId,
-      paper_id: params.paperId,
-      month: currentMonth,
-      skipped_at: new Date().toISOString(),
-    });
+      .from("emergency_skips")
+      .insert({
+        user_id: userId,
+        paper_id: paperId,
+        month: currentMonth,
+        feature: "paper",
+        skipped_at: new Date().toISOString(),
+      });
 
   if (insertError) {
     return NextResponse.json(
@@ -75,7 +78,7 @@ export async function POST(
       checkpoint_passed: false,
       completed_at: new Date().toISOString(),
     })
-    .eq("id", params.paperId)
+    .eq("id", paperId)
     .eq("user_id", userId);
 
   if (updateError) {

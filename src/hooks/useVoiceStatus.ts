@@ -2,6 +2,7 @@
 // Hook for fetching Mirror Mode voice status and profile (NO STALE CACHE)
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { translateSystemError } from "@/lib/mirror/voiceProfileStatus";
 
 export type VoiceHighlight = {
   label: string;
@@ -97,6 +98,50 @@ export type VoiceStatus = {
       updatedAt: string | null;
     } | null;
   } | null;
+  chamberStatuses?: {
+    career: {
+      state: "empty" | "learning" | "ready" | "strong";
+      displayLabel: string;
+      documentCount: number;
+      confidenceScore: number;
+      nextMilestone: string;
+      progressToNext: number;
+    };
+    academic: {
+      state: "empty" | "learning" | "ready" | "strong";
+      displayLabel: string;
+      documentCount: number;
+      confidenceScore: number;
+      nextMilestone: string;
+      progressToNext: number;
+    };
+    creative: {
+      state: "empty" | "learning" | "ready" | "strong";
+      displayLabel: string;
+      documentCount: number;
+      confidenceScore: number;
+      nextMilestone: string;
+      progressToNext: number;
+    };
+    general: {
+      state: "empty" | "learning" | "ready" | "strong";
+      displayLabel: string;
+      documentCount: number;
+      confidenceScore: number;
+      nextMilestone: string;
+      progressToNext: number;
+    };
+  };
+  preferences?: {
+    isFirstMirrorModeVisit: boolean;
+    quickstartSamplesCount: number;
+    roadmapDismissedByChamber?: {
+      career?: boolean;
+      academic?: boolean;
+      creative?: boolean;
+      general?: boolean;
+    } | null;
+  };
   chamberWarnings?: Array<{
     chamber: string;
     message: string;
@@ -181,10 +226,10 @@ export function useVoiceStatus() {
       );
 
       if (data?.success) setStatus(data);
-      else setError((data as any)?.error || "Failed to fetch voice status");
+      else setError(translateSystemError((data as any)?.error || "UNKNOWN"));
     } catch (err: any) {
       if (err?.name === "AbortError") return;
-      setError(err?.message || "Network error");
+      setError(translateSystemError(err?.message || "UNKNOWN"));
     } finally {
       setLoading(false);
     }
@@ -224,10 +269,10 @@ export function useVoiceProfile() {
       );
 
       if (data?.success) setProfile(data);
-      else setError((data as any)?.error || "Failed to fetch voice profile");
+      else setError(translateSystemError((data as any)?.error || "UNKNOWN"));
     } catch (err: any) {
       if (err?.name === "AbortError") return;
-      setError(err?.message || "Network error");
+      setError(translateSystemError(err?.message || "UNKNOWN"));
     } finally {
       setLoading(false);
     }

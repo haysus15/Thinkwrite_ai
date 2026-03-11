@@ -115,7 +115,7 @@ useEffect(() => {
     loadStrategyData();
   }, [resumeId, jobId]);
 
-  const { messages, isTyping, sendMessage } = useLexConversation({
+  const { messages, isTyping, sendMessage, setMessages } = useLexConversation({
     sessionType: "resume-tailoring",
     welcomeMessage: WELCOME_MESSAGE,
     resumeContext,

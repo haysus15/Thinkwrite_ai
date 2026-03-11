@@ -9,8 +9,11 @@ type SyllabusRow = {
   uploaded_at: string | null;
   reviewed_at: string | null;
   confirmed: boolean | null;
+  parse_confidence: number | null;
   parsed_data: {
     assignments?: unknown[];
+    term?: string;
+    section?: string;
   } | null;
 };
 
@@ -28,7 +31,7 @@ export async function GET() {
   const { data: syllabiData, error: syllabiError } = await supabase
     .from("syllabi")
     .select(
-      "id, class_name, status, uploaded_at, reviewed_at, confirmed, parsed_data"
+      "id, class_name, status, uploaded_at, reviewed_at, confirmed, parse_confidence, parsed_data"
     )
     .eq("user_id", userId)
     .order("uploaded_at", { ascending: false });
@@ -122,6 +125,15 @@ export async function GET() {
       uploaded_at: row.uploaded_at,
       reviewed_at: row.reviewed_at,
       confirmed: Boolean(row.confirmed),
+      parse_confidence: row.parse_confidence,
+      term:
+        typeof row.parsed_data?.term === "string"
+          ? row.parsed_data.term
+          : null,
+      section:
+        typeof row.parsed_data?.section === "string"
+          ? row.parsed_data.section
+          : null,
       counts: {
         drafts,
         assignments,

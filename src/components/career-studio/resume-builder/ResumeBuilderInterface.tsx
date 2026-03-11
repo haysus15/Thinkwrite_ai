@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import BlendConsentModal from "@/components/mirror-mode/BlendConsentModal";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   FileText,
   User,
@@ -121,6 +121,7 @@ export default function ResumeBuilderInterface({
 }: ResumeBuilderInterfaceProps) {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   const [resume, setResume] = useState<ResumeBuilderData>(
     createEmptyResume(user?.id || "")
@@ -133,6 +134,7 @@ export default function ResumeBuilderInterface({
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [voiceUpdateNotice, setVoiceUpdateNotice] = useState<string | null>(null);
   const [guardrails, setGuardrails] = useState<{
     sufficientData: boolean;
     warnings: string[];
@@ -195,6 +197,7 @@ export default function ResumeBuilderInterface({
 
     setIsSaving(true);
     setSaveError(null);
+    setVoiceUpdateNotice(null);
 
     try {
       const method = resume.id ? "PUT" : "POST";
@@ -215,6 +218,11 @@ export default function ResumeBuilderInterface({
           setResume((prev) => ({ ...prev, id: data.resume.id }));
         }
         setLastSaved(new Date());
+        setVoiceUpdateNotice(
+          data?.mirror?.captured
+            ? "Mirror Mode updated from your latest resume edits."
+            : null
+        );
       } else {
         setSaveError(data.error || "Failed to save");
       }
@@ -402,7 +410,6 @@ export default function ResumeBuilderInterface({
           }),
         });
         const data = await response.json();
-        if (!active) return;
         if (data?.warnings && data?.sufficient_data !== undefined) {
           setGuardrails({
             sufficientData: Boolean(data.sufficient_data),
@@ -624,6 +631,11 @@ export default function ResumeBuilderInterface({
               <p className="mt-2 text-[10px] text-red-400 flex items-center gap-1">
                 <AlertCircle className="w-3 h-3" />
                 {saveError}
+              </p>
+            )}
+            {voiceUpdateNotice && (
+              <p className="mt-2 text-[10px] text-emerald-300">
+                {voiceUpdateNotice}
               </p>
             )}
           </div>

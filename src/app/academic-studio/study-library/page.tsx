@@ -1,6 +1,7 @@
-// src/app/academic-studio/study-library/page.tsx
+// Legacy route retained for backwards compatibility.
+// Canonical route: /academic/study-hub?tab=library
 import { redirect } from "next/navigation";
 
 export default function StudyLibraryPage() {
-  redirect("/academic-studio/dashboard?workspace=study-library");
+  redirect("/academic/study-hub?tab=library");
 }

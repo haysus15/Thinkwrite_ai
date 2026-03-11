@@ -13,6 +13,12 @@ import {
   getConfidenceLabel,
   type VoiceProfile
 } from '@/lib/mirror-mode/voiceAggregation';
+import {
+  SOURCE_AUTHORITY,
+  isProfileEligible,
+  type SourceAuthority,
+} from '@/lib/mirror-mode/sourceAuthority';
+import { shouldIngestForProfile } from '@/lib/mirror-mode/ingestionPolicy';
 
 export const runtime = 'nodejs';
 
@@ -39,6 +45,17 @@ export async function POST(req: NextRequest) {
     const supabase = await createSupabaseServerClient();
     const body = await req.json();
     const { documentId, text } = body;
+    const rawSourceAuthority = String(body?.sourceAuthority || '').trim();
+    const sourceAuthority: SourceAuthority =
+      rawSourceAuthority === SOURCE_AUTHORITY.USER_TYPED ||
+      rawSourceAuthority === SOURCE_AUTHORITY.USER_UPLOADED ||
+      rawSourceAuthority === SOURCE_AUTHORITY.USER_QUICKSTART ||
+      rawSourceAuthority === SOURCE_AUTHORITY.AI_GENERATED_ACCEPTED ||
+      rawSourceAuthority === SOURCE_AUTHORITY.AI_GENERATED_REJECTED ||
+      rawSourceAuthority === SOURCE_AUTHORITY.EXTENSION_CAPTURED ||
+      rawSourceAuthority === SOURCE_AUTHORITY.UNKNOWN
+        ? rawSourceAuthority
+        : SOURCE_AUTHORITY.UNKNOWN;
 
     if (!documentId && !text) {
       return Errors.validationError('Either documentId or text is required');
@@ -47,6 +64,7 @@ export async function POST(req: NextRequest) {
     // ---- GET DOCUMENT TEXT ----
     let extractedText: string;
     let writingType: string = 'general';
+    let resolvedSourceAuthority: SourceAuthority = sourceAuthority;
 
     if (text) {
       // Direct text input (for testing)
@@ -75,22 +93,53 @@ export async function POST(req: NextRequest) {
       // Fetch writing type for chamber mapping
       const { data: docRow } = await supabase
         .from('mirror_documents')
-        .select('writing_type')
+        .select('writing_type, source_authority, excluded_from_profile')
         .eq('id', documentId)
         .maybeSingle();
       writingType = docRow?.writing_type || 'general';
+      if (docRow?.source_authority) {
+        resolvedSourceAuthority = docRow.source_authority as SourceAuthority;
+      } else {
+        resolvedSourceAuthority = SOURCE_AUTHORITY.USER_UPLOADED;
+      }
+      if (docRow?.excluded_from_profile === true || !isProfileEligible(resolvedSourceAuthority)) {
+        return NextResponse.json(
+          {
+            success: true,
+            learned: false,
+            skipped: true,
+            reason: `Source excluded from profile: ${resolvedSourceAuthority}`,
+          },
+          { status: 200 }
+        );
+      }
+    }
+    if (!documentId && !isProfileEligible(resolvedSourceAuthority)) {
+      return NextResponse.json(
+        {
+          success: true,
+          learned: false,
+          skipped: true,
+          reason: `Source excluded from profile: ${resolvedSourceAuthority}`,
+        },
+        { status: 200 }
+      );
     }
 
-    // ---- MINIMUM TEXT CHECK ----
     const wordCount = extractedText.trim().split(/\s+/).filter(Boolean).length;
-    if (wordCount < 50) {
+    const ingestionDecision = shouldIngestForProfile(
+      wordCount,
+      resolvedSourceAuthority
+    );
+    if (!ingestionDecision.eligible) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: 'Document too short for voice learning',
-          details: `Minimum 50 words required, got ${wordCount}` 
+        {
+          success: true,
+          learned: false,
+          skipped: true,
+          reason: ingestionDecision.reason,
         },
-        { status: 400 }
+        { status: 200 }
       );
     }
 
@@ -165,7 +214,7 @@ export async function POST(req: NextRequest) {
     try {
       const chamber = mapWritingTypeToChamber(writingType);
       const { data: existingChamberRow } = await supabase
-        .from('voice_profiles_chambers')
+        .from('voice_chambers')
         .select('*')
         .eq('user_id', userId)
         .eq('chamber', chamber)
@@ -193,7 +242,7 @@ export async function POST(req: NextRequest) {
       updatedChamberProfile.userId = userId;
 
       await supabase
-        .from('voice_profiles_chambers')
+        .from('voice_chambers')
         .upsert({
           user_id: userId,
           chamber,
@@ -207,7 +256,7 @@ export async function POST(req: NextRequest) {
         }, { onConflict: 'user_id,chamber' });
 
       await supabase
-        .from('voice_profiles_chambers')
+        .from('voice_chambers')
         .upsert({
           user_id: userId,
           chamber: 'overall',
@@ -229,7 +278,11 @@ export async function POST(req: NextRequest) {
     if (documentId) {
       await supabase
         .from('mirror_documents')
-        .update({ learned_at: new Date().toISOString() })
+        .update({
+          learned_at: new Date().toISOString(),
+          source_authority: resolvedSourceAuthority,
+          excluded_from_profile: !isProfileEligible(resolvedSourceAuthority),
+        })
         .eq('id', documentId);
     }
 

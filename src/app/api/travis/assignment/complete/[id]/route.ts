@@ -4,7 +4,7 @@ import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function PUT(
-  request: Request,
+  _request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   const params = await context.params;
@@ -17,11 +17,13 @@ export async function PUT(
   }
 
   const supabase = await createSupabaseServerClient();
+  const completedAt = new Date().toISOString();
   const { error: updateError } = await supabase
     .from("assignments")
     .update({
       completed: true,
-      updated_at: new Date().toISOString(),
+      status: "completed",
+      updated_at: completedAt,
       updated_by: userId,
     })
     .eq("id", params.id)
@@ -33,6 +35,28 @@ export async function PUT(
       { success: false, error: updateError.message },
       { status: 500 }
     );
+  }
+
+  await supabase
+    .from("assignment_tasks")
+    .update({
+      status: "complete",
+      completed_at: completedAt,
+    })
+    .eq("assignment_id", params.id)
+    .eq("user_id", userId)
+    .neq("status", "complete");
+
+  try {
+    await supabase.from("assignment_change_log").insert({
+      assignment_id: params.id,
+      user_id: userId,
+      change_type: "status_update",
+      old_data: null,
+      new_data: { status: "completed", completed: true },
+    });
+  } catch {
+    // Non-blocking best-effort audit write.
   }
 
   return NextResponse.json({ success: true }, { status: 200 });

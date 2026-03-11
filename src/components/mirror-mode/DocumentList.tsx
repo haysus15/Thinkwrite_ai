@@ -1,5 +1,5 @@
 // DocumentList.tsx
-// Displays uploaded documents with delete capability for managing voice training samples
+// Displays uploaded documents with hide capability for managing voice training samples
 'use client';
 
 import { useState } from 'react';
@@ -31,11 +31,11 @@ export default function DocumentList({
   showHeader = true,
 }: DocumentListProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmHide, setConfirmHide] = useState<string | null>(null);
 
-  const handleDelete = async (docId: string) => {
-    if (confirmDelete !== docId) {
-      setConfirmDelete(docId);
+  const handleHide = async (docId: string) => {
+    if (confirmHide !== docId) {
+      setConfirmHide(docId);
       return;
     }
 
@@ -43,10 +43,10 @@ export default function DocumentList({
     try {
       await onDelete(docId);
     } catch (error) {
-      console.error('Failed to delete document:', error);
+      console.error('Failed to hide document:', error);
     } finally {
       setDeletingId(null);
-      setConfirmDelete(null);
+      setConfirmHide(null);
     }
   };
 
@@ -249,10 +249,10 @@ export default function DocumentList({
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            {confirmDelete === doc.id ? (
+            {confirmHide === doc.id ? (
               <>
                 <button
-                  onClick={() => setConfirmDelete(null)}
+                  onClick={() => setConfirmHide(null)}
                   style={{
                     padding: '0.5rem 0.75rem',
                     background: 'rgba(255, 255, 255, 0.05)',
@@ -266,7 +266,7 @@ export default function DocumentList({
                   Cancel
                 </button>
                 <button
-                  onClick={() => handleDelete(doc.id)}
+                  onClick={() => handleHide(doc.id)}
                   disabled={deletingId === doc.id}
                   style={{
                     padding: '0.5rem 0.75rem',
@@ -279,12 +279,12 @@ export default function DocumentList({
                     fontWeight: 500,
                   }}
                 >
-                  {deletingId === doc.id ? 'Deleting...' : 'Confirm'}
+                  {deletingId === doc.id ? 'Hiding...' : 'Confirm'}
                 </button>
               </>
             ) : (
               <button
-                onClick={() => handleDelete(doc.id)}
+                onClick={() => handleHide(doc.id)}
                 style={{
                   padding: '0.5rem',
                   background: 'transparent',
@@ -305,7 +305,7 @@ export default function DocumentList({
                   e.currentTarget.style.color = 'rgba(240, 240, 245, 0.4)';
                   e.currentTarget.style.background = 'transparent';
                 }}
-                title="Delete document"
+                title="Hide document"
               >
                 <svg
                   width="18"

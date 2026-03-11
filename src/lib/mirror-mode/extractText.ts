@@ -53,7 +53,7 @@ function extractTextOperators(content: string): string[] {
   }
 
   // [ (...) ... ] TJ
-  const tjArray = /\[(.*?)\]\s*TJ/gs;
+  const tjArray = /\[([\s\S]*?)\]\s*TJ/g;
   for (const block of content.matchAll(tjArray)) {
     const inner = block[1] || "";
     const literals = inner.match(/\((?:\\.|[^\\)])*\)/g) || [];
@@ -84,12 +84,12 @@ async function extractPdfTextFallback(buffer: Buffer): Promise<string> {
 
     const decodedCandidates: string[] = [raw];
     try {
-      decodedCandidates.push(inflateSync(rawBuf).toString("latin1"));
+      decodedCandidates.push(inflateSync(new Uint8Array(rawBuf)).toString("latin1"));
     } catch {
       // Not inflate/flate stream
     }
     try {
-      decodedCandidates.push(inflateRawSync(rawBuf).toString("latin1"));
+      decodedCandidates.push(inflateRawSync(new Uint8Array(rawBuf)).toString("latin1"));
     } catch {
       // Not raw inflate stream
     }

@@ -1,61 +1,37 @@
 // src/app/api/academic/paper/generate/route.ts
+// Canonical table: voice_chambers. `voice_profiles_chambers` was a legacy alias removed in Sprint A.
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { VoiceProfileService } from "@/services/voice-profile/VoiceProfileService";
+import { validatePaper } from "@/lib/academic/contentQualityGuard";
+import { logEvent } from "@/lib/telemetry/logEvent";
 
 export const runtime = "nodejs";
 
 const MIN_VOICE_CONFIDENCE = 50;
+const MIN_ACADEMIC_CHAMBER_CONFIDENCE = 30;
 
 function getClaudeApiKey() {
   return process.env.CLAUDE_API_KEY || null;
 }
 
-function countWords(text: string) {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-function countCitations(text: string) {
-  const parenMatches = text.match(/\([^)]*\d{4}[^)]*\)/g) || [];
-  const bracketMatches = text.match(/\[\d+\]/g) || [];
-  return Math.max(parenMatches.length, bracketMatches.length);
-}
-
-function verifyRequirements(
-  content: string,
-  requirements: {
-    wordCount?: number;
-    minSources?: number;
-    requiredSections?: string[];
+function extractAnthropicText(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  for (const block of content) {
+    if (
+      block &&
+      typeof block === "object" &&
+      "type" in block &&
+      (block as { type?: string }).type === "text" &&
+      "text" in block &&
+      typeof (block as { text?: unknown }).text === "string"
+    ) {
+      return (block as { text: string }).text;
+    }
   }
-) {
-  const missing: string[] = [];
-  const wordCount = countWords(content);
-  const citationCount = countCitations(content);
-
-  if (requirements.wordCount && wordCount < requirements.wordCount) {
-    missing.push(`Minimum word count: ${requirements.wordCount}`);
-  }
-  if (requirements.minSources && citationCount < requirements.minSources) {
-    missing.push(`Minimum sources: ${requirements.minSources}`);
-  }
-  if (requirements.requiredSections?.length) {
-    const lowerContent = content.toLowerCase();
-    requirements.requiredSections.forEach((section) => {
-      if (!lowerContent.includes(section.toLowerCase())) {
-        missing.push(`Missing section: ${section}`);
-      }
-    });
-  }
-
-  return {
-    passed: missing.length === 0,
-    missing,
-    wordCount,
-    citationCount,
-  };
+  return "";
 }
 
 export async function POST(request: NextRequest) {
@@ -70,6 +46,13 @@ export async function POST(request: NextRequest) {
   const body = await request.json();
   const outlineId =
     typeof body?.outlineId === "string" ? body.outlineId : null;
+  const paperId = typeof body?.paperId === "string" ? body.paperId : null;
+  const assignmentSetId =
+    typeof body?.assignmentSetId === "string" ? body.assignmentSetId : null;
+  const setOrder =
+    body?.setOrder == null || Number.isNaN(Number(body.setOrder))
+      ? null
+      : Number(body.setOrder);
   const requirements = body?.requirements || {};
   const assignmentId =
     typeof requirements?.assignmentId === "string"
@@ -96,6 +79,102 @@ export async function POST(request: NextRequest) {
       { success: false, error: "Outline not found." },
       { status: 404 }
     );
+  }
+
+  const outlineStructure =
+    outline.outline_structure && typeof outline.outline_structure === "object"
+      ? (outline.outline_structure as {
+          sections?: Array<{
+            id?: string;
+            title?: string;
+            main_points?: string[];
+            sources?: Array<{
+              id?: string;
+              title?: string;
+              author?: string | null;
+              publication?: string | null;
+              year?: number | null;
+              notes?: string | null;
+              relevanceLevel?: "strong" | "partial" | "weak" | "unrelated" | null;
+              relevanceExplanation?: string | null;
+            }>;
+          }>;
+        })
+      : null;
+  const sourceRequirements =
+    outline.source_requirements && typeof outline.source_requirements === "object"
+      ? (outline.source_requirements as {
+          sourcesRequired?: boolean;
+          minimumCount?: number | null;
+          sourceTypes?: string[];
+          citationFormat?: string | null;
+        })
+      : null;
+  const sections = Array.isArray(outlineStructure?.sections)
+    ? outlineStructure.sections
+    : [];
+  const sectionConfidence =
+    outline.section_confidence && typeof outline.section_confidence === "object"
+      ? (outline.section_confidence as Record<string, "solid" | "somewhat_clear" | "unsure">)
+      : {};
+  const unsureSectionTitles = sections
+    .filter((section) => {
+      const sectionId = typeof section?.id === "string" ? section.id : "";
+      return sectionId && sectionConfidence[sectionId] === "unsure";
+    })
+    .map((section) =>
+      typeof section?.title === "string" && section.title.trim()
+        ? section.title.trim()
+        : "Untitled section"
+    );
+  const allSources = sections.flatMap((section) =>
+    Array.isArray(section?.sources) ? section.sources : []
+  );
+  if (sourceRequirements?.sourcesRequired) {
+    const minCount =
+      typeof sourceRequirements.minimumCount === "number"
+        ? sourceRequirements.minimumCount
+        : null;
+    if (typeof minCount === "number" && allSources.length < minCount) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Source check failed. Required ${minCount} sources but found ${allSources.length}.`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const missingBySection = sections.some((section) => {
+      const hasClaim =
+        Array.isArray(section?.main_points) &&
+        section.main_points.filter((point) => String(point || "").trim()).length > 0;
+      const sources = Array.isArray(section?.sources) ? section.sources : [];
+      return hasClaim && sources.length === 0;
+    });
+    if (missingBySection) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Source check failed. Every section with claims must have at least one source.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const unrelatedCount = allSources.filter(
+      (source) => source?.relevanceLevel === "unrelated"
+    ).length;
+    if (unrelatedCount > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Source check failed. ${unrelatedCount} source(s) are marked unrelated.`,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   let assignmentRequirements: {
@@ -129,29 +208,16 @@ export async function POST(request: NextRequest) {
     };
   }
 
-  const voiceContext = await VoiceProfileService.getGenerationContext(
-    userId,
-    "academic"
-  );
+  const voiceContext = await VoiceProfileService.getGenerationContext(userId, "academic");
+  const { data: academicChamber } = await supabase
+    .from("voice_chambers")
+    .select("aggregate_fingerprint, confidence_level")
+    .eq("user_id", userId)
+    .eq("chamber", "academic")
+    .maybeSingle();
 
-  if (voiceContext.readiness.score < MIN_VOICE_CONFIDENCE) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Mirror Mode has not learned enough of your voice yet. Upload more writing samples to continue.",
-        redirectTo: "/mirror-mode",
-        confidence: voiceContext.readiness.score,
-        guardrails: {
-          sufficientData: voiceContext.gatekeeper?.sufficientData ?? true,
-          warnings: voiceContext.gatekeeper?.warnings || [],
-          counts: voiceContext.gatekeeper?.counts || null,
-          thresholds: voiceContext.gatekeeper?.thresholds || null,
-        },
-      },
-      { status: 400 }
-    );
-  }
+  const chamberConfidence = Number(academicChamber?.confidence_level || 0);
+  const applyVoiceConstraints = chamberConfidence >= MIN_ACADEMIC_CHAMBER_CONFIDENCE;
 
   const apiKey = getClaudeApiKey();
   if (!apiKey) {
@@ -174,10 +240,37 @@ export async function POST(request: NextRequest) {
     requiredSections:
       assignmentRequirements.requiredSections ?? requirements.requiredSections,
   };
+  const voiceConstraintSection = applyVoiceConstraints
+    ? `${voiceContext.promptInjection}
+
+ACADEMIC VOICE FINGERPRINT:
+${academicChamber?.aggregate_fingerprint || "Unavailable"}`
+    : "No strict voice profile constraints for this generation pass.";
+  const sourceContextSection = `
+SOURCE REQUIREMENTS:
+${JSON.stringify(sourceRequirements || {}, null, 2)}
+
+SECTION SOURCES:
+${JSON.stringify(
+    sections.map((section) => ({
+      id: section.id || null,
+      title: section.title || null,
+      main_points: section.main_points || [],
+      sources: section.sources || [],
+    })),
+    null,
+    2
+  )}
+`;
 
   const systemPrompt = `You are generating an academic paper in the student's authentic voice.
 
-${voiceContext.promptInjection}
+${voiceConstraintSection}
+
+${sourceContextSection}
+
+UNSURE SECTIONS TO TREAT WITH EXTRA INSTRUCTIONAL CARE:
+${unsureSectionTitles.length > 0 ? unsureSectionTitles.join(", ") : "None flagged"}
 
 OUTLINE:
 ${JSON.stringify(outline.outline_structure, null, 2)}
@@ -207,7 +300,7 @@ CRITICAL INSTRUCTIONS:
     ],
   });
 
-  const content = response.content?.[0]?.text || "";
+  const content = extractAnthropicText(response.content);
   if (!content.trim()) {
     return NextResponse.json(
       { success: false, error: "Generation failed." },
@@ -215,8 +308,20 @@ CRITICAL INSTRUCTIONS:
     );
   }
 
-  const requirementCheck = verifyRequirements(content, resolvedRequirements);
+  const requirementCheck = validatePaper(content, resolvedRequirements);
   if (!requirementCheck.passed) {
+    void logEvent({
+      userId,
+      eventType: "paper_requirements_failed",
+      workspace: "paper_workflow",
+      severity: "warn",
+      payload: {
+        outlineId,
+        assignmentId,
+        missing: requirementCheck.missing,
+        score: requirementCheck.score,
+      },
+    });
     return NextResponse.json(
       {
         success: false,
@@ -228,28 +333,66 @@ CRITICAL INSTRUCTIONS:
     );
   }
 
-  const { data: paper, error: insertError } = await supabase
-    .from("academic_papers")
-    .insert({
-      user_id: userId,
-      outline_id: outlineId,
-      assignment_id: assignmentId,
-      topic: outline.topic,
-      paper_content: content,
-      citation_style: resolvedRequirements.citationStyle || null,
-      citation_count: requirementCheck.citationCount,
-      word_count: requirementCheck.wordCount,
-      checkpoint_passed: false,
-      emergency_skip_used: false,
-    })
-    .select("id")
-    .single();
+  let persistedPaperId = paperId;
+  if (paperId) {
+    const { data: updatedPaper, error: updateError } = await supabase
+      .from("academic_papers")
+      .update({
+        outline_id: outlineId,
+        assignment_id: assignmentId,
+        assignment_set_id: assignmentSetId,
+        set_order: setOrder,
+        topic: outline.topic,
+        paper_content: content,
+        citation_style: resolvedRequirements.citationStyle || null,
+        citation_count: requirementCheck.citationCount,
+        word_count: requirementCheck.wordCount,
+        checkpoint_passed: false,
+        emergency_skip_used: false,
+        is_complete: false,
+        workflow_step: "checkpoint",
+        workflow_step_updated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", paperId)
+      .eq("user_id", userId)
+      .select("id")
+      .single();
+    if (updateError || !updatedPaper) {
+      return NextResponse.json(
+        { success: false, error: updateError?.message || "Save failed." },
+        { status: 500 }
+      );
+    }
+    persistedPaperId = String(updatedPaper.id);
+  } else {
+    const { data: insertedPaper, error: insertError } = await supabase
+      .from("academic_papers")
+      .insert({
+        user_id: userId,
+        outline_id: outlineId,
+        assignment_id: assignmentId,
+        assignment_set_id: assignmentSetId,
+        set_order: setOrder,
+        topic: outline.topic,
+        paper_content: content,
+        citation_style: resolvedRequirements.citationStyle || null,
+        citation_count: requirementCheck.citationCount,
+        word_count: requirementCheck.wordCount,
+        checkpoint_passed: false,
+        emergency_skip_used: false,
+        is_complete: false,
+      })
+      .select("id")
+      .single();
 
-  if (insertError || !paper) {
-    return NextResponse.json(
-      { success: false, error: insertError?.message || "Save failed." },
-      { status: 500 }
-    );
+    if (insertError || !insertedPaper) {
+      return NextResponse.json(
+        { success: false, error: insertError?.message || "Save failed." },
+        { status: 500 }
+      );
+    }
+    persistedPaperId = String(insertedPaper.id);
   }
 
   // Mirror Mode: Do NOT learn from AI-generated output (spec compliant)
@@ -257,7 +400,7 @@ CRITICAL INSTRUCTIONS:
   return NextResponse.json(
     {
       success: true,
-      paperId: paper.id,
+      paperId: persistedPaperId,
       content,
       wordCount: requirementCheck.wordCount,
       citationCount: requirementCheck.citationCount,
@@ -267,6 +410,15 @@ CRITICAL INSTRUCTIONS:
         warnings: voiceContext.gatekeeper?.warnings || [],
         counts: voiceContext.gatekeeper?.counts || null,
         thresholds: voiceContext.gatekeeper?.thresholds || null,
+      },
+      voiceProfile: {
+        applied: applyVoiceConstraints,
+        confidence: chamberConfidence,
+        minimumConfidence: MIN_ACADEMIC_CHAMBER_CONFIDENCE,
+        warning:
+          applyVoiceConstraints || chamberConfidence >= MIN_VOICE_CONFIDENCE
+            ? null
+            : "Add more academic writing samples in Mirror Mode to improve style matching.",
       },
     },
     { status: 200 }

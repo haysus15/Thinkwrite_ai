@@ -1,7 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap');
+@import "katex/dist/katex.min.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-@import "katex/dist/katex.min.css";
 
 /* ============================================================
    Landing Page: Dark Futuristic Theme
@@ -42,10 +44,6 @@
     background-color: transparent !important;
   }
 }
-
-/* Cybertruck-style geometric font */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap');
 
 /* ============================================================
    MirrorMode: Haunted Lab + Alive Orb (hydration-safe)
@@ -492,6 +490,45 @@ math-field::part(content) {
   filter: drop-shadow(0 0 22px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 36px rgba(255, 255, 255, 0.9));
 }
 
+.stars-twinkle,
+.stars-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.stars-twinkle {
+  z-index: 1;
+  background-image:
+    radial-gradient(1.1px 1.1px at 12% 18%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.3px 1.3px at 26% 42%, rgba(255,255,255,0.85) 0%, transparent 100%),
+    radial-gradient(1px 1px at 34% 26%, rgba(255,255,255,0.95) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 48% 38%, rgba(255,255,255,0.88) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 62% 22%, rgba(255,255,255,0.92) 0%, transparent 100%),
+    radial-gradient(1.1px 1.1px at 74% 44%, rgba(255,255,255,0.86) 0%, transparent 100%),
+    radial-gradient(1.5px 1.5px at 84% 30%, rgba(255,255,255,0.95) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 92% 54%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.1px 1.1px at 16% 72%, rgba(255,255,255,0.9) 0%, transparent 100%),
+    radial-gradient(1.4px 1.4px at 38% 66%, rgba(255,255,255,0.87) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 56% 78%, rgba(255,255,255,0.92) 0%, transparent 100%),
+    radial-gradient(1px 1px at 78% 70%, rgba(255,255,255,0.9) 0%, transparent 100%);
+  animation: academicStarTwinkle 6.5s ease-in-out infinite alternate;
+}
+
+.stars-glow {
+  z-index: 1;
+  background-image:
+    radial-gradient(4px 4px at 22% 30%, rgba(191,219,254,0.16) 0%, transparent 100%),
+    radial-gradient(5px 5px at 46% 22%, rgba(255,255,255,0.14) 0%, transparent 100%),
+    radial-gradient(4px 4px at 68% 34%, rgba(191,219,254,0.15) 0%, transparent 100%),
+    radial-gradient(5px 5px at 82% 20%, rgba(219,234,254,0.13) 0%, transparent 100%),
+    radial-gradient(4px 4px at 30% 68%, rgba(191,219,254,0.14) 0%, transparent 100%),
+    radial-gradient(5px 5px at 58% 74%, rgba(255,255,255,0.12) 0%, transparent 100%);
+  mix-blend-mode: screen;
+  filter: blur(0.35px);
+  animation: academicStarSparkle 8s ease-in-out infinite alternate;
+}
+
 /* Generate subtle star field with radial gradients */
 /* Single-layer stars only */
 .academic-particles-layer::before,
@@ -653,18 +690,19 @@ math-field::part(content) {
 }
 
 @keyframes academicStarTwinkle {
-  0% { opacity: 0.7; }
-  100% { opacity: 1; }
+  0% { opacity: 0.42; filter: brightness(0.9); }
+  50% { opacity: 0.72; filter: brightness(1.1); }
+  100% { opacity: 1; filter: brightness(1.25); }
 }
 
 @keyframes academicStarSparkle {
   0% {
-    opacity: 0.85;
-    filter: drop-shadow(0 0 34px rgba(255, 255, 255, 0.9)) drop-shadow(0 0 56px rgba(147, 197, 253, 0.9)) drop-shadow(0 0 80px rgba(59, 130, 246, 0.7));
+    opacity: 0.5;
+    filter: drop-shadow(0 0 12px rgba(255, 255, 255, 0.5)) drop-shadow(0 0 20px rgba(147, 197, 253, 0.45));
   }
   100% {
-    opacity: 1;
-    filter: drop-shadow(0 0 54px rgba(255, 255, 255, 1)) drop-shadow(0 0 92px rgba(147, 197, 253, 1)) drop-shadow(0 0 130px rgba(59, 130, 246, 0.85));
+    opacity: 0.8;
+    filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 30px rgba(147, 197, 253, 0.6));
   }
 }
 

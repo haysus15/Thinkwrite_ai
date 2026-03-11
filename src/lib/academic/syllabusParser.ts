@@ -489,27 +489,6 @@ export function parseSyllabusAssignments(text: string): ParsedSyllabus {
   };
 }
 
-function isGenericCategoryName(name: string) {
-  const normalized = normalizeKey(name);
-  return (
-    normalized === "assignments" ||
-    normalized === "discussions" ||
-    normalized === "discussion posts" ||
-    normalized === "course participation" ||
-    normalized === "zybooks participation activities" ||
-    normalized === "zybooks lab activities"
-  );
-}
-
-function scopeGenericTitleToModule(
-  title: string,
-  moduleNumber: number | null
-): string {
-  if (!moduleNumber) return title;
-  if (!isGenericCategoryName(title)) return title;
-  return `Module ${moduleNumber}: ${title}`;
-}
-
 export function mergeWithLlmAssignments(
   baseAssignments: ParsedAssignment[],
   llmAssignments: ParsedAssignment[]

@@ -62,6 +62,18 @@ export async function PUT(
   if (body?.outline) {
     updates.outline_structure = body.outline;
   }
+  if (body?.conversationHistory && Array.isArray(body.conversationHistory)) {
+    updates.conversation_history = body.conversationHistory;
+  }
+  if (body?.studentDeclaration && typeof body.studentDeclaration === "object") {
+    updates.student_declaration = body.studentDeclaration;
+  }
+  if (body?.sectionConfidence && typeof body.sectionConfidence === "object") {
+    updates.section_confidence = body.sectionConfidence;
+  }
+  if (body?.sourceRequirements && typeof body.sourceRequirements === "object") {
+    updates.source_requirements = body.sourceRequirements;
+  }
 
   if (!Object.keys(updates).length) {
     return NextResponse.json(

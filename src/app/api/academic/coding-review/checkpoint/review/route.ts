@@ -3,11 +3,24 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { learnFromTextDirect } from "@/lib/mirror-mode/liveLearning";
+import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
 
 export const runtime = "nodejs";
 
 function getClaudeApiKey() {
   return process.env.CLAUDE_API_KEY || null;
+}
+
+function readFirstText(content: unknown): string {
+  if (!Array.isArray(content) || content.length === 0) return "";
+  const first = content[0];
+  if (first && typeof first === "object" && "type" in first) {
+    const block = first as { type?: string; text?: unknown };
+    if (block.type === "text" && typeof block.text === "string") {
+      return block.text;
+    }
+  }
+  return "";
 }
 
 export async function POST(request: Request) {
@@ -78,7 +91,7 @@ Return JSON only.`;
     messages: [{ role: "user", content: userContent }],
   });
 
-  const text = response.content?.[0]?.text || "";
+  const text = readFirstText(response.content);
   let parsed: { pass: boolean; feedback: string } | null = null;
   try {
     parsed = JSON.parse(text);
@@ -141,13 +154,15 @@ Return JSON only.`;
   }
 
   // Mirror Mode capture: only on pass
+  let mirrorLearning: { learned: boolean; error?: string } | null = null;
   if (pass) {
     const combinedText = `${explain}\n\n${modify}`.trim();
     if (combinedText) {
-      await learnFromTextDirect({
+      mirrorLearning = await learnFromTextDirect({
         userId,
         text: combinedText,
         source: "coding-review",
+        sourceAuthority: SOURCE_AUTHORITY.USER_TYPED,
         metadata: {
           context: "coding_checkpoint",
           writingType: "academic",
@@ -164,6 +179,7 @@ Return JSON only.`;
       feedback,
       submission_id: submission.id,
       review_id: review.id,
+      mirror: mirrorLearning,
     },
     { status: 200 }
   );

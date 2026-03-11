@@ -36,17 +36,16 @@ export default function ConsentPlaywrightHarness() {
       </div>
 
       {showBlendModal ? (
-        <div data-testid="blend-consent-modal">
-          <BlendConsentModal
-            fromChambers={["creative", "general"]}
-            toChamber="career"
-            onClose={() => setShowBlendModal(false)}
-            onApprove={() => {
-              setBlendApproved(true);
-              setShowBlendModal(false);
-            }}
-          />
-        </div>
+        <BlendConsentModal
+          testId="blend-consent-modal"
+          fromChambers={["creative", "general"]}
+          toChamber="career"
+          onClose={() => setShowBlendModal(false)}
+          onApprove={() => {
+            setBlendApproved(true);
+            setShowBlendModal(false);
+          }}
+        />
       ) : null}
     </div>
   );

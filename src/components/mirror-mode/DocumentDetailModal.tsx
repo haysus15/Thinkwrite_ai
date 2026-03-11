@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getWritingTypeAbbrev, getWritingTypeLabel } from '@/lib/mirror-mode/writingTypes';
+import { translateSystemError } from '@/lib/mirror/voiceProfileStatus';
 
 type VoiceFingerprint = {
   vocabulary: {
@@ -129,7 +130,7 @@ export default function DocumentDetailModal({ documentId, isOpen, onClose }: Pro
 
       setData(json);
     } catch (err: any) {
-      setError(err.message || 'Failed to load document');
+      setError(translateSystemError(err?.message || 'UNKNOWN'));
     } finally {
       setLoading(false);
     }
@@ -140,7 +141,7 @@ export default function DocumentDetailModal({ documentId, isOpen, onClose }: Pro
       if (isLiveArtifact) {
         setLoading(false);
         setData(null);
-        setError('This is a live chat artifact and has no document details.');
+        setError('This item came from live chat and does not have document details.');
         return;
       }
       fetchDocumentDetail(documentId);
@@ -222,7 +223,6 @@ export default function DocumentDetailModal({ documentId, isOpen, onClose }: Pro
           </div>
         ) : error ? (
           <div className="error-state">
-            <span className="error-icon">⚠</span>
             <h3>{isLiveArtifact ? 'No document details' : 'Error Loading Document'}</h3>
             <p>{error}</p>
             {!isLiveArtifact && (
@@ -337,12 +337,12 @@ export default function DocumentDetailModal({ documentId, isOpen, onClose }: Pro
                     </div>
                   </div>
 
-                  {/* Confidence/Assertiveness */}
+                  {/* Style strength / assertiveness */}
                   <div className="meter-item">
                     <div className="meter-header">
                       <span className="meter-label">Style</span>
                       <span className="meter-value">
-                        {fp.voice.assertiveDensity > 0.008 ? 'Confident' :
+                        {fp.voice.assertiveDensity > 0.008 ? 'Strong' :
                           fp.voice.hedgeDensity > 0.015 ? 'Nuanced' : 'Neutral'}
                       </span>
                     </div>
@@ -404,7 +404,7 @@ export default function DocumentDetailModal({ documentId, isOpen, onClose }: Pro
                     </div>
                     <div className="impact-stat">
                       <span className="impact-value">Voice strength updated</span>
-                      <span className="impact-label">Total Confidence</span>
+                      <span className="impact-label">Profile State</span>
                     </div>
                     <div className="impact-stat">
                       <span className="impact-value">#{impact.totalDocuments}</span>

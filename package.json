@@ -8,8 +8,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "lint": "eslint .",
+    "lint:academic": "eslint \"src/app/academic*/**/*.{ts,tsx}\" \"src/app/api/travis/**/*.ts\" \"src/components/academic*/**/*.{ts,tsx}\" \"src/components/academic-studio/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint . --fix",
+    "type-check": "tsc --noEmit",
+    "type-check:academic": "tsc --project tsconfig.academic.json --noEmit",
+    "db:new": "npx supabase migration new",
+    "db:push": "npx supabase db push",
+    "db:status": "npx supabase migration list"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -52,12 +58,13 @@
     "@types/react": "18.2.45",
     "@types/react-dom": "18.2.18",
     "@types/three": "^0.182.0",
-    "@typescript-eslint/eslint-plugin": "^6.13.1",
-    "@typescript-eslint/parser": "^6.13.1",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.54.0",
     "eslint-config-next": "15.5.6",
     "postcss": "^8.4.32",
+    "supabase": "^2.76.16",
     "tailwindcss": "^3.3.6",
     "typescript": "^5.3.2"
   },

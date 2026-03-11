@@ -1,0 +1,81 @@
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 18px;
+  background: rgba(8, 12, 20, 0.6);
+  backdrop-filter: blur(14px);
+}
+
+.topRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  color: #e8edf9;
+}
+
+.badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.documents {
+  margin: 12px 0 4px;
+  color: #b8c2d7;
+  font-size: 13px;
+}
+
+.nextAction {
+  margin: 0;
+  color: #d9e2f3;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.cta {
+  margin-top: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f2f6ff;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cta:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.card[data-state="learning"] .badge {
+  color: #efce9b;
+  border-color: rgba(239, 206, 155, 0.4);
+  background: rgba(239, 206, 155, 0.12);
+}
+
+.card[data-state="ready"] .badge {
+  color: #8dd3df;
+  border-color: rgba(141, 211, 223, 0.4);
+  background: rgba(141, 211, 223, 0.12);
+}
+
+.card[data-state="strong"] .badge {
+  color: #9dcfa8;
+  border-color: rgba(157, 207, 168, 0.4);
+  background: rgba(157, 207, 168, 0.12);
+}
+
+.card[data-state="empty"] .badge {
+  color: #a2adbf;
+  border-color: rgba(162, 173, 191, 0.4);
+  background: rgba(162, 173, 191, 0.12);
+}

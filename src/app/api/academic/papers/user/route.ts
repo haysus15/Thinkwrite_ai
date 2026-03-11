@@ -16,7 +16,7 @@ export async function GET() {
   const { data, error: fetchError } = await supabase
     .from("academic_papers")
     .select(
-      "id, topic, created_at, word_count, citation_style, checkpoint_passed, emergency_skip_used"
+      "id, assignment_id, assignment_set_id, set_order, outline_id, topic, paper_content, created_at, updated_at, completed_at, word_count, citation_style, checkpoint_passed, emergency_skip_used, workflow_step, is_complete"
     )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });

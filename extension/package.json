@@ -1,0 +1,21 @@
+{
+  "name": "thinkwrite-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:prod",
+    "build:all": "npm run build:chrome && npm run build:firefox",
+    "build:dev": "__DEV__=true npm run build:all",
+    "build:prod": "__DEV__=false npm run build:all",
+    "build:chrome": "node build.ts chrome",
+    "build:firefox": "node build.ts firefox",
+    "watch": "__DEV__=true node build.ts chrome --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.1.24",
+    "esbuild": "^0.25.10",
+    "typescript": "^5.9.2",
+    "webextension-polyfill": "^0.12.0"
+  }
+}

@@ -96,6 +96,7 @@ export default function LexSidebarUnified({
   } | null>(null);
   const [showBlendConsent, setShowBlendConsent] = useState(false);
   const [voiceSources, setVoiceSources] = useState<string[]>([]);
+  const [voiceUpdateNotice, setVoiceUpdateNotice] = useState<string | null>(null);
   const [sessionTypeOverride, setSessionTypeOverride] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastModeRef = useRef<WorkspaceView | null>(null);
@@ -134,6 +135,12 @@ export default function LexSidebarUnified({
   }, [messages]);
 
   useEffect(() => {
+    if (!voiceUpdateNotice) return;
+    const timer = window.setTimeout(() => setVoiceUpdateNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [voiceUpdateNotice]);
+
+  useEffect(() => {
     if (!coverLetterStrategyRef.current) return;
     if (messages.length === 0) return;
     const payload = {
@@ -164,6 +171,9 @@ export default function LexSidebarUnified({
         }),
       });
       const data = await response.json();
+      if (data?.mirror?.captured) {
+        setVoiceUpdateNotice("Mirror Mode updated from your latest message.");
+      }
       if (data?.warnings && data?.sufficient_data !== undefined) {
         setGuardrails({
           sufficientData: Boolean(data.sufficient_data),
@@ -788,7 +798,9 @@ export default function LexSidebarUnified({
         {
           id: `lex-save-${Date.now()}`,
           role: 'assistant',
-          content: `Saved as a new version: ${data.resume.fileName}`,
+          content: data?.mirror?.captured
+            ? `Saved as a new version: ${data.resume.fileName}. Mirror Mode also learned from this revision.`
+            : `Saved as a new version: ${data.resume.fileName}`,
           timestamp: new Date(),
         },
       ]);
@@ -814,6 +826,9 @@ export default function LexSidebarUnified({
       const data = await response.json();
       if (!data?.success || !data?.resume?.id) {
         throw new Error(data?.error || 'Import failed');
+      }
+      if (data?.mirror?.captured) {
+        setVoiceUpdateNotice("Mirror Mode updated from the imported resume.");
       }
       onContextUpdate({ selectedResumeId: data.resume.id });
       onWorkspaceSwitch('resume-builder', { selectedResumeId: data.resume.id });
@@ -937,6 +952,11 @@ export default function LexSidebarUnified({
             >
               Review consent
             </button>
+          </div>
+        )}
+        {voiceUpdateNotice && (
+          <div className="mt-2 rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-100">
+            {voiceUpdateNotice}
           </div>
         )}
       </div>

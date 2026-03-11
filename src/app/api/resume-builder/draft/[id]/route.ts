@@ -4,8 +4,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId, error: authError } = await getAuthUser();
   if (authError || !userId) {
     return NextResponse.json(
@@ -19,7 +20,7 @@ export async function GET(
   const { data: draft, error } = await supabase
     .from("resume_drafts")
     .select("*")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId)
     .single();
 
@@ -35,8 +36,9 @@ export async function GET(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId, error: authError } = await getAuthUser();
   if (authError || !userId) {
     return NextResponse.json(
@@ -50,7 +52,7 @@ export async function DELETE(
   const { error } = await supabase
     .from("resume_drafts")
     .delete()
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId);
 
   if (error) {

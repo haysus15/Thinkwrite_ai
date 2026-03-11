@@ -75,7 +75,7 @@ export async function getGatekeeperContext(
   const primaryChamber = STUDIO_TO_CHAMBER[studioType];
 
   const { data: rows, error } = await supabase
-    .from("voice_profiles_chambers")
+    .from("voice_chambers")
     .select("*")
     .eq("user_id", userId)
     .in("chamber", [primaryChamber, "general", "overall"]);

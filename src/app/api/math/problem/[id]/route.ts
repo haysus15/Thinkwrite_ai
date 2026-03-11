@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import { mathStore } from "@/lib/math-mode/store";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
+import {
+  deleteMathProblem,
+  getMathProblem,
+  updateMathProblem,
+} from "@/lib/math-mode/db";
 
 export async function GET(
   _request: Request,
@@ -15,16 +19,21 @@ export async function GET(
   }
 
   const { id } = await params;
-  const problem = mathStore.getProblem(id);
-  if (!problem) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  try {
+    const result = await getMathProblem(id, userId);
+    if (!result) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json(result);
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Unable to load problem.",
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    problem,
-    steps: mathStore.listSteps(problem.id),
-    guidance: mathStore.listGuidance(problem.id),
-  });
 }
 
 export async function PUT(
@@ -40,13 +49,26 @@ export async function PUT(
   }
 
   const { id } = await params;
-  const updates = await request.json();
-  const problem = mathStore.updateProblem(id, updates);
-  if (!problem) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  try {
+    const updates = await request.json();
+    const problem = await updateMathProblem(id, userId, updates);
+    return NextResponse.json({ problem });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Unable to update problem.",
+      },
+      { status: 500 }
+    );
   }
+}
 
-  return NextResponse.json({ problem });
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  return PUT(request, { params });
 }
 
 export async function DELETE(
@@ -62,6 +84,16 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  mathStore.deleteProblem(id);
-  return NextResponse.json({ success: true });
+  try {
+    await deleteMathProblem(id, userId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Unable to delete problem.",
+      },
+      { status: 500 }
+    );
+  }
 }

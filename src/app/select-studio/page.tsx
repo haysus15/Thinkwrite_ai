@@ -475,7 +475,7 @@ export default function SelectStudioPage() {
       icon: <GraduationCap className="w-8 h-8" />,
       color: "#3b82f6",
       gradient: "from-blue-500 to-blue-700",
-      href: "/academic-studio/landing",
+      href: "/academic-studio/welcome",
     },
     {
       name: "Creative Studio",

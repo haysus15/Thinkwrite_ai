@@ -17,7 +17,8 @@ export async function GET() {
     .from("emergency_skips")
     .select("id")
     .eq("user_id", userId)
-    .eq("month", currentMonth);
+    .eq("month", currentMonth)
+    .eq("feature", "coding_review");
 
   if (fetchError) {
     return NextResponse.json(

@@ -50,7 +50,7 @@ export default function MathCalculator({
   };
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+    <div className="max-h-full overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/70 p-4">
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-sm font-semibold text-white">Quick calculator</h4>
         {showToggle && (

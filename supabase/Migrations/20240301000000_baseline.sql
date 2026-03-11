@@ -1,0 +1,1 @@
+-- Baseline: existing schema live in Supabase as of March 2024. Migration versioning starts here.

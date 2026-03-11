@@ -1,9 +1,13 @@
 // src/components/academic-studio/study-materials/StudyMaterialsPanel.tsx
 "use client";
+// Deprecated: use Study Hub tabs at /academic/study-hub instead of this standalone panel.
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BookOpen, FilePlus } from "lucide-react";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
 import type { QuizQuestionType } from "@/types/academic-studio";
 
 interface MaterialItem {
@@ -21,6 +25,7 @@ export default function StudyMaterialsPanel() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [pastedContent, setPastedContent] = useState("");
   const [title, setTitle] = useState("");
@@ -62,6 +67,7 @@ export default function StudyMaterialsPanel() {
 
     setUploading(true);
     setError(null);
+    setNotice(null);
 
     try {
       const form = new FormData();
@@ -74,6 +80,7 @@ export default function StudyMaterialsPanel() {
       form.append("title", title);
       form.append("className", className);
       form.append("topic", topic);
+      form.append("sourceType", "quiz_source");
 
       const response = await fetch("/api/study/upload", {
         method: "POST",
@@ -89,6 +96,9 @@ export default function StudyMaterialsPanel() {
       setTitle("");
       setClassName("");
       setTopic("");
+      if (data?.mirror?.captured) {
+        setNotice("Mirror Mode updated from this study material.");
+      }
       if (data.warning) {
         setError(data.warning);
       }
@@ -110,7 +120,7 @@ export default function StudyMaterialsPanel() {
       <div className="flex items-center gap-3">
         <BookOpen className="h-5 w-5 text-sky-300" />
         <p className="text-sm font-semibold text-slate-100">
-          Study materials
+          Study Hub ingest
         </p>
       </div>
 
@@ -141,7 +151,7 @@ export default function StudyMaterialsPanel() {
         </div>
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-            Or Paste Study Text
+            Or paste study text
           </p>
           <textarea
             value={pastedContent}
@@ -190,6 +200,12 @@ export default function StudyMaterialsPanel() {
           {uploading ? "Saving..." : "Save study material"}
         </button>
       </div>
+
+      {notice && (
+        <div className="mt-3 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-xs text-emerald-100">
+          {notice}
+        </div>
+      )}
 
       <div className="mt-6">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
@@ -245,26 +261,21 @@ export default function StudyMaterialsPanel() {
         </div>
       </div>
 
-      {error && (
-        <p
-          role="alert"
-          className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
-        >
-          {error}
-        </p>
-      )}
+      {error && <AcademicErrorState message={error} className="mt-4 !min-h-0 py-3" />}
 
       <div className="mt-6">
         <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
           Materials
         </p>
         {loading && (
-          <p className="mt-3 text-sm text-slate-500">Loading materials...</p>
+          <AcademicLoadingState message="Loading materials..." className="!min-h-0 py-3" />
         )}
         {!loading && materials.length === 0 && (
-          <p className="mt-3 text-sm text-slate-500">
-            Upload a study guide to generate a quiz.
-          </p>
+          <AcademicEmptyState
+            title="No materials yet"
+            description="Upload a study guide to generate a quiz."
+            className="!min-h-0 py-4"
+          />
         )}
         <div className="mt-3 space-y-3">
           {materials.map((material) => (
@@ -296,7 +307,7 @@ export default function StudyMaterialsPanel() {
                     if (!response.ok) {
                       throw new Error(data.error || "Quiz generation failed.");
                     }
-                    router.push(`/academic-studio/quiz/${data.quizId}`);
+                    router.push(`/academic/quiz/${data.quizId}`);
                   } catch (err) {
                     setError(
                       err instanceof Error
@@ -338,12 +349,10 @@ export default function StudyMaterialsPanel() {
         </div>
         <button
           type="button"
-          onClick={() =>
-            router.push("/academic-studio/dashboard?workspace=study-library")
-          }
+          onClick={() => router.push("/academic/study-hub?tab=library")}
           className="mt-4 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300"
         >
-          Open study library
+          Open Study Hub
         </button>
       </div>
     </div>

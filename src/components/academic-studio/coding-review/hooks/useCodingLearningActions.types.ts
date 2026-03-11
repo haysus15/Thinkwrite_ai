@@ -1,0 +1,76 @@
+import type { Dispatch, SetStateAction } from "react";
+import type { SystemStep } from "@/lib/academic/teachingEngine";
+import type { CodingLanguage, OutputState } from "./useCodingReview";
+import type { VictorMessage } from "../../victor-chat/VictorChatContext";
+import type { CoachingProfile } from "@/lib/academic/victor/coachingProfiles";
+
+export type Lesson = {
+  lesson_index: number;
+  title: string;
+  concept_summary: string;
+  challenge_prompt: string;
+  required_skills: string[];
+};
+
+export type UseCodingLearningActionsArgs = {
+  language: CodingLanguage;
+  code: string;
+  output: OutputState;
+  conversationId: string | null;
+  currentLesson: Lesson | null;
+  activeLessons: Lesson[];
+  activePathId: string | null;
+  activePathTitle: string | null;
+  activeProgress: { current_lesson: number; lessons_completed: number[] } | null;
+  struggleTopics: string[];
+  placementActive: boolean;
+  placementPath: string | null;
+  placementChallenges: string[];
+  placementIndex: number;
+  placementNote: string;
+  placementError: string | null;
+  hasRunCode: boolean;
+  codingReviewSessionId: string | null;
+  checkpointExplain: string;
+  checkpointModify: string;
+  teachingSessionId: string | null;
+  teachingStepsLength: number;
+  coachingProfile: CoachingProfile;
+  setMode: (mode: "teaching") => void;
+  setMessages: Dispatch<SetStateAction<VictorMessage[]>>;
+  setConversationId: (id: string | null) => void;
+  setCreatingStudyGuide: (value: boolean) => void;
+  setError: (value: string | null) => void;
+  setToast: (value: string | null) => void;
+  onOpenStudyHub: () => void;
+  setGuidedTrackEnabled: (value: boolean) => void;
+  setPlacementActive: (value: boolean) => void;
+  setPlacementPath: (value: string | null) => void;
+  setPlacementChallenges: (value: string[]) => void;
+  setPlacementIndex: (value: number | ((prev: number) => number)) => void;
+  setPlacementNote: (value: string) => void;
+  setPlacementError: (value: string | null) => void;
+  setHasRunCode: (value: boolean) => void;
+  setActivePathId: (value: string | null) => void;
+  setActiveLessons: (value: Lesson[]) => void;
+  setActiveProgress: (value: { current_lesson: number; lessons_completed: number[] } | null) => void;
+  setPathPickerOpen: (value: boolean) => void;
+  setCode: (value: string) => void;
+  setCheckpointError: (value: string | null) => void;
+  setCheckpointFeedback: (value: string | null) => void;
+  setCheckpointOpen: (value: boolean) => void;
+  setCheckpointExplain: (value: string) => void;
+  setCheckpointModify: (value: string) => void;
+  setSkipEligible: (value: boolean | null) => void;
+  setCheckpointHistory: (
+    value: Array<{ id: string; pass: boolean; feedback: string; reviewed_at: string }>
+  ) => void;
+  setCheckpointReviewing: (value: boolean) => void;
+  setAssistLoading: (value: boolean) => void;
+  setAssistError: (value: string | null) => void;
+  setAssistResponse: (value: string) => void;
+  setTeachingLoading: (value: boolean) => void;
+  setTeachingSessionId: (value: string | null) => void;
+  setTeachingSteps: (value: SystemStep[] | ((prev: SystemStep[]) => SystemStep[])) => void;
+  setTeachingCurrentStepIndex: (value: number | ((prev: number) => number)) => void;
+};

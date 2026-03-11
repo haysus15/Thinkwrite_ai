@@ -4,6 +4,7 @@ import { Errors } from "@/lib/api/errors";
 import { transformResumeToDB, generateId } from "@/types/resume-builder";
 import type { ResumeBuilderData } from "@/types/resume-builder";
 import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
+import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
 import {
   extractSections,
   extractContactInfo,
@@ -320,11 +321,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Mirror Mode: Learn + archive imported resume text in career chamber
+    let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
     try {
-      await ingestStudioWriting({
+      mirrorResult = await ingestStudioWriting({
         supabase,
         userId,
         sourceStudio: "career",
+        sourceAuthority: SOURCE_AUTHORITY.USER_UPLOADED,
         text: resumeText,
         sessionId: data.id,
         context: "resume_builder_import",
@@ -341,6 +344,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       resume: { ...draft, id: data.id, userId },
+      mirror: mirrorResult,
     });
   } catch (error: any) {
     console.error("[Resume builder import POST]:", error?.message || error);

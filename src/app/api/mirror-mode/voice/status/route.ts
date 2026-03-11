@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
 import { getConfidenceLabel } from "@/lib/mirror-mode/voiceAggregation";
+import { getChamberStatus } from "@/lib/mirror/voiceProfileStatus";
 
 export const runtime = "nodejs";
 
@@ -18,6 +19,33 @@ const noStoreHeaders = {
   Pragma: "no-cache",
   Expires: "0",
   "Surrogate-Control": "no-store",
+};
+
+type MirrorDocumentRow = {
+  id: string;
+  file_name: string;
+  word_count: number;
+  file_size: number | null;
+  learned_at: string | null;
+  created_at: string;
+  writing_type: string | null;
+  visibility_status?: string | null;
+  deleted_at?: string | null;
+};
+
+type ChamberKey = "career" | "academic" | "creative" | "general" | "overall";
+type ChamberSummary = {
+  confidenceLabel: string;
+  confidenceLevel: number;
+  documentCount: number;
+  lastTrainedAt: string | null;
+  updatedAt: string | null;
+};
+type ChamberWarning = {
+  chamber: ChamberKey;
+  message: string;
+  documentCount: number;
+  minimum: number;
 };
 
 export async function GET(req: NextRequest) {
@@ -34,6 +62,13 @@ export async function GET(req: NextRequest) {
     }
 
     const supabase = await createSupabaseServerClient();
+    const { data: onboarding } = await supabase
+      .from("user_profiles")
+      .select(
+        "mirror_mode_first_visit, quickstart_samples_count, mirror_roadmap_dismissed"
+      )
+      .eq("user_id", userId)
+      .maybeSingle();
 
     // ---- FETCH VOICE PROFILE ----
     const { data: profile, error: profileError } = await supabase
@@ -50,20 +85,25 @@ export async function GET(req: NextRequest) {
     }
 
     // ---- FETCH DOCUMENT STATS ----
-    let { data: documents, error: docsError } = await supabase
+    const primaryDocsQuery = await supabase
       .from("mirror_documents")
       .select("id, file_name, word_count, file_size, learned_at, created_at, writing_type, visibility_status, deleted_at")
       .eq("user_id", userId)
       .eq("visibility_status", "active")
       .order("created_at", { ascending: false });
 
+    let docsError = primaryDocsQuery.error;
+    let normalizedDocuments = (primaryDocsQuery.data || []) as MirrorDocumentRow[];
+
     // If schema isn't upgraded yet, retry without visibility filters
     if (docsError?.message?.includes("column") || docsError?.message?.includes("visibility_status")) {
-      ({ data: documents, error: docsError } = await supabase
+      const fallbackDocsQuery = await supabase
         .from("mirror_documents")
         .select("id, file_name, word_count, file_size, learned_at, created_at, writing_type")
         .eq("user_id", userId)
-        .order("created_at", { ascending: false }));
+        .order("created_at", { ascending: false });
+      docsError = fallbackDocsQuery.error;
+      normalizedDocuments = (fallbackDocsQuery.data || []) as MirrorDocumentRow[];
     }
 
     if (docsError) {
@@ -73,23 +113,24 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const totalDocuments = documents?.length || 0;
-    const learnedDocuments = documents?.filter((d) => d.learned_at)?.length || 0;
+    const totalDocuments = normalizedDocuments.length || 0;
+    const learnedDocuments = normalizedDocuments.filter((d) => d.learned_at).length || 0;
     const pendingDocuments = totalDocuments - learnedDocuments;
 
     // ---- FETCH CHAMBER SUMMARIES (BEST EFFORT) ----
-    let chamberSummaries: any = null;
-    let chamberWarnings: any[] = [];
+    let chamberSummaries: Record<ChamberKey, ChamberSummary | null> | null = null;
+    let chamberWarnings: ChamberWarning[] = [];
     try {
       const { data: chamberRows } = await supabase
-        .from("voice_profiles_chambers")
+        .from("voice_chambers")
         .select("chamber, confidence_level, document_count, last_trained_at, updated_at")
         .eq("user_id", userId)
         .in("chamber", ["career", "academic", "creative", "general", "overall"]);
 
-      const byChamber: Record<string, any> = {};
-      (chamberRows || []).forEach((row: any) => {
-        byChamber[row.chamber] = {
+      const byChamber: Partial<Record<ChamberKey, ChamberSummary>> = {};
+      (chamberRows || []).forEach((row) => {
+        const chamber = row.chamber as ChamberKey;
+        byChamber[chamber] = {
           confidenceLabel: getConfidenceLabel(row.confidence_level || 0),
           confidenceLevel: row.confidence_level || 0,
           documentCount: row.document_count || 0,
@@ -107,7 +148,7 @@ export async function GET(req: NextRequest) {
       };
 
       const minDocs = 3;
-      const chambersToCheck: Array<keyof typeof chamberSummaries> = [
+      const chambersToCheck: ChamberKey[] = [
         "career",
         "academic",
         "creative",
@@ -124,7 +165,7 @@ export async function GET(req: NextRequest) {
             minimum: minDocs,
           };
         })
-        .filter(Boolean) as any[];
+        .filter((item): item is ChamberWarning => item !== null);
     } catch {
       chamberSummaries = null;
       chamberWarnings = [];
@@ -132,6 +173,12 @@ export async function GET(req: NextRequest) {
 
     // No profile yet
     if (!profile) {
+      const chamberStatuses = {
+        career: getChamberStatus(0, 0),
+        academic: getChamberStatus(0, 0),
+        creative: getChamberStatus(0, 0),
+        general: getChamberStatus(0, 0),
+      };
       return NextResponse.json(
         {
           success: true,
@@ -151,7 +198,7 @@ export async function GET(req: NextRequest) {
             learned: learnedDocuments,
             pending: pendingDocuments,
             recentUploads:
-              documents?.slice(0, 200).map((d) => ({
+              normalizedDocuments.slice(0, 200).map((d) => ({
                 id: d.id,
                 fileName: d.file_name,
                 wordCount: d.word_count,
@@ -170,6 +217,13 @@ export async function GET(req: NextRequest) {
             "Include a variety of writing samples for best results",
             "Aim for at least 3–5 documents with 500+ words each",
           ],
+          chamberStatuses,
+          preferences: {
+            isFirstMirrorModeVisit: onboarding?.mirror_mode_first_visit !== false,
+            quickstartSamplesCount: onboarding?.quickstart_samples_count || 0,
+            roadmapDismissedByChamber:
+              onboarding?.mirror_roadmap_dismissed || null,
+          },
         },
         { status: 200, headers: noStoreHeaders }
       );
@@ -188,6 +242,25 @@ export async function GET(req: NextRequest) {
     const evolutionData = includeFullHistory
       ? evolutionHistory
       : evolutionHistory.slice(-10).reverse();
+
+    const chamberStatuses = {
+      career: getChamberStatus(
+        chamberSummaries?.career?.documentCount || 0,
+        chamberSummaries?.career?.confidenceLevel || 0
+      ),
+      academic: getChamberStatus(
+        chamberSummaries?.academic?.documentCount || 0,
+        chamberSummaries?.academic?.confidenceLevel || 0
+      ),
+      creative: getChamberStatus(
+        chamberSummaries?.creative?.documentCount || 0,
+        chamberSummaries?.creative?.confidenceLevel || 0
+      ),
+      general: getChamberStatus(
+        chamberSummaries?.general?.documentCount || 0,
+        chamberSummaries?.general?.confidenceLevel || 0
+      ),
+    };
 
     return NextResponse.json(
       {
@@ -217,8 +290,8 @@ export async function GET(req: NextRequest) {
           total: totalDocuments,
           learned: learnedDocuments,
           pending: pendingDocuments,
-          recentUploads:
-            documents?.slice(0, 200).map((d) => ({
+            recentUploads:
+              normalizedDocuments.slice(0, 200).map((d) => ({
               id: d.id,
               fileName: d.file_name,
               wordCount: d.word_count,
@@ -246,8 +319,18 @@ export async function GET(req: NextRequest) {
         })),
 
         chamberSummaries,
+        chamberStatuses,
         chamberWarnings,
-        recommendations: getRecommendations(confidenceLevel, fingerprint, documents || []),
+        recommendations: getRecommendations(
+          confidenceLevel,
+          fingerprint,
+          normalizedDocuments
+        ),
+        preferences: {
+          isFirstMirrorModeVisit: onboarding?.mirror_mode_first_visit !== false,
+          quickstartSamplesCount: onboarding?.quickstart_samples_count || 0,
+          roadmapDismissedByChamber: onboarding?.mirror_roadmap_dismissed || null,
+        },
       },
       { status: 200, headers: noStoreHeaders }
     );

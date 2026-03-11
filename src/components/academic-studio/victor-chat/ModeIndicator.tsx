@@ -1,7 +1,15 @@
 // src/components/academic-studio/victor-chat/ModeIndicator.tsx
 "use client";
 
-import { BookOpen, Calculator, Compass, Flame, Shield, Code2 } from "lucide-react";
+import {
+  BookOpen,
+  Calculator,
+  Compass,
+  Flame,
+  Shield,
+  Code2,
+  GraduationCap,
+} from "lucide-react";
 import type { VictorMode } from "@/types/academic-studio";
 
 const MODE_META: Record<
@@ -11,9 +19,10 @@ const MODE_META: Record<
   default: { label: "Default", icon: BookOpen, color: "text-slate-300" },
   idea_expansion: { label: "Idea Expansion", icon: Compass, color: "text-violet-200" },
   challenge: { label: "Challenge", icon: Flame, color: "text-red-200" },
-  study: { label: "Study", icon: Shield, color: "text-emerald-200" },
+  study: { label: "Study Hub", icon: Shield, color: "text-emerald-200" },
   math: { label: "Math Mode", icon: Calculator, color: "text-sky-200" },
   coding_review: { label: "Coding Review", icon: Code2, color: "text-amber-200" },
+  teaching: { label: "Teaching", icon: GraduationCap, color: "text-cyan-200" },
 };
 
 export default function ModeIndicator({ mode }: { mode: VictorMode }) {

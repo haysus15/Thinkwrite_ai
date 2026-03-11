@@ -5,8 +5,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(
   request: Request,
-  { params }: { params: { attemptId: string } }
+  { params }: { params: Promise<{ attemptId: string }> }
 ) {
+  const { attemptId } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -18,8 +19,8 @@ export async function GET(
   const supabase = await createSupabaseServerClient();
   const { data, error: fetchError } = await supabase
     .from("quiz_attempts")
-    .select("id, quiz_id, results, score, correct_count, total_questions")
-    .eq("id", params.attemptId)
+    .select("id, quiz_id, answers, results, score, correct_count, total_questions")
+    .eq("id", attemptId)
     .eq("user_id", userId)
     .single();
 

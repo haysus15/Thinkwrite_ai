@@ -10,19 +10,14 @@ import {
   type ParsedAssignment,
 } from "@/lib/academic/syllabusParser";
 import { normalizeAssignmentType } from "@/lib/academic/assignmentType";
+import { normalizeDueDateInput } from "@/lib/academic/dueDate";
+import { logEvent } from "@/lib/telemetry/logEvent";
 
 export const runtime = "nodejs";
 
 const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
-
-function normalizeDueDate(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
 
 function parseModuleRef(assignment: ParsedAssignment) {
   const requirements = assignment.requirements as Record<string, unknown> | null;
@@ -50,8 +45,8 @@ function sortParsedAssignments(assignments: ParsedAssignment[]) {
       return 1;
     }
 
-    const aDue = normalizeDueDate(a.due_date);
-    const bDue = normalizeDueDate(b.due_date);
+    const aDue = normalizeDueDateInput(a.due_date);
+    const bDue = normalizeDueDateInput(b.due_date);
     if (aDue && bDue && aDue !== bDue) {
       return aDue.localeCompare(bDue);
     }
@@ -73,6 +68,9 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
   const file = formData.get("file");
+  const classNameInput = String(formData.get("class_name") || "").trim();
+  const termInput = String(formData.get("term") || "").trim();
+  const sectionInput = String(formData.get("section") || "").trim();
 
   if (!file || !(file instanceof File)) {
     return NextResponse.json(
@@ -84,6 +82,17 @@ export async function POST(request: NextRequest) {
   const extracted = await extractTextFromFile(file);
   if (extracted.ok === false) {
     const extractionError = extracted.error;
+    void logEvent({
+      userId,
+      eventType: "assignment_parse_error",
+      workspace: "travis",
+      severity: "error",
+      payload: {
+        reason: "extract_text_failed",
+        fileType: file.type || null,
+        message: extractionError,
+      },
+    });
     return NextResponse.json(
       { success: false, error: extractionError },
       { status: 400 }
@@ -161,20 +170,47 @@ Return JSON: {
           0
         ) / parsedAssignments.length
       : 0;
+  const confidenceApprovedCount = parsedAssignments.filter(
+    (assignment) => (assignment.parser_confidence ?? 0.5) >= 0.5
+  ).length;
+  const confidenceApprovedRatio =
+    parsedAssignments.length > 0
+      ? confidenceApprovedCount / parsedAssignments.length
+      : 1;
 
   const className =
-    llmParsed.class_name || heuristic.class_name || "Untitled class";
+    classNameInput ||
+    llmParsed.class_name ||
+    heuristic.class_name ||
+    "Untitled class";
   const parserVersion = openai
     ? "hybrid-heuristic+gpt-4o"
     : "heuristic-v1";
 
   const parsed = {
     class_name: className,
+    term: termInput || null,
+    section: sectionInput || null,
     instructor: llmParsed.instructor || null,
     assignments: parsedAssignments,
     parse_metrics: heuristic.metrics,
     parse_warnings: parserWarnings,
   };
+  if (parsedAssignments.length > 0 && confidenceApprovedRatio < 0.5) {
+    void logEvent({
+      userId,
+      eventType: "assignment_parse_low_confidence",
+      workspace: "travis",
+      severity: "warn",
+      payload: {
+        class_name: className,
+        assignmentsFound: parsedAssignments.length,
+        confidenceApprovedCount,
+        confidenceApprovedRatio,
+        parseConfidence,
+      },
+    });
+  }
 
   const supabase = await createSupabaseServerClient();
   const { data, error: insertError } = await supabase
@@ -194,6 +230,17 @@ Return JSON: {
     .single();
 
   if (insertError || !data) {
+    void logEvent({
+      userId,
+      eventType: "assignment_parse_error",
+      workspace: "travis",
+      severity: "error",
+      payload: {
+        reason: "syllabus_insert_failed",
+        class_name: className,
+        assignmentsFound: parsedAssignments.length,
+      },
+    });
     return NextResponse.json(
       { success: false, error: insertError?.message || "Upload failed." },
       { status: 500 }
@@ -210,7 +257,7 @@ Return JSON: {
         assignment.type,
         assignment.name || null
       ),
-      due_date: normalizeDueDate(assignment.due_date),
+      due_date: normalizeDueDateInput(assignment.due_date),
       requirements: assignment.requirements || null,
       grading_weight:
         typeof assignment.grading_weight === "number"
@@ -234,6 +281,17 @@ Return JSON: {
       .insert(draftRows);
 
     if (draftInsertError) {
+      void logEvent({
+        userId,
+        eventType: "assignment_parse_error",
+        workspace: "travis",
+        severity: "error",
+        payload: {
+          reason: "draft_insert_failed",
+          class_name: className,
+          assignmentsFound: parsedAssignments.length,
+        },
+      });
       return NextResponse.json(
         {
           success: false,

@@ -1,0 +1,52 @@
+.panel {
+  position: fixed;
+  right: 20px;
+  top: 100px;
+  width: min(380px, calc(100vw - 40px));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(11, 16, 27, 0.84);
+  backdrop-filter: blur(16px);
+  padding: 14px;
+  z-index: 45;
+  animation: slideIn 180ms ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.title {
+  margin: 0;
+  color: #e8f1ff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.label {
+  margin: 10px 0 8px;
+  color: #a7b6cf;
+  font-size: 12px;
+}
+
+.list {
+  margin: 0;
+  padding-left: 16px;
+  color: #cad7ee;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.stateLine {
+  margin: 10px 0 0;
+  color: #d5e8ff;
+  font-size: 13px;
+}

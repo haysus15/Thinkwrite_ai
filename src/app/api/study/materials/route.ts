@@ -15,7 +15,9 @@ export async function GET() {
   const supabase = await createSupabaseServerClient();
   const { data, error: fetchError } = await supabase
     .from("study_materials")
-    .select("id, title, class_name, topic, source_type, created_at")
+    .select(
+      "id, title, class_name, topic, source_type, material_kind, source_id, created_at, updated_at"
+    )
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -26,5 +28,5 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({ success: true, materials: data }, { status: 200 });
+  return NextResponse.json({ success: true, materials: data || [] }, { status: 200 });
 }

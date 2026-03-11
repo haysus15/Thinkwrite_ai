@@ -1,0 +1,61 @@
+.roadmap {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 16px;
+  background: rgba(8, 12, 20, 0.58);
+  backdrop-filter: blur(14px);
+}
+
+.heading {
+  margin: 0;
+  color: #ecf2ff;
+  font-size: 18px;
+}
+
+.subheading {
+  margin: 8px 0 14px;
+  color: #acb8d0;
+  font-size: 14px;
+}
+
+.timeline {
+  display: grid;
+  gap: 12px;
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 10px;
+  opacity: 0.52;
+}
+
+.stageActive {
+  opacity: 1;
+}
+
+.index {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #c8d4eb;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.range {
+  margin: 0;
+  color: #dce7fb;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.capability {
+  margin: 4px 0 0;
+  color: #b3bfd8;
+  font-size: 13px;
+  line-height: 1.35;
+}

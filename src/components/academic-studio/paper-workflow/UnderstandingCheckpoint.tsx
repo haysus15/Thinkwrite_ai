@@ -4,15 +4,22 @@
 import { ArrowLeft, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import EmergencySkipModal from "./EmergencySkipModal";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
 
 interface UnderstandingCheckpointProps {
   paperId: string | null;
   onBack: () => void;
+  onStatusChange?: (status: {
+    checkpointPassed: boolean;
+    emergencySkipUsed: boolean;
+  }) => void;
 }
 
 export default function UnderstandingCheckpoint({
   paperId,
   onBack,
+  onStatusChange,
 }: UnderstandingCheckpointProps) {
   const prompts = useMemo(
     () => [
@@ -28,27 +35,40 @@ export default function UnderstandingCheckpoint({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skipLoadError, setSkipLoadError] = useState<string | null>(null);
   const [skipEligible, setSkipEligible] = useState(false);
   const [skipUsedCount, setSkipUsedCount] = useState(0);
   const [showSkipModal, setShowSkipModal] = useState(false);
 
-  useEffect(() => {
-    const loadSkipStatus = async () => {
-      try {
-        const response = await fetch("/api/academic/paper/can-skip");
-        const data = await response.json();
-        if (!response.ok) {
-          return;
-        }
-        setSkipEligible(Boolean(data.eligible));
-        setSkipUsedCount(Number(data.usedCount || 0));
-      } catch {
-        // Silent fail
+  const loadSkipStatus = async () => {
+    try {
+      const response = await fetch("/api/academic/paper/can-skip");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Failed to load skip eligibility.");
       }
-    };
+      setSkipEligible(Boolean(data.eligible));
+      setSkipUsedCount(Number(data.usedCount || 0));
+      setSkipLoadError(null);
+    } catch {
+      setSkipLoadError(
+        "Could not load your checkpoint status. Refresh to try again."
+      );
+    }
+  };
 
-    loadSkipStatus();
+  useEffect(() => {
+    void loadSkipStatus();
   }, []);
+
+  if (!paperId) {
+    return (
+      <AcademicEmptyState
+        title="No paper to review"
+        description="Generate your paper first, then return here for your Understanding Checkpoint."
+      />
+    );
+  }
 
   const handleSubmit = async () => {
     if (!paperId) {
@@ -87,6 +107,10 @@ export default function UnderstandingCheckpoint({
           ? "Checkpoint passed. Export is unlocked."
           : "Checkpoint failed. Keep working through the gaps."
       );
+      onStatusChange?.({
+        checkpointPassed: Boolean(data.passed),
+        emergencySkipUsed: false,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Checkpoint failed.");
     } finally {
@@ -163,12 +187,14 @@ export default function UnderstandingCheckpoint({
           </div>
         )}
         {error && (
-          <div
-            role="alert"
-            className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
-          >
-            {error}
-          </div>
+          <AcademicErrorState message={error} className="mt-4 !min-h-0 py-3" />
+        )}
+        {skipLoadError && (
+          <AcademicErrorState
+            message={skipLoadError}
+            retry={() => void loadSkipStatus()}
+            className="mt-4 !min-h-0 py-3"
+          />
         )}
       </div>
 
@@ -206,6 +232,10 @@ export default function UnderstandingCheckpoint({
             setResult("Emergency skip used. Download is unlocked.");
             setSkipEligible(false);
             setSkipUsedCount((prev) => prev + 1);
+            onStatusChange?.({
+              checkpointPassed: false,
+              emergencySkipUsed: true,
+            });
           } catch (err) {
             setError(
               err instanceof Error ? err.message : "Emergency skip failed."

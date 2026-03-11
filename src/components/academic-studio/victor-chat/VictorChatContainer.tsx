@@ -2,21 +2,38 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Save, Send } from "lucide-react";
 import { useVictorChat } from "./VictorChatContext";
 import ModeIndicator from "./ModeIndicator";
-import StudyMaterialsPanel from "../study-materials/StudyMaterialsPanel";
 import type { VictorMode } from "@/types/academic-studio";
+import type { VictorContext } from "@/lib/academic/victor/victorTypes";
+import type { CoachingProfile } from "@/lib/academic/victor/coachingProfiles";
+import TeachingSessionPanel from "./TeachingSessionPanel/TeachingSessionPanel";
+import VictorModeSuggestion from "./VictorModeSuggestion";
+import VictorProfileSelector from "./VictorProfileSelector";
+import VictorMemoryPanel from "./VictorMemoryPanel";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
+import type { MisconceptionLevel } from "@/lib/academic/victor/victorTypes";
 
 export default function VictorChatContainer({
   workspaceContext,
   showStudyPanel = true,
   variant = "panel",
+  victorContext,
+  assignmentId,
+  defaultCoachingProfile,
+  showProfileSelector = false,
 }: {
   workspaceContext?: string;
   showStudyPanel?: boolean;
   variant?: "panel" | "sidebar";
+  victorContext?: Partial<VictorContext>;
+  assignmentId?: string | null;
+  defaultCoachingProfile?: CoachingProfile;
+  showProfileSelector?: boolean;
 }) {
   const {
     mode,
@@ -28,14 +45,25 @@ export default function VictorChatContainer({
     suggestedMode,
     setSuggestedMode,
     refreshSavedSessions,
+    teachingSession,
+    setTeachingSession,
+    coachingProfile,
+    setCoachingProfile,
   } = useVictorChat();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [mirrorNotice, setMirrorNotice] = useState<string | null>(null);
+  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const autoPromptRef = useRef<string | null>(null);
+  const recentMisconceptionsRef = useRef<MisconceptionLevel[]>([]);
+  const sessionLoggedStrugglesRef = useRef<Set<string>>(new Set());
 
   const isVictorMode = (value: string | null): value is VictorMode => {
     return (
@@ -44,18 +72,54 @@ export default function VictorChatContainer({
       value === "challenge" ||
       value === "study" ||
       value === "math" ||
-      value === "coding_review"
+      value === "coding_review" ||
+      value === "teaching"
     );
   };
+
+  const isTeachingResponse = (responseType?: string) =>
+    responseType === "step" ||
+    responseType === "feedback" ||
+    responseType === "complete";
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    if (!mirrorNotice) return;
+    const timer = window.setTimeout(() => setMirrorNotice(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [mirrorNotice]);
+
+  useEffect(() => {
+    if (!defaultCoachingProfile) return;
+    setCoachingProfile(defaultCoachingProfile);
+  }, [defaultCoachingProfile, setCoachingProfile]);
+
+  const persistCoachingProfile = useCallback(
+    async (profile: CoachingProfile) => {
+      setCoachingProfile(profile);
+      if (!assignmentId) return;
+      setProfileSaving(true);
+      try {
+        await fetch(`/api/travis/assignment/${assignmentId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ victor_coaching_profile: profile }),
+        });
+      } finally {
+        setProfileSaving(false);
+      }
+    },
+    [assignmentId, setCoachingProfile]
+  );
+
   const sendMessage = useCallback(async (messageText: string) => {
     const trimmed = messageText.trim();
     if (!trimmed) return;
     setError(null);
+    setRecoveryMessage(null);
     setLoading(true);
 
     const nextMessages = [
@@ -78,32 +142,104 @@ export default function VictorChatContainer({
           mode,
           message: trimmed,
           workspaceContext,
+          victorContext,
+          coachingProfile,
+          assignmentId,
+          sessionId: teachingSession?.sessionId,
+          teachingSession,
         }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || "Victor response failed.");
       }
+      if (typeof data?.recoveryMessage === "string" && data.recoveryMessage.trim()) {
+        setRecoveryMessage(data.recoveryMessage);
+        setLoading(false);
+        return;
+      }
 
       setConversationId(data.conversationId);
       setSuggestedMode(data.suggestedMode || null);
+      if (data?.updatedSession) {
+        setTeachingSession(data.updatedSession);
+      } else if (data?.responseType === "conversation") {
+        setTeachingSession(null);
+      }
+      if (isTeachingResponse(data?.responseType)) {
+        setMode("teaching");
+      }
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant" as const,
           content: data.reply,
           timestamp: new Date().toISOString(),
+          responseType: data.responseType,
+          misconceptionLevel: data.misconceptionLevel,
         },
       ]);
+      if (data?.mirrorCapture?.captured === true) {
+        setMirrorNotice("Mirror Mode recorded this — academic voice updated.");
+      }
+
+      const misconception =
+        data?.misconceptionLevel === "partial" ||
+        data?.misconceptionLevel === "fundamental"
+          ? (data.misconceptionLevel as MisconceptionLevel)
+          : "none";
+
+      const recent = recentMisconceptionsRef.current;
+      const previousLevel = recent.length > 0 ? recent[recent.length - 1] : "none";
+      recentMisconceptionsRef.current = [...recent.slice(-2), misconception];
+
+      const className = victorContext?.className?.trim();
+      const lastAssistantMessage = [...messages]
+        .reverse()
+        .find((item) => item.role === "assistant");
+      const hadFollowUpPrompt = Boolean(lastAssistantMessage?.content?.includes("?"));
+      const persistentGap =
+        className &&
+        misconception !== "none" &&
+        previousLevel !== "none" &&
+        hadFollowUpPrompt;
+
+      if (persistentGap) {
+        const studentMessages = nextMessages
+          .filter((item) => item.role === "user")
+          .slice(-2)
+          .map((item) => item.content);
+        const struggleType =
+          misconception === "fundamental" ? "misconception" : "incomplete_understanding";
+        const dedupeKey = `${assignmentId || "none"}:${className}:${struggleType}:${studentMessages.join("|")}`;
+        if (!sessionLoggedStrugglesRef.current.has(dedupeKey)) {
+          sessionLoggedStrugglesRef.current.add(dedupeKey);
+          void fetch("/api/victor/memory", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              assignmentId,
+              className,
+              struggleType,
+              sessionNotes: `Victor mode: ${mode}`,
+              studentMessages,
+            }),
+          }).catch(() => null);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Victor response failed.");
     } finally {
       setLoading(false);
     }
-  }, [conversationId, messages, mode, setConversationId, setMessages, setSuggestedMode, workspaceContext]);
+  }, [assignmentId, coachingProfile, conversationId, messages, mode, setConversationId, setMessages, setSuggestedMode, setTeachingSession, setMode, teachingSession, workspaceContext, victorContext]);
 
   const handleSend = async () => {
     await sendMessage(input);
+  };
+
+  const handleStepAttempt = async (attempt: string) => {
+    await sendMessage(attempt);
   };
 
   useEffect(() => {
@@ -163,6 +299,13 @@ export default function VictorChatContainer({
               <Save className="h-3.5 w-3.5" />
               {saving ? "Saving..." : "Save session"}
             </button>
+            <button
+              type="button"
+              onClick={() => setMemoryOpen(true)}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-slate-300 transition hover:bg-white/10"
+            >
+              Memory
+            </button>
           </div>
           {workspaceContext && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-200">
@@ -172,51 +315,60 @@ export default function VictorChatContainer({
         </div>
 
         {suggestedMode && (
-          <div className="mx-4 mt-3 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-            <p>
-              Victor suggests switching to{" "}
-              <span className="font-semibold">{suggestedMode}</span> mode.
-            </p>
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={async () => {
-                  setMode(suggestedMode);
-                  setSuggestedMode(null);
-                  if (conversationId) {
-                    await fetch("/api/victor/mode-switch", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        conversationId,
-                        toMode: suggestedMode,
-                      }),
-                    });
-                  }
-                }}
-                className="rounded-full border border-amber-400/50 bg-amber-500/20 px-3 py-1 text-[11px] transition hover:bg-amber-500/30"
-              >
-                Switch
-              </button>
-              <button
-                type="button"
-                onClick={() => setSuggestedMode(null)}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] transition hover:bg-white/8"
-              >
-                Stay
-              </button>
-            </div>
+          <VictorModeSuggestion
+            suggestedMode={suggestedMode}
+            conversationId={conversationId}
+            setMode={setMode}
+            setSuggestedMode={setSuggestedMode}
+            compact
+          />
+        )}
+        {showProfileSelector && (
+          <div className="mx-4 mt-3">
+            <VictorProfileSelector
+              activeProfile={coachingProfile}
+              onSelect={(profile) => void persistCoachingProfile(profile)}
+              loading={profileSaving}
+            />
+          </div>
+        )}
+        {mirrorNotice && (
+          <div className="mx-4 mt-3 rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-100">
+            {mirrorNotice}
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto px-4 py-4 text-sm">
-          {messages.length === 0 && (
-            <p className="text-sm text-slate-400">
-              Start with your question or assignment prompt.
-            </p>
+          {teachingSession && (
+            <div className="mb-3">
+              <TeachingSessionPanel
+                session={teachingSession}
+                loading={loading}
+                onSubmitAttempt={handleStepAttempt}
+              />
+            </div>
+          )}
+          {recoveryMessage ? (
+          <AcademicEmptyState
+            title="Victor needs more context"
+            description={recoveryMessage}
+            action={
+              workspaceContext?.toLowerCase().includes("paper")
+                ? {
+                    label: "Open paper workflow",
+                    onClick: () => router.push("/academic/paper-workflow"),
+                  }
+                : undefined
+            }
+            className="!min-h-0 border-white/10 bg-black/20"
+          />
+          ) : null}
+          {messages.length === 0 && !recoveryMessage && (
+            <p className="text-sm text-slate-400">Start with your question or assignment prompt.</p>
           )}
           <div className="space-y-3">
             {messages.map((message, index) => (
+              message.role === "assistant" && isTeachingResponse(message.responseType) ? null : (
               <div
                 key={`${message.timestamp}-${index}`}
                 className={`flex ${
@@ -241,12 +393,14 @@ export default function VictorChatContainer({
                   </p>
                 </div>
               </div>
+              )
             ))}
             {loading && (
               <div className="flex justify-start">
-                <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
-                  Victor is thinking...
-                </div>
+                <AcademicLoadingState
+                  message="Victor is thinking..."
+                  className="!min-h-0 px-3 py-2"
+                />
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -255,7 +409,17 @@ export default function VictorChatContainer({
 
         {mode === "study" && showStudyPanel && (
           <div className="px-4 pb-4">
-            <StudyMaterialsPanel />
+            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs text-slate-300">
+              Study workflow has moved to Study Hub.
+              <div className="mt-2">
+                <a
+                  href="/academic/study-hub?tab=library"
+                  className="inline-flex rounded-full border border-sky-400/40 bg-sky-500/15 px-3 py-1 text-[11px] text-sky-200"
+                >
+                  Open Study Hub
+                </a>
+              </div>
+            </div>
           </div>
         )}
 
@@ -269,9 +433,7 @@ export default function VictorChatContainer({
 
         {error && (
           <div className="px-4 pb-3">
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              {error}
-            </p>
+            <AcademicErrorState message={error} className="!min-h-0 py-2" />
           </div>
         )}
 
@@ -301,6 +463,11 @@ export default function VictorChatContainer({
             </button>
           </div>
         </div>
+        <VictorMemoryPanel
+          open={memoryOpen}
+          onClose={() => setMemoryOpen(false)}
+          classNameFilter={victorContext?.className || undefined}
+        />
       </div>
     );
   }
@@ -324,6 +491,13 @@ export default function VictorChatContainer({
           <Save className="h-4 w-4" />
           {saving ? "Saving..." : "Save session"}
         </button>
+        <button
+          type="button"
+          onClick={() => setMemoryOpen(true)}
+          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300 transition hover:border-white/20 hover:bg-white/8"
+        >
+          Memory
+        </button>
       </div>
       {workspaceContext && (
         <p className="mt-3 text-xs text-slate-500">Context: {workspaceContext}</p>
@@ -331,73 +505,94 @@ export default function VictorChatContainer({
 
       {/* Mode suggestion banner */}
       {suggestedMode && (
-        <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          <p>
-            Victor suggests switching to{" "}
-            <span className="font-semibold">{suggestedMode}</span> mode.
-          </p>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={async () => {
-                setMode(suggestedMode);
-                setSuggestedMode(null);
-                if (conversationId) {
-                  await fetch("/api/victor/mode-switch", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      conversationId,
-                      toMode: suggestedMode,
-                    }),
-                  });
-                }
-              }}
-              className="rounded-full border border-amber-400/50 bg-amber-500/20 px-3 py-1 text-xs transition hover:bg-amber-500/30"
-            >
-              Switch
-            </button>
-            <button
-              type="button"
-              onClick={() => setSuggestedMode(null)}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs transition hover:bg-white/8"
-            >
-              Stay
-            </button>
-          </div>
+        <VictorModeSuggestion
+          suggestedMode={suggestedMode}
+          conversationId={conversationId}
+          setMode={setMode}
+          setSuggestedMode={setSuggestedMode}
+        />
+      )}
+      {showProfileSelector && (
+        <div className="mt-4">
+          <VictorProfileSelector
+            activeProfile={coachingProfile}
+            onSelect={(profile) => void persistCoachingProfile(profile)}
+            loading={profileSaving}
+          />
+        </div>
+      )}
+      {mirrorNotice && (
+        <div className="mt-4 rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-[11px] text-emerald-100">
+          {mirrorNotice}
         </div>
       )}
 
       {/* Chat messages */}
       <div className="mt-5 space-y-3 text-sm text-slate-200">
-        {messages.length === 0 && (
-          <p className="text-sm text-slate-400">
-            Start with your question or assignment prompt.
-          </p>
+        {teachingSession && (
+          <TeachingSessionPanel
+            session={teachingSession}
+            loading={loading}
+            onSubmitAttempt={handleStepAttempt}
+          />
         )}
-        {messages.map((message, index) => (
-          <div
-            key={`${message.timestamp}-${index}`}
-            className={`rounded-xl px-4 py-3 ${
-              message.role === "assistant"
-                ? "academic-chat-message-victor"
-                : "academic-chat-message-user"
-            }`}
-          >
-            <span className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
-              {message.role === "assistant" ? "Victor" : "You"}
-            </span>
-            <p className="mt-2 whitespace-pre-wrap leading-relaxed">
-              {message.content}
-            </p>
-          </div>
-        ))}
+        {recoveryMessage ? (
+          <AcademicEmptyState
+            title="Victor needs more context"
+            description={recoveryMessage}
+            action={
+              workspaceContext?.toLowerCase().includes("paper")
+                ? {
+                    label: "Open paper workflow",
+                    onClick: () => router.push("/academic/paper-workflow"),
+                  }
+                : undefined
+            }
+            className="!min-h-0 py-3"
+          />
+        ) : null}
+        {messages.length === 0 && !recoveryMessage && (
+          <AcademicEmptyState
+            title="No messages yet"
+            description="Start with your question or assignment prompt."
+            className="!min-h-0 py-3"
+          />
+        )}
+        {messages.map((message, index) =>
+          message.role === "assistant" && isTeachingResponse(message.responseType) ? null : (
+            <div
+              key={`${message.timestamp}-${index}`}
+              className={`rounded-xl px-4 py-3 ${
+                message.role === "assistant"
+                  ? "academic-chat-message-victor"
+                  : "academic-chat-message-user"
+              }`}
+            >
+              <span className="text-xs font-medium uppercase tracking-[0.2em] text-slate-400">
+                {message.role === "assistant" ? "Victor" : "You"}
+              </span>
+              <p className="mt-2 whitespace-pre-wrap leading-relaxed">
+                {message.content}
+              </p>
+            </div>
+          )
+        )}
       </div>
 
-      {/* Study materials panel */}
+      {/* Study hub shortcut */}
       {mode === "study" && showStudyPanel && (
         <div className="mt-6">
-          <StudyMaterialsPanel />
+          <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            Study workflow has moved to Study Hub.
+            <div className="mt-2">
+              <a
+                href="/academic/study-hub?tab=library"
+                className="inline-flex rounded-full border border-sky-400/40 bg-sky-500/15 px-3 py-1.5 text-xs text-sky-200"
+              >
+                Open Study Hub
+              </a>
+            </div>
+          </div>
         </div>
       )}
 
@@ -410,9 +605,7 @@ export default function VictorChatContainer({
 
       {/* Error display */}
       {error && (
-        <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-          {error}
-        </p>
+        <AcademicErrorState message={error} className="mt-4 !min-h-0 py-3" />
       )}
 
       {/* Input area */}
@@ -435,6 +628,11 @@ export default function VictorChatContainer({
           {loading ? "Sending..." : "Send"}
         </button>
       </div>
+      <VictorMemoryPanel
+        open={memoryOpen}
+        onClose={() => setMemoryOpen(false)}
+        classNameFilter={victorContext?.className || undefined}
+      />
     </div>
   );
 }

@@ -1,38 +1,96 @@
 "use client";
-
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Circle } from "lucide-react";
+import { useRouter } from "next/navigation";
+import shared from "../shared/academic-studio.module.css";
 import type { MathGuidance, MathProblem, MathStep } from "@/types/math-mode";
-import MathProblemInput from "./MathProblemInput";
-import MathStepCanvas from "./MathStepCanvas";
-import MathVictorGuidance from "./MathVictorGuidance";
-import MathGraphPanel from "./MathGraphPanel";
-import MathCalculator from "./MathCalculator";
-import MathProblemHistory from "./MathProblemHistory";
-type MathfieldElement = any;
+import type { VictorHandoffContext, SystemStep } from "@/lib/academic/teachingEngine";
+import MathModeCanvas from "./MathModeCanvas";
+import MathSymbolPalette from "./MathSymbolPalette";
+import MathModeHeader from "./MathModeHeader";
+import { useVictorChat } from "../victor-chat/VictorChatContext";
+import { useMathSession } from "./hooks/useMathSession";
+import { useMathVerification } from "./hooks/useMathVerification";
+import type { MathfieldElement } from "./mathfield";
 
-export default function MathModeContainer({ onExit }: { onExit: () => void }) {
+export default function MathModeContainer({
+  initialProblemId = null,
+  setContextId = null,
+  autoSetDebrief = false,
+}: {
+  initialProblemId?: string | null;
+  setContextId?: string | null;
+  autoSetDebrief?: boolean;
+}) {
+  const router = useRouter();
+  type MathTriggerReason =
+    | "repeated_error"
+    | "low_mastery"
+    | "session_struggle"
+    | "session_complete_errors"
+    | "manual_request";
+  const {
+    setMode,
+    conversationId,
+    setConversationId,
+    setMessages,
+    coachingProfile,
+  } = useVictorChat();
   const [currentProblem, setCurrentProblem] = useState<MathProblem | null>(null);
   const [problems, setProblems] = useState<MathProblem[]>([]);
   const [steps, setSteps] = useState<MathStep[]>([]);
   const [guidance, setGuidance] = useState<MathGuidance[]>([]);
   const [problemLatex, setProblemLatex] = useState("");
-  const [isVerifying, setIsVerifying] = useState(false);
-  const [mathTrack, setMathTrack] = useState<
-    "general" | "algebra" | "calculus" | "statistics"
-  >("general");
-  const [activeTool, setActiveTool] = useState<
-    "none" | "guidance" | "graph" | "calculator" | "history"
-  >("none");
-  const [showTools, setShowTools] = useState(false);
-  const [graphSource, setGraphSource] = useState<
-    "problem" | "latest_step" | "custom"
-  >("problem");
+  const [mathTrack, setMathTrack] =
+    useState<"general" | "algebra" | "calculus" | "statistics">("general");
+  const [activeToolPanel, setActiveToolPanel] =
+    useState<"graph" | "calculator" | "history" | "guidance" | null>(null);
+  const [isTeacherCollapsed, setIsTeacherCollapsed] = useState(true);
+  const [graphSource, setGraphSource] = useState<"problem" | "latest_step" | "custom">(
+    "problem"
+  );
   const [customGraphExpression, setCustomGraphExpression] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [teachingSessionId, setTeachingSessionId] = useState<string | null>(null);
+  const [teachingSteps, setTeachingSteps] = useState<SystemStep[]>([]);
+  const [teachingCurrentStepIndex, setTeachingCurrentStepIndex] = useState(0);
+  const [teachingLoading, setTeachingLoading] = useState(false);
+  const [setContextTitle, setSetContextTitle] = useState<string | null>(null);
+  const initialProblemLoadedRef = useRef(false);
+  const autoSetDebriefFiredRef = useRef(false);
+  const activeMathFieldRef = useRef<MathfieldElement | null>(null);
+  const [hasActiveMathField, setHasActiveMathField] = useState(false);
+  const [paletteAnchor, setPaletteAnchor] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+  const clearFieldTimerRef = useRef<number | null>(null);
   const missingStepIdsRef = useRef<Set<string>>(new Set());
-  const handleActiveField = (_field: MathfieldElement | null) => {};
-
+  const handleActiveField = (field: MathfieldElement | null) => {
+    if (field) {
+      if (clearFieldTimerRef.current) {
+        window.clearTimeout(clearFieldTimerRef.current);
+        clearFieldTimerRef.current = null;
+      }
+      activeMathFieldRef.current = field;
+      setHasActiveMathField(true);
+      if (typeof field.getBoundingClientRect === "function") {
+        const rect = field.getBoundingClientRect();
+        setPaletteAnchor({ top: rect.bottom, left: rect.left, width: rect.width });
+      }
+      return;
+    }
+    if (clearFieldTimerRef.current) {
+      window.clearTimeout(clearFieldTimerRef.current);
+    }
+    clearFieldTimerRef.current = window.setTimeout(() => {
+      activeMathFieldRef.current = null;
+      setHasActiveMathField(false);
+      setPaletteAnchor(null);
+      clearFieldTimerRef.current = null;
+    }, 220);
+  };
   const graphExpression = useMemo(() => {
     const latestStep = [...steps]
       .reverse()
@@ -42,537 +100,633 @@ export default function MathModeContainer({ onExit }: { onExit: () => void }) {
     return currentProblem?.graph_expression || problemLatex || "";
   }, [currentProblem, customGraphExpression, graphSource, problemLatex, steps]);
   const hasProblem = Boolean(currentProblem);
-  const hasSteps = steps.length > 0;
-  const normalizeStepText = (value: string) =>
-    value.replace(/\s+/g, " ").trim().toLowerCase();
-
-  useEffect(() => {
-    let active = true;
-
-    const loadProblems = async () => {
-      try {
-        const response = await fetch("/api/math/problem/list");
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data?.error || "Unable to load problem history.");
-        }
-        if (active) {
-          setProblems(Array.isArray(data?.problems) ? data.problems : []);
-        }
-      } catch (error) {
-        if (!active) return;
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : "Unable to load problem history."
-        );
-      }
-    };
-
-    loadProblems();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const handleStartProblem = async () => {
-    if (!problemLatex.trim()) return;
-    setErrorMessage(null);
-    try {
-      const response = await fetch("/api/math/problem/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          latex: problemLatex,
-          graph_visible: true,
-          graph_expression: problemLatex,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || "Unable to create problem.");
-      }
-      setCurrentProblem(data.problem);
-      setProblems((prev) => [data.problem, ...prev.filter((p) => p.id !== data.problem.id)]);
-      setSteps([]);
-      setGuidance([]);
-      if (!customGraphExpression.trim()) {
-        setCustomGraphExpression(problemLatex);
-      }
-      missingStepIdsRef.current.clear();
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Unable to create problem."
-      );
-    }
-  };
-
-  const handleAddStep = async () => {
-    if (!currentProblem) return;
-    const lastStep = steps[steps.length - 1];
-    if (lastStep && !lastStep.latex.trim() && !(lastStep.reasoning || "").trim()) {
-      setErrorMessage(
-        "Finish the current blank step before adding another one."
-      );
-      return;
-    }
-    setErrorMessage(null);
-    try {
-      const response = await fetch("/api/math/step/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          problem_id: currentProblem.id,
-          latex: "",
-          step_number: steps.length + 1,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || "Unable to create step.");
-      }
-      missingStepIdsRef.current.delete(data.step.id);
-      setSteps((prev) => [...prev, data.step]);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Unable to create step."
-      );
-    }
-  };
-
-  const handleUpdateStep = async (id: string, latex: string, reasoning?: string) => {
-    setSteps((prev) =>
-      prev.map((step) => (step.id === id ? { ...step, latex, reasoning } : step))
+  const syncTeachingProgressFromSteps = (nextSteps: MathStep[]) => {
+    if (teachingSteps.length === 0) return;
+    const meaningfulSteps = nextSteps.filter(
+      (step) => Boolean(step.latex.trim()) || Boolean((step.reasoning || "").trim())
     );
-    if (missingStepIdsRef.current.has(id)) return;
-    try {
-      const response = await fetch(`/api/math/step/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ latex, reasoning }),
-      });
-      if (!response.ok && response.status === 404) {
-        missingStepIdsRef.current.add(id);
-        setErrorMessage(
-          "Autosave lost sync after a server refresh. Add a new step to continue autosave."
-        );
+
+    if (meaningfulSteps.length === 0) {
+      setTeachingSteps((prev) =>
+        prev.map((entry, index) => ({ ...entry, revealed: index === 0 }))
+      );
+      setTeachingCurrentStepIndex(0);
+      return;
+    }
+
+    const firstAttentionIndex = meaningfulSteps.findIndex(
+      (step) =>
+        step.status === "unchecked" ||
+        step.status === "needs_recheck" ||
+        step.status === "incorrect" ||
+        step.status === "error" ||
+        step.status === "partial"
+    );
+
+    const rawTargetIndex =
+      firstAttentionIndex >= 0 ? firstAttentionIndex : meaningfulSteps.length;
+    const targetIndex = Math.min(
+      Math.max(0, rawTargetIndex),
+      teachingSteps.length - 1
+    );
+
+    setTeachingSteps((prev) =>
+      prev.map((entry, index) =>
+        index <= targetIndex ? { ...entry, revealed: true } : entry
+      )
+    );
+    setTeachingCurrentStepIndex(targetIndex);
+  };
+  const handleInsertSymbol = (symbol: string) => {
+    const activeMathField = activeMathFieldRef.current;
+    if (!activeMathField) return;
+    if (symbol === "⌫") {
+      if (typeof activeMathField.executeCommand === "function") {
+        activeMathField.executeCommand("deleteBackward");
+      } else if (typeof activeMathField.keystroke === "function") {
+        activeMathField.keystroke("Backspace");
       }
-    } catch {
-      // Preserve local edits even if background persistence fails.
-    }
-  };
-
-  const handleDeleteStep = async (id: string) => {
-    setSteps((prev) => prev.filter((step) => step.id !== id));
-    missingStepIdsRef.current.delete(id);
-    try {
-      await fetch(`/api/math/step/${id}`, { method: "DELETE" });
-    } catch {
-      // Keep UI responsive if delete persistence fails.
-    }
-  };
-
-  const handleVerifyStep = async (id: string) => {
-    const step = steps.find((entry) => entry.id === id);
-    if (!currentProblem || !step) return;
-    if (!step.latex.trim()) {
-      setErrorMessage("Write the math expression for this step before verifying.");
+      activeMathField.focus?.();
       return;
     }
-    const currentIndex = steps.findIndex((entry) => entry.id === id);
-    const normalizedLatex = normalizeStepText(step.latex);
-    const duplicate = steps.some((entry, index) => {
-      if (index === currentIndex) return false;
-      if (index > currentIndex) return false;
-      return normalizeStepText(entry.latex) === normalizedLatex;
+    if (symbol === "←") {
+      if (typeof activeMathField.executeCommand === "function") {
+        activeMathField.executeCommand("moveToPreviousChar");
+      } else if (typeof activeMathField.keystroke === "function") {
+        activeMathField.keystroke("Left");
+      }
+      activeMathField.focus?.();
+      return;
+    }
+    if (symbol === "→") {
+      if (typeof activeMathField.executeCommand === "function") {
+        activeMathField.executeCommand("moveToNextChar");
+      } else if (typeof activeMathField.keystroke === "function") {
+        activeMathField.keystroke("Right");
+      }
+      activeMathField.focus?.();
+      return;
+    }
+    if (typeof activeMathField.insert === "function") {
+      activeMathField.insert(symbol);
+      activeMathField.focus?.();
+    }
+  };
+  const sendVictorIntervention = async (
+    context: VictorHandoffContext,
+    reasonLabel: string
+  ) => {
+    const prompt = `I need help at Step ${context.struggleStep.stepNumber}: ${context.struggleStep.title}.`;
+    const triggerReason: MathTriggerReason =
+      context.interventionReason === "button"
+        ? "manual_request"
+        : "session_struggle";
+    setActiveToolPanel(null);
+    setMode("teaching");
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: prompt,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    const response = await fetch("/api/victor/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: conversationId || undefined,
+        mode: "teaching",
+        message: prompt,
+        workspaceContext: `Math Mode · ${reasonLabel}`,
+        mathTriggerReason: triggerReason,
+        victorHandoffContext: context,
+        coachingProfile,
+      }),
     });
-    if (duplicate) {
-      setSteps((prev) =>
-        prev.map((entry) =>
-          entry.id === id
-            ? {
-                ...entry,
-                status: "error",
-                error_type: "procedural",
-                feedback:
-                  "This repeats an earlier step. Move the equation forward with a new transformation.",
-              }
-            : entry
-        )
-      );
-      setErrorMessage(
-        "That step matches an earlier step. Apply the next transformation instead of repeating."
-      );
-      return;
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error || "Victor intervention failed.");
     }
-    setErrorMessage(null);
+    if (data?.conversationId) {
+      setConversationId(data.conversationId);
+    }
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: data.reply || "Victor intervention started.",
+        timestamp: new Date().toISOString(),
+        responseType: data.responseType,
+      },
+    ]);
+  };
+
+  const sendVictorTriggerIntervention = async (
+    prompt: string,
+    reasonLabel: string,
+    triggerReason?: MathTriggerReason
+  ) => {
+    setIsTeacherCollapsed(false);
+    setActiveToolPanel(null);
+    setMode("teaching");
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        content: prompt,
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    const response = await fetch("/api/victor/message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: conversationId || undefined,
+        mode: "teaching",
+        message: prompt,
+        workspaceContext: `Math Mode · ${reasonLabel}`,
+        mathTriggerReason: triggerReason,
+        coachingProfile,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data?.error || "Victor trigger intervention failed.");
+    }
+    if (data?.conversationId) {
+      setConversationId(data.conversationId);
+    }
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        content: data.reply || "Victor jumped in to help.",
+        timestamp: new Date().toISOString(),
+        responseType: data.responseType,
+      },
+    ]);
+  };
+
+  const startTeachingSession = async (
+    content: string,
+    existingSteps: MathStep[] = []
+  ) => {
+    if (!content.trim()) return;
+    setTeachingLoading(true);
     try {
-      const response = await fetch("/api/math/step/verify", {
+      const response = await fetch("/api/academic/teaching/decompose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          problem: currentProblem,
-          step,
-          steps,
+          content,
+          subject: "math",
+          workspaceContext: "math",
         }),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data?.error || "Unable to verify step.");
+        throw new Error(data?.error || "Unable to start step-by-step guidance.");
       }
-      setSteps((prev) =>
-        prev.map((entry) =>
-          entry.id === id
-            ? {
-                ...entry,
-                status: data.result.status,
-                error_type: data.result.error_type,
-                feedback: data.result.feedback,
-              }
-            : entry
+      const nextTeachingSteps = Array.isArray(data.steps) ? data.steps : [];
+      setTeachingSessionId(data.sessionId || null);
+
+      const meaningfulExisting = existingSteps.filter(
+        (step) => Boolean(step.latex.trim()) || Boolean((step.reasoning || "").trim())
+      );
+      const firstAttentionIndex = meaningfulExisting.findIndex(
+        (step) =>
+          step.status === "unchecked" ||
+          step.status === "needs_recheck" ||
+          step.status === "incorrect" ||
+          step.status === "error" ||
+          step.status === "partial"
+      );
+      const initialIndexRaw =
+        meaningfulExisting.length === 0
+          ? 0
+          : firstAttentionIndex >= 0
+          ? firstAttentionIndex
+          : meaningfulExisting.length;
+      const initialIndex = Math.max(
+        0,
+        Math.min(initialIndexRaw, Math.max(0, nextTeachingSteps.length - 1))
+      );
+
+      setTeachingSteps(
+        nextTeachingSteps.map((step: SystemStep, index: number) =>
+          index <= initialIndex ? { ...step, revealed: true } : step
         )
       );
-      if (data.guidance) {
-        setGuidance((prev) => [...prev, data.guidance]);
-      }
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Unable to verify step."
-      );
-    }
-  };
-
-  const handleVerifyAll = async () => {
-    if (!currentProblem || steps.length === 0) return;
-    const hasEmptyStep = steps.some((entry) => !entry.latex.trim());
-    if (hasEmptyStep) {
-      setErrorMessage("Complete all step expressions before running Verify all.");
-      return;
-    }
-    setIsVerifying(true);
-    setErrorMessage(null);
-    try {
-      const response = await fetch("/api/math/verify-all", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ problem: currentProblem, steps }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || "Unable to verify all steps.");
-      }
-      setSteps((prev) =>
-        prev.map((entry) => {
-          const result = data.results.find((item: { step_id: string }) => item.step_id === entry.id);
-          return result
-            ? {
-                ...entry,
-                status: result.status,
-                error_type: result.error_type,
-                feedback: result.feedback,
-              }
-            : entry;
-        })
-      );
-      if (data.guidance) {
-        setGuidance((prev) => [...prev, data.guidance]);
-      }
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Unable to verify all steps."
-      );
-    } finally {
-      setIsVerifying(false);
-    }
-  };
-
-  const handleSelectProblem = async (id: string) => {
-    setErrorMessage(null);
-    try {
-      const response = await fetch(`/api/math/problem/${id}`);
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data?.error || "Unable to load selected problem.");
-      }
-      setCurrentProblem(data.problem);
-      setSteps(data.steps || []);
-      setGuidance(data.guidance || []);
-      setProblemLatex(data.problem?.latex || "");
-      setShowHistory(false);
-      missingStepIdsRef.current.clear();
+      setTeachingCurrentStepIndex(initialIndex);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : "Unable to load selected problem."
+          : "Unable to start step-by-step guidance."
       );
+    } finally {
+      setTeachingLoading(false);
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (clearFieldTimerRef.current) {
+        window.clearTimeout(clearFieldTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const activeMathField = activeMathFieldRef.current;
+    if (!hasActiveMathField || !activeMathField || typeof activeMathField.getBoundingClientRect !== "function") {
+      return;
+    }
+    const syncPaletteAnchor = () => {
+      const rect = activeMathField.getBoundingClientRect();
+      setPaletteAnchor({ top: rect.bottom, left: rect.left, width: rect.width });
+    };
+    syncPaletteAnchor();
+    window.addEventListener("resize", syncPaletteAnchor);
+    window.addEventListener("scroll", syncPaletteAnchor, true);
+    return () => {
+      window.removeEventListener("resize", syncPaletteAnchor);
+      window.removeEventListener("scroll", syncPaletteAnchor, true);
+    };
+  }, [hasActiveMathField]);
+
+  useEffect(() => {
+    if (!successMessage) return;
+    const timer = window.setTimeout(() => setSuccessMessage(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [successMessage]);
+
+  useEffect(() => {
+    let active = true;
+    const loadSetContext = async () => {
+      if (!setContextId) {
+        setSetContextTitle(null);
+        return;
+      }
+      try {
+        const response = await fetch("/api/math/problem-set");
+        const data = await response.json();
+        if (!response.ok) return;
+        const sets = Array.isArray(data?.sets) ? data.sets : [];
+        const found = sets.find((entry: { id: string }) => entry.id === setContextId);
+        if (active) {
+          setSetContextTitle(found?.title || null);
+        }
+      } catch {
+        if (active) {
+          setSetContextTitle(null);
+        }
+      }
+    };
+    void loadSetContext();
+    return () => {
+      active = false;
+    };
+  }, [setContextId]);
+
+  const {
+    handleStartProblem,
+    handleAddStep,
+    handleUpdateStep,
+    handleDeleteStep,
+    handleUndoLastStep,
+    handleRevertToLastVerified,
+    handleFlagStepForReview,
+    handleSelectProblem,
+    handleCompleteSession,
+    handleGeneratePracticeFromSummary,
+    handleStartGeneratedPractice,
+    isGeneratingPractice,
+    sessionState,
+    sessionSummary,
+    generatedPracticeOptions,
+  } = useMathSession({
+    currentProblem,
+    steps,
+    problemLatex,
+    customGraphExpression,
+    missingStepIdsRef,
+    setCurrentProblem,
+    setProblemLatex,
+    setProblems,
+    setSteps,
+    setGuidance,
+    setCustomGraphExpression,
+    setErrorMessage,
+    setSuccessMessage,
+    syncTeachingProgressFromSteps,
+    startTeachingSession,
+  });
+
+  const {
+    isVerifying,
+    verifyingStepId,
+    handleVerifyStep,
+    handleVerifyAll,
+    handleRequestHint,
+  } = useMathVerification({
+    currentProblem,
+    steps,
+    teachingSessionId,
+    setSteps,
+    setGuidance,
+    setErrorMessage,
+    syncTeachingProgressFromSteps,
+    onProblemRefreshed: (problem) => {
+      setCurrentProblem(problem);
+      setProblems((prev) => {
+        const next = prev.filter((entry) => entry.id !== problem.id);
+        return [problem, ...next];
+      });
+    },
+    onVictorTrigger: async (trigger) => {
+      await sendVictorTriggerIntervention(
+        trigger.message,
+        `Trigger: ${trigger.reason}`,
+        trigger.reason
+      );
+    },
+    onHintReceived: () => {
+      setIsTeacherCollapsed(false);
+      setActiveToolPanel("guidance");
+    },
+    onIncorrectVerified: () => {
+      setIsTeacherCollapsed(false);
+      setActiveToolPanel("guidance");
+    },
+  });
+
+  const handleTeachingNextStep = (stepNumber: number) => {
+    const requestedIndex = stepNumber - 1;
+    const targetIndex = Math.max(
+      0,
+      Math.min(requestedIndex, Math.max(0, teachingSteps.length - 1))
+    );
+    setTeachingSteps((prev) => prev.map((step, index) => (index <= targetIndex ? { ...step, revealed: true } : step)));
+    setTeachingCurrentStepIndex(targetIndex);
+  };
+
+  const classifyTeachingAttempt = (
+    rawAttempt: string
+  ): "correct" | "partial" | "wrong" | "skipped" => {
+    const normalized = rawAttempt.trim();
+    if (!normalized) return "skipped";
+
+    const lower = normalized.toLowerCase();
+    if (
+      /(i\s*(don'?t|do not)\s*know|idk|unsure|not sure|confused|stuck|help)/.test(
+        lower
+      )
+    ) {
+      return "wrong";
+    }
+
+    return "partial";
+  };
+
+  const handleTeachingAttempt = async (stepNumber: number, attempt: string) => {
+    if (!teachingSessionId) return;
+    setTeachingLoading(true);
+    try {
+      const inferredResult = classifyTeachingAttempt(attempt);
+      const response = await fetch("/api/academic/teaching/attempt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: teachingSessionId,
+          stepNumber,
+          attempt,
+          result: inferredResult,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Unable to record step attempt.");
+      }
+      if (Array.isArray(data?.steps)) {
+        setTeachingSteps(data.steps);
+      }
+      if (typeof data?.currentStepIndex === "number") {
+        setTeachingCurrentStepIndex(data.currentStepIndex);
+      }
+      if (data?.struggleDetected && data?.victorHandoffContext) {
+        await sendVictorIntervention(
+          data.victorHandoffContext,
+          "Auto intervention"
+        );
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to record step attempt."
+      );
+    } finally {
+      setTeachingLoading(false);
+    }
+  };
+
+  const handleTeachingHelp = async (stepNumber: number) => {
+    if (!teachingSessionId) return;
+    setIsTeacherCollapsed(false);
+    setTeachingLoading(true);
+    try {
+      const response = await fetch("/api/academic/teaching/handoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: teachingSessionId,
+          stepNumber,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || "Unable to request Victor handoff.");
+      }
+      if (data?.victorHandoffContext) {
+        await sendVictorIntervention(
+          data.victorHandoffContext,
+          "Manual intervention"
+        );
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Unable to request Victor handoff."
+      );
+    } finally {
+      setTeachingLoading(false);
+    }
+  };
+
+  const handleAskVictorStep = async (step: MathStep, stepNumber: number) => {
+    const summary = step.latex?.trim() || "current transformation";
+    await sendVictorTriggerIntervention(
+      `I need help with step ${stepNumber}: ${summary}.`,
+      "Manual request",
+      "manual_request"
+    );
+  };
+
+  const handleVictorDebrief = async (variant: "error" | "clean") => {
+    const meaningfulSteps = steps.filter((step) => step.latex.trim().length > 0);
+    const revisedStep = meaningfulSteps.find(
+      (step) =>
+        step.status === "incorrect" ||
+        step.status === "error" ||
+        step.status === "partial"
+    );
+    const opening =
+      variant === "error"
+        ? `Good work finishing that. I noticed the revision on step ${
+            revisedStep?.step_number ?? "N"
+          } — that was a ${currentProblem?.problem_type || "math"} issue. Want to talk through why that transformation works the way it does?`
+        : `Solid solve — you handled ${currentProblem?.problem_type || "this concept"} well. Want to push it? I can walk you through a variation with one more layer.`;
+
+    await sendVictorTriggerIntervention(
+      opening,
+      variant === "error" ? "Completion debrief with revisions" : "Completion debrief clean solve",
+      "manual_request"
+    );
+  };
+
+  useEffect(() => {
+    if (!autoSetDebrief || autoSetDebriefFiredRef.current) return;
+    if (!currentProblem) return;
+    autoSetDebriefFiredRef.current = true;
+    const meaningfulSteps = steps.filter((step) => step.latex.trim().length > 0);
+    const hasRevisions = meaningfulSteps.some(
+      (step) =>
+        step.status === "incorrect" ||
+        step.status === "error" ||
+        step.status === "partial"
+    );
+    void sendVictorTriggerIntervention(
+      hasRevisions
+        ? `Let's review the full worksheet pattern. Focus on the revision trend around ${
+            currentProblem.problem_type || "math reasoning"
+          } and compare problem transitions.`
+        : `Let's do a set-level debrief. I solved the worksheet cleanly and want a harder extension across ${currentProblem.problem_type || "these concepts"}.`,
+      "Set-level debrief",
+      "manual_request"
+    );
+  }, [autoSetDebrief, currentProblem, sendVictorTriggerIntervention, steps]);
+
+  const handleToggleTeacherCollapse = () => {
+    setIsTeacherCollapsed((prev) => {
+      const next = !prev;
+      if (prev) {
+        setActiveToolPanel(null);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (!initialProblemId || initialProblemLoadedRef.current) return;
+    if (problems.length === 0) return;
+    initialProblemLoadedRef.current = true;
+    void handleSelectProblem(initialProblemId);
+  }, [handleSelectProblem, initialProblemId, problems.length]);
+
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950/70">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold text-white">Math Mode</p>
-          <p className="text-xs text-slate-400">
-            Worksheet + tools. Keep all steps explicit.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={mathTrack}
-            onChange={(event) =>
-              setMathTrack(
-                event.target.value as
-                  | "general"
-                  | "algebra"
-                  | "calculus"
-                  | "statistics"
-              )
-            }
-            className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-slate-200"
-          >
-            <option value="general">General</option>
-            <option value="algebra">Algebra</option>
-            <option value="calculus">Calculus</option>
-            <option value="statistics">Statistics</option>
-          </select>
-          <button
-            type="button"
-            onClick={onExit}
-            className="rounded-lg border border-red-400/40 bg-red-500/15 px-3 py-1.5 text-xs text-red-200 transition hover:bg-red-500/25"
-          >
-            Exit
-          </button>
-        </div>
-      </div>
-
-      <div className="border-b border-white/10 px-4 py-2">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
-            Mode: {mathTrack}
-          </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
-            {hasProblem ? "Problem set" : "No problem yet"}
-          </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
-            {steps.length} step{steps.length === 1 ? "" : "s"}
-          </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300">
-            {steps.some((step) => step.status !== "unchecked")
-              ? "Verification started"
-              : "Not verified yet"}
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setShowTools((prev) => !prev);
-              if (!showTools && activeTool === "none") {
-                setActiveTool("guidance");
-              }
-            }}
-            className="ml-auto rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
-          >
-            {showTools ? "Hide tools" : "Show tools"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowTools(true);
-              setActiveTool("guidance");
-            }}
-            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
-          >
-            Guidance
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowTools(true);
-              setActiveTool("graph");
-            }}
-            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
-          >
-            Graph
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowTools(true);
-              setActiveTool("calculator");
-            }}
-            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
-          >
-            Calculator
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setShowTools(true);
-              setActiveTool("history");
-            }}
-            className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-slate-300 transition hover:bg-white/[0.08]"
-          >
-            History
-          </button>
-        </div>
-      </div>
-
+    <div className={`${shared.root} ${shared.page} ${shared.surfacePanel} !p-0 flex h-full min-h-0 flex-col overflow-hidden`}>
+      <MathModeHeader
+        hasProblem={hasProblem}
+        stepCount={steps.length}
+        mathTrack={mathTrack}
+        onTrackChange={setMathTrack}
+        breadcrumbLabel={
+          setContextTitle && currentProblem?.set_order
+            ? `${setContextTitle} -> Problem ${currentProblem.set_order}`
+            : null
+        }
+        onBreadcrumbClick={
+          setContextId ? () => router.push(`/academic/math-mode/set/${setContextId}`) : undefined
+        }
+      />
       {errorMessage && (
-        <div className="mx-4 mt-3 rounded-xl border border-rose-400/40 bg-rose-500/15 px-4 py-3 text-sm text-rose-100">
+        <div className={`${shared.surfacePanelCompact} mx-4 mt-3 text-sm text-rose-100`}>
           {errorMessage}
         </div>
       )}
-
-      <div
-        className={`grid min-h-0 flex-1 gap-3 p-3 ${
-          showTools && activeTool !== "none"
-            ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px]"
-            : "grid-cols-1"
-        }`}
-      >
-        <div className="flex min-h-0 flex-col gap-3 overflow-hidden">
-          {!hasProblem && !hasSteps && (
-            <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-black/10 text-center">
-              <div>
-                <p className="text-sm text-slate-300">Blank worksheet</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Enter a math problem in the dock below to begin.
-                </p>
-              </div>
-            </div>
-          )}
-          {(hasProblem || hasSteps) && (
-            <MathStepCanvas
-              steps={steps}
-              onAddStep={handleAddStep}
-              onVerifyAll={handleVerifyAll}
-              onVerifyStep={handleVerifyStep}
-              onUpdateStep={handleUpdateStep}
-              onDeleteStep={handleDeleteStep}
-              onActiveFieldChange={handleActiveField}
-              isVerifying={isVerifying}
-            />
-          )}
+      {successMessage && (
+        <div className={`${shared.surfacePanelCompact} mx-4 mt-3 text-sm text-emerald-100`}>
+          {successMessage}
         </div>
-
-        {showTools && activeTool !== "none" && (
-          <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
-          <div className="border-b border-white/10 px-3 py-2">
-            <div className="grid grid-cols-4 gap-1 text-[11px]">
-              {[
-                { id: "guidance", label: "Guidance" },
-                { id: "graph", label: "Graph" },
-                { id: "calculator", label: "Calculator" },
-                { id: "history", label: "History" },
-              ].map((tool) => (
-                <button
-                  key={tool.id}
-                  type="button"
-                  onClick={() =>
-                    setActiveTool(
-                      tool.id as "guidance" | "graph" | "calculator" | "history"
-                    )
-                  }
-                  className={`rounded-md border px-2 py-1 transition ${
-                    activeTool === tool.id
-                      ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
-                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.08]"
-                  }`}
-                >
-                  {tool.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {activeTool === "guidance" && (
-              <MathVictorGuidance guidance={guidance} steps={steps} />
-            )}
-
-            {activeTool === "graph" && (
-              <div className="space-y-2">
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                    Graph source
-                  </p>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setGraphSource("problem")}
-                      className={`rounded-md border px-2 py-1 ${
-                        graphSource === "problem"
-                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
-                          : "border-white/10 bg-white/[0.03] text-slate-300"
-                      }`}
-                    >
-                      Problem
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setGraphSource("latest_step")}
-                      className={`rounded-md border px-2 py-1 ${
-                        graphSource === "latest_step"
-                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
-                          : "border-white/10 bg-white/[0.03] text-slate-300"
-                      }`}
-                    >
-                      Latest step
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setGraphSource("custom")}
-                      className={`rounded-md border px-2 py-1 ${
-                        graphSource === "custom"
-                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
-                          : "border-white/10 bg-white/[0.03] text-slate-300"
-                      }`}
-                    >
-                      Custom
-                    </button>
-                  </div>
-                  {graphSource === "custom" && (
-                    <input
-                      value={customGraphExpression}
-                      onChange={(event) =>
-                        setCustomGraphExpression(event.target.value)
-                      }
-                      placeholder="e.g., x^2 + 3*x - 4"
-                      className="mt-2 w-full rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-100"
-                    />
-                  )}
-                </div>
-                <MathGraphPanel
-                  expression={graphExpression}
-                  visible
-                  onToggle={() => null}
-                  showToggle={false}
-                />
-              </div>
-            )}
-
-            {activeTool === "calculator" && (
-              <MathCalculator visible onToggle={() => null} showToggle={false} />
-            )}
-
-            {activeTool === "history" && (
-              <MathProblemHistory problems={problems} onSelect={handleSelectProblem} />
-            )}
-          </div>
-        </div>
-        )}
-      </div>
-
-      <div className="border-t border-white/10 p-3">
-        <MathProblemInput
-          latex={problemLatex}
-          onLatexChange={setProblemLatex}
-          onStart={handleStartProblem}
+      )}
+      <div className="min-h-0 flex-1 p-3">
+        <MathModeCanvas
+          isTeacherCollapsed={isTeacherCollapsed}
+          problemLatex={problemLatex}
+          currentProblem={currentProblem}
+          steps={steps}
+          guidance={guidance}
+          isVerifying={isVerifying}
+          onStepChange={handleUpdateStep}
+          onAddStep={handleAddStep}
+          onDeleteStep={handleDeleteStep}
+          onUndoLastStep={handleUndoLastStep}
+          onRevertToLastVerified={handleRevertToLastVerified}
+          onFlagForReview={handleFlagStepForReview}
+          onVerifyStep={handleVerifyStep}
+          verifyingStepId={verifyingStepId}
+          onVerifyAll={handleVerifyAll}
+          onRequestHint={handleRequestHint}
+          onAskVictorStep={handleAskVictorStep}
+          onMarkFinalAnswer={handleCompleteSession}
+          onStartProblem={handleStartProblem}
           onActiveFieldChange={handleActiveField}
-          variant="dock"
+          onProblemChange={setProblemLatex}
+          teachingSteps={teachingSteps}
+          currentTeachingStepIndex={teachingCurrentStepIndex}
+          onTeachingNextStep={handleTeachingNextStep}
+          onTeachingAttempt={handleTeachingAttempt}
+          onTeachingHint={(stepNumber) => {
+            setIsTeacherCollapsed(false);
+            setActiveToolPanel("guidance");
+            void handleRequestHint(stepNumber);
+          }}
+          onTeachingHelp={handleTeachingHelp}
+          teachingLoading={teachingLoading}
+          activeToolPanel={activeToolPanel}
+          onToolSelect={(tool) => {
+            setIsTeacherCollapsed(false);
+            setActiveToolPanel(tool);
+          }}
+          graphExpression={graphExpression}
+          graphSource={graphSource}
+          customGraphExpression={customGraphExpression}
+          onGraphSourceChange={setGraphSource}
+          onCustomGraphExpressionChange={setCustomGraphExpression}
+          problems={problems}
+          onSelectProblem={handleSelectProblem}
+          isGeneratingPractice={isGeneratingPractice}
+          onGenerateCompletionPractice={handleGeneratePracticeFromSummary}
+          generatedPracticeOptions={generatedPracticeOptions}
+          onStartGeneratedPractice={handleStartGeneratedPractice}
+          onToggleTeacherCollapse={handleToggleTeacherCollapse}
+          sessionState={sessionState}
+          summary={sessionSummary}
+          onVictorDebrief={handleVictorDebrief}
+          showBackToWorksheet={Boolean(currentProblem?.problem_set_id)}
+          onBackToWorksheet={
+            currentProblem?.problem_set_id
+              ? () => router.push(`/academic/math-mode/set/${currentProblem.problem_set_id}`)
+              : undefined
+          }
         />
       </div>
+      {paletteAnchor && (
+        <MathSymbolPalette
+          onInsert={handleInsertSymbol}
+          variant="dock"
+          floatingAnchor={paletteAnchor}
+        />
+      )}
     </div>
   );
 }

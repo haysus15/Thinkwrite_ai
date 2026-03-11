@@ -492,7 +492,7 @@ export default function MirrorModeLanding() {
                   </li>
                   <li className="flex gap-3 items-start">
                     <span className="text-[#C0C0C0] text-lg">▸</span>
-                    <span>Confidence markers (hedging vs authority)</span>
+                    <span>Voice strength markers (hedging vs authority)</span>
                   </li>
                   <li className="flex gap-3 items-start">
                     <span className="text-[#C0C0C0] text-lg">▸</span>
@@ -508,10 +508,10 @@ export default function MirrorModeLanding() {
               <div className="bg-white/[0.02] border border-[#C0C0C0]/20 rounded-2xl p-6 shadow-xl">
                 <h3 className="text-lg font-['Orbitron'] font-semibold text-white mb-3 flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-[#C0C0C0]" />
-                  Ursie's Rules (Preview)
+                  Ursie Rules (Preview)
                 </h3>
                 <p className="text-sm text-white/70 mb-6">
-                  Ursie doesn't do fluff. She pushes for precision and consistency 
+                  Ursie does not do fluff. She pushes for precision and consistency 
                   so the AI can mirror you cleanly.
                 </p>
 

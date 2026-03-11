@@ -46,7 +46,8 @@ export default function AcademicStudioTour({
       .select("academic_tour_completed_at")
       .eq("user_id", user.id)
       .maybeSingle()
-      .then(({ data }) => {
+      .then((result: { data: { academic_tour_completed_at?: string | null } | null }) => {
+        const { data } = result;
         if (!isMounted) return;
         if (data?.academic_tour_completed_at) {
           localStorage.setItem("academic-tour-dismissed", "true");
@@ -60,7 +61,7 @@ export default function AcademicStudioTour({
     return () => {
       isMounted = false;
     };
-  }, [isFirstTime, user?.id, supabase]);
+  }, [isFirstTime, user, user?.id, supabase]);
 
   const handleDismiss = () => {
     localStorage.setItem("academic-tour-dismissed", "true");
@@ -133,7 +134,7 @@ export default function AcademicStudioTour({
               <div className={styles.toolDesc}>Outline → Generate → Checkpoint</div>
             </div>
             <div className={styles.toolCard}>
-              <div className={styles.toolTitle}>Study Materials</div>
+              <div className={styles.toolTitle}>Study Hub</div>
               <div className={styles.toolDesc}>Upload guides and build quizzes</div>
             </div>
             <div className={styles.toolCard}>
@@ -159,13 +160,13 @@ export default function AcademicStudioTour({
             <div className={styles.processStep}>
               <div className={styles.processNumber}>V</div>
               <div className={styles.processLabel}>Victor</div>
-              <div className={styles.processDesc}>Socratic rigor</div>
+              <div className={styles.processDesc}>Academic Coach</div>
             </div>
             <div className={styles.processArrow}>→</div>
             <div className={styles.processStep}>
               <div className={styles.processNumber}>T</div>
               <div className={styles.processLabel}>Travis</div>
-              <div className={styles.processDesc}>Requirements + deadlines</div>
+              <div className={styles.processDesc}>Academic Planner</div>
             </div>
           </div>
           <p className={styles.hintText}>

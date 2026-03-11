@@ -28,7 +28,7 @@ export async function GET(
   const { data, error: fetchError } = await supabase
     .from("study_materials")
     .select(
-      "id, title, class_name, topic, source_type, content, file_type, created_at"
+      "id, title, class_name, topic, source_type, material_kind, source_id, content, file_type, created_at, updated_at"
     )
     .eq("id", id)
     .eq("user_id", userId)
@@ -38,6 +38,69 @@ export async function GET(
     return NextResponse.json(
       { success: false, error: "Study material not found." },
       { status: 404 }
+    );
+  }
+
+  return NextResponse.json({ success: true, material: data }, { status: 200 });
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { userId, error } = await getAuthUser();
+  if (error || !userId) {
+    return NextResponse.json(
+      { success: false, error: "Authentication required" },
+      { status: 401 }
+    );
+  }
+
+  const { id } = await params;
+  if (!id) {
+    return NextResponse.json(
+      { success: false, error: "Study material id is required." },
+      { status: 400 }
+    );
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Invalid request payload." },
+      { status: 400 }
+    );
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (typeof body.materialKind === "string") {
+    updates.material_kind = body.materialKind;
+  }
+  if (typeof body.sourceMeta === "string") {
+    updates.source_id = body.sourceMeta;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ success: true, updated: false }, { status: 200 });
+  }
+
+  updates.updated_at = new Date().toISOString();
+
+  const supabase = await createSupabaseServerClient();
+  const { data, error: updateError } = await supabase
+    .from("study_materials")
+    .update(updates)
+    .eq("id", id)
+    .eq("user_id", userId)
+    .select("id, material_kind, source_id, updated_at")
+    .single();
+
+  if (updateError || !data) {
+    return NextResponse.json(
+      { success: false, error: updateError?.message || "Update failed." },
+      { status: 500 }
     );
   }
 
@@ -66,7 +129,6 @@ export async function DELETE(
 
   const supabase = await createSupabaseServerClient();
 
-  // Best effort cleanup of related quizzes.
   await supabase.from("quizzes").delete().eq("study_material_id", id).eq("user_id", userId);
 
   const { error: deleteError } = await supabase

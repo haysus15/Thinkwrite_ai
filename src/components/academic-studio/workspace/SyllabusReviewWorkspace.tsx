@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { toDateInputValue } from "@/lib/academic/dueDate";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
+import SyllabusPublishPreviewModal from "./SyllabusPublishPreviewModal";
 
 type DraftRow = {
   id: string;
@@ -11,10 +16,7 @@ type DraftRow = {
   due_date: string | null;
   grading_weight: number | null;
   draft_status: "parsed" | "edited" | "approved" | "rejected" | "published";
-  requirements?: {
-    module?: number;
-    item?: number;
-  } | null;
+  parser_confidence: number | null;
 };
 
 type SyllabusPayload = {
@@ -23,6 +25,7 @@ type SyllabusPayload = {
   status: string | null;
   uploaded_at: string | null;
   confirmed: boolean;
+  parse_confidence?: number | null;
 };
 
 type EditableDraft = {
@@ -33,27 +36,38 @@ type EditableDraft = {
   due_date: string;
   grading_weight: string;
   approved: boolean;
+  parser_confidence: number;
 };
-
-function toDateInputValue(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
-}
-
-function parseModuleRef(row: DraftRow) {
-  const moduleNumber =
-    typeof row.requirements?.module === "number" ? row.requirements.module : null;
-  const item = typeof row.requirements?.item === "number" ? row.requirements.item : null;
-  return { moduleNumber, item };
-}
 
 type SyllabusReviewWorkspaceProps = {
   syllabusIdOverride?: string | null;
   embedded?: boolean;
   onPublished?: (syllabusId: string) => void;
 };
+
+function confidencePct(value: number | null | undefined): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0;
+  const normalized = value <= 1 ? value * 100 : value;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
+}
+
+function confidenceClass(pct: number): string {
+  if (pct >= 90) return "border-emerald-300/35 bg-emerald-500/15 text-emerald-100";
+  if (pct >= 70) return "border-amber-300/35 bg-amber-500/15 text-amber-100";
+  return "border-red-300/35 bg-red-500/15 text-red-100";
+}
+
+function weekStart(dateKey: string): string | null {
+  if (!dateKey) return null;
+  const date = new Date(`${dateKey}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const start = new Date(date);
+  start.setDate(start.getDate() - start.getDay());
+  const year = start.getFullYear();
+  const month = String(start.getMonth() + 1).padStart(2, "0");
+  const day = String(start.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function SyllabusReviewWorkspace({
   syllabusIdOverride = null,
@@ -62,21 +76,16 @@ export default function SyllabusReviewWorkspace({
 }: SyllabusReviewWorkspaceProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const syllabusId = syllabusIdOverride ?? searchParams.get("syllabusId");
+  const syllabusId = syllabusIdOverride ?? searchParams.get("syllabus");
+
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [savingDrafts, setSavingDrafts] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPublishPreview, setShowPublishPreview] = useState(false);
   const [syllabus, setSyllabus] = useState<SyllabusPayload | null>(null);
   const [drafts, setDrafts] = useState<EditableDraft[]>([]);
-  const [originalDraftsById, setOriginalDraftsById] = useState<
-    Record<string, EditableDraft>
-  >({});
-
-  const approvedCount = useMemo(
-    () => drafts.filter((draft) => draft.approved).length,
-    [drafts]
-  );
+  const [rowExpandedById, setRowExpandedById] = useState<Record<string, boolean>>({});
 
   const resolveLatestSyllabusId = useCallback(async () => {
     const latestResponse = await fetch("/api/travis/syllabus/latest");
@@ -84,18 +93,16 @@ export default function SyllabusReviewWorkspace({
     if (!latestResponse.ok) {
       throw new Error(latestData.error || "Failed to load latest syllabus.");
     }
-    return latestData?.syllabus?.id as string | undefined;
+    return (latestData?.syllabus?.id as string | undefined) ?? null;
   }, []);
 
   const loadReview = useCallback(async () => {
-    let targetSyllabusId = syllabusId;
+    let targetSyllabusId: string | null = syllabusId;
     if (!targetSyllabusId) {
       targetSyllabusId = await resolveLatestSyllabusId();
       if (!targetSyllabusId) return;
       if (!embedded) {
-        router.replace(
-          `/academic-studio/dashboard?workspace=syllabi&syllabusId=${targetSyllabusId}`
-        );
+        router.replace(`/academic/syllabi?syllabus=${targetSyllabusId}`);
       }
     }
 
@@ -104,69 +111,30 @@ export default function SyllabusReviewWorkspace({
     try {
       const response = await fetch(`/api/travis/syllabus/${targetSyllabusId}`);
       const data = await response.json();
-      if (response.status === 404) {
-        const latestId = await resolveLatestSyllabusId();
-        if (latestId && latestId !== targetSyllabusId) {
-          if (!embedded) {
-            router.replace(
-              `/academic-studio/dashboard?workspace=syllabi&syllabusId=${latestId}`
-            );
-          }
-          return;
-        }
-      }
       if (!response.ok) {
         throw new Error(data.error || "Failed to load syllabus review.");
       }
 
       setSyllabus(data.syllabus as SyllabusPayload);
-      const rows = ((data.drafts || []) as DraftRow[]).sort((a, b) => {
-        const aRef = parseModuleRef(a);
-        const bRef = parseModuleRef(b);
-        if (aRef.moduleNumber !== null && bRef.moduleNumber !== null) {
-          if (aRef.moduleNumber !== bRef.moduleNumber) {
-            return aRef.moduleNumber - bRef.moduleNumber;
-          }
-          if (aRef.item !== null && bRef.item !== null && aRef.item !== bRef.item) {
-            return aRef.item - bRef.item;
-          }
-        } else if (aRef.moduleNumber !== null) {
-          return -1;
-        } else if (bRef.moduleNumber !== null) {
-          return 1;
-        }
-        return (a.assignment_name || "").localeCompare(b.assignment_name || "");
-      });
-      setDrafts(
-        rows.map((row) => ({
-          id: row.id,
-          class_name: row.class_name || data.syllabus?.class_name || "",
-          assignment_name: row.assignment_name || "",
-          assignment_type: row.assignment_type || "",
-          due_date: toDateInputValue(row.due_date),
-          grading_weight:
-            typeof row.grading_weight === "number"
-              ? String(row.grading_weight)
-              : "",
-          approved: row.draft_status !== "rejected",
-        }))
+      const rows = (data.drafts || []) as DraftRow[];
+      const mapped = rows.map((row) => ({
+        id: row.id,
+        class_name: row.class_name || data.syllabus?.class_name || "",
+        assignment_name: row.assignment_name || "",
+        assignment_type: row.assignment_type || "",
+        due_date: toDateInputValue(row.due_date),
+        grading_weight:
+          typeof row.grading_weight === "number" ? String(row.grading_weight) : "",
+        approved: row.draft_status !== "rejected",
+        parser_confidence: confidencePct(row.parser_confidence),
+      }));
+      setDrafts(mapped);
+      setRowExpandedById(
+        mapped.reduce<Record<string, boolean>>((acc, row) => {
+          acc[row.id] = row.parser_confidence < 70;
+          return acc;
+        }, {})
       );
-      const originalMap: Record<string, EditableDraft> = {};
-      rows.forEach((row) => {
-        originalMap[row.id] = {
-          id: row.id,
-          class_name: row.class_name || data.syllabus?.class_name || "",
-          assignment_name: row.assignment_name || "",
-          assignment_type: row.assignment_type || "",
-          due_date: toDateInputValue(row.due_date),
-          grading_weight:
-            typeof row.grading_weight === "number"
-              ? String(row.grading_weight)
-              : "",
-          approved: row.draft_status !== "rejected",
-        };
-      });
-      setOriginalDraftsById(originalMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load review.");
     } finally {
@@ -175,32 +143,64 @@ export default function SyllabusReviewWorkspace({
   }, [syllabusId, resolveLatestSyllabusId, router, embedded]);
 
   useEffect(() => {
-    loadReview();
+    void loadReview();
   }, [loadReview]);
+
+  const approveHighConfidence = () => {
+    setDrafts((current) =>
+      current.map((draft) =>
+        draft.parser_confidence >= 90 ? { ...draft, approved: true } : draft
+      )
+    );
+  };
+
+  const saveDraftEdits = async () => {
+    setSavingDrafts(true);
+    setError(null);
+    try {
+      for (const draft of drafts) {
+        const response = await fetch(`/api/travis/syllabus/drafts/${draft.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            class_name: draft.class_name.trim(),
+            assignment_name: draft.assignment_name.trim(),
+            assignment_type: draft.assignment_type.trim() || null,
+            due_date: draft.due_date || null,
+            grading_weight:
+              draft.grading_weight.trim() === "" ? null : Number(draft.grading_weight),
+            draft_status: draft.approved ? "approved" : "rejected",
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || "Failed to save draft edits.");
+        }
+      }
+      await loadReview();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save draft edits.");
+    } finally {
+      setSavingDrafts(false);
+    }
+  };
 
   const publish = async () => {
     if (!syllabusId) return;
     setPublishing(true);
     setError(null);
     try {
-      const payload = drafts.map((draft) => {
-        const parsedWeight = Number(draft.grading_weight);
-        return {
-          id: draft.id,
-          class_name: draft.class_name.trim(),
-          assignment_name: draft.assignment_name.trim(),
-          assignment_type: draft.assignment_type.trim() || null,
-          due_date: draft.due_date || null,
-          grading_weight:
-            draft.grading_weight.trim() === ""
-              ? null
-              : Number.isFinite(parsedWeight)
-                ? parsedWeight
-                : null,
-          approved: draft.approved,
-          rejected: !draft.approved,
-        };
-      });
+      const payload = drafts.map((draft) => ({
+        id: draft.id,
+        class_name: draft.class_name.trim(),
+        assignment_name: draft.assignment_name.trim(),
+        assignment_type: draft.assignment_type.trim() || null,
+        due_date: draft.due_date || null,
+        grading_weight:
+          draft.grading_weight.trim() === "" ? null : Number(draft.grading_weight),
+        approved: draft.approved,
+        rejected: !draft.approved,
+      }));
 
       const response = await fetch(`/api/travis/syllabus/confirm/${syllabusId}`, {
         method: "POST",
@@ -212,240 +212,253 @@ export default function SyllabusReviewWorkspace({
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || "Approve and publish failed.");
+        throw new Error(data.error || "Confirm and publish failed.");
       }
 
+      setShowPublishPreview(false);
       await loadReview();
-      if (onPublished && syllabusId) {
+      if (onPublished) {
         onPublished(syllabusId);
-      } else if (syllabusId) {
-        router.push(
-          `/academic-studio/dashboard?workspace=assignments&syllabusId=${syllabusId}`
-        );
+      } else {
+        router.push(`/academic/assignments?syllabusId=${syllabusId}`);
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Approve and publish failed."
-      );
+      setError(err instanceof Error ? err.message : "Confirm and publish failed.");
     } finally {
       setPublishing(false);
     }
   };
 
-  const saveDraftEdits = async () => {
-    setSavingDrafts(true);
-    setError(null);
-    try {
-      const changedRows = drafts.filter((draft) => {
-        const original = originalDraftsById[draft.id];
-        if (!original) return true;
-        return (
-          draft.class_name !== original.class_name ||
-          draft.assignment_name !== original.assignment_name ||
-          draft.assignment_type !== original.assignment_type ||
-          draft.due_date !== original.due_date ||
-          draft.grading_weight !== original.grading_weight ||
-          draft.approved !== original.approved
-        );
-      });
+  const approvedDrafts = useMemo(() => drafts.filter((draft) => draft.approved), [drafts]);
+  const rejectedCount = useMemo(
+    () => drafts.filter((draft) => !draft.approved).length,
+    [drafts]
+  );
+  const lowConfidenceApproved = useMemo(
+    () => approvedDrafts.filter((draft) => draft.parser_confidence < 80),
+    [approvedDrafts]
+  );
+  const workloadByWeek = useMemo(() => {
+    const map = new Map<string, number>();
+    approvedDrafts.forEach((draft) => {
+      const key = weekStart(draft.due_date);
+      if (!key) return;
+      map.set(key, (map.get(key) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(0, 10);
+  }, [approvedDrafts]);
 
-      if (changedRows.length === 0) {
-        return;
-      }
-
-      for (const draft of changedRows) {
-        const response = await fetch(`/api/travis/syllabus/drafts/${draft.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            class_name: draft.class_name.trim(),
-            assignment_name: draft.assignment_name.trim(),
-            assignment_type: draft.assignment_type.trim() || null,
-            due_date: draft.due_date || null,
-            grading_weight:
-              draft.grading_weight.trim() === ""
-                ? null
-                : Number(draft.grading_weight),
-            draft_status: draft.approved ? "approved" : "rejected",
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || "Failed to save draft edits.");
-        }
-      }
-
-      await loadReview();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to save draft edits."
-      );
-    } finally {
-      setSavingDrafts(false);
-    }
-  };
-
-  if (!syllabusId) {
-    if (embedded) return null;
-    return (
-      <div className="academic-nested-card rounded-2xl p-6">
-        <p className="text-sm font-semibold text-slate-100">Syllabus review</p>
-        <p className="mt-2 text-sm text-slate-400">
-          Upload a syllabus from Travis, then open review from the action button.
-        </p>
-      </div>
-    );
-  }
+  if (!syllabusId && embedded) return null;
 
   return (
     <div className="space-y-4">
-      <div className="academic-nested-card rounded-2xl p-6">
-        <p className="text-sm font-semibold text-slate-100">Syllabus review</p>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <p className="text-sm font-semibold text-slate-100">Review panel</p>
         <p className="mt-2 text-sm text-slate-400">
-          Edit parsed assignments, approve what should publish, and reject what
-          should be excluded.
+          Approve, edit, or reject parsed assignments before publishing.
         </p>
-        {syllabus && (
-          <p className="mt-3 text-xs text-slate-400">
-            {syllabus.class_name} · status: {syllabus.status || "draft"}
+        {syllabus ? (
+          <p className="mt-2 text-xs text-slate-400">
+            {syllabus.class_name} · parser confidence {confidencePct(syllabus.parse_confidence)}%
           </p>
-        )}
+        ) : null}
+        {confidencePct(syllabus?.parse_confidence) < 60 ? (
+          <p className="mt-2 text-xs text-amber-200">
+            This syllabus was difficult to read. Review each item carefully before publishing.
+          </p>
+        ) : null}
       </div>
 
-      {loading && (
-        <div className="academic-nested-card rounded-2xl p-6 text-sm text-slate-400">
-          Loading syllabus review...
-        </div>
-      )}
+      {loading ? (
+        <AcademicLoadingState message="Reading your syllabus..." className="!min-h-0 py-4" />
+      ) : null}
 
-      {!loading && drafts.length === 0 && (
-        <div className="academic-nested-card rounded-2xl p-6 text-sm text-slate-400">
-          No parsed assignments found.
-        </div>
-      )}
+      {!loading && drafts.length === 0 ? (
+        <AcademicEmptyState
+          title="No parsed assignments found"
+          description="Upload a clearer syllabus file or review another syllabus."
+          className="!min-h-0 py-4"
+        />
+      ) : null}
 
-      {!loading && drafts.length > 0 && (
-        <div className="space-y-3">
-          {drafts.map((draft) => (
-            <div key={draft.id} className="academic-nested-card rounded-2xl p-4">
-              <div className="grid gap-2 md:grid-cols-2">
-                <input
-                  value={draft.assignment_name}
-                  onChange={(event) =>
-                    setDrafts((current) =>
-                      current.map((row) =>
-                        row.id === draft.id
-                          ? { ...row, assignment_name: event.target.value }
-                          : row
-                      )
-                    )
-                  }
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-sky-400/50 focus:outline-none"
-                  placeholder="Assignment name"
-                />
-                <input
-                  value={draft.class_name}
-                  onChange={(event) =>
-                    setDrafts((current) =>
-                      current.map((row) =>
-                        row.id === draft.id
-                          ? { ...row, class_name: event.target.value }
-                          : row
-                      )
-                    )
-                  }
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-sky-400/50 focus:outline-none"
-                  placeholder="Class"
-                />
-                <input
-                  value={draft.assignment_type}
-                  onChange={(event) =>
-                    setDrafts((current) =>
-                      current.map((row) =>
-                        row.id === draft.id
-                          ? { ...row, assignment_type: event.target.value }
-                          : row
-                      )
-                    )
-                  }
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-sky-400/50 focus:outline-none"
-                  placeholder="Type"
-                />
-                <input
-                  type="date"
-                  value={draft.due_date}
-                  onChange={(event) =>
-                    setDrafts((current) =>
-                      current.map((row) =>
-                        row.id === draft.id
-                          ? { ...row, due_date: event.target.value }
-                          : row
-                      )
-                    )
-                  }
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-sky-400/50 focus:outline-none"
-                />
-                <input
-                  value={draft.grading_weight}
-                  onChange={(event) =>
-                    setDrafts((current) =>
-                      current.map((row) =>
-                        row.id === draft.id
-                          ? { ...row, grading_weight: event.target.value }
-                          : row
-                      )
-                    )
-                  }
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 focus:border-sky-400/50 focus:outline-none"
-                  placeholder="Grading weight (e.g. 0.2)"
-                />
-                <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={draft.approved}
-                    onChange={(event) =>
-                      setDrafts((current) =>
-                        current.map((row) =>
-                          row.id === draft.id
-                            ? { ...row, approved: event.target.checked }
-                            : row
-                        )
-                      )
-                    }
-                  />
-                  Approve this assignment
-                </label>
-              </div>
-            </div>
-          ))}
+      {!loading && drafts.length > 0 ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={approveHighConfidence}
+              className="rounded-lg border border-emerald-300/35 bg-emerald-500/15 px-3 py-1.5 text-xs text-emerald-100"
+            >
+              Approve all high-confidence
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveDraftEdits()}
+              disabled={savingDrafts}
+              className="rounded-lg border border-white/20 bg-white/5 px-3 py-1.5 text-xs text-slate-200"
+            >
+              {savingDrafts ? "Saving..." : "Save edits"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPublishPreview(true)}
+              className="rounded-lg border border-sky-300/35 bg-sky-500/15 px-3 py-1.5 text-xs text-sky-100"
+            >
+              Publish to Assignments
+            </button>
+          </div>
 
-          <button
-            type="button"
-            onClick={saveDraftEdits}
-            disabled={savingDrafts || publishing}
-            className="w-full rounded-xl border border-white/20 bg-white/5 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {savingDrafts ? "Saving..." : "Save draft edits"}
-          </button>
+          <div className="space-y-3">
+            {drafts.map((draft) => {
+              const expanded = rowExpandedById[draft.id];
+              const pct = draft.parser_confidence;
+              return (
+                <div key={draft.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRowExpandedById((current) => ({
+                          ...current,
+                          [draft.id]: !current[draft.id],
+                        }))
+                      }
+                      className="rounded border border-white/15 bg-white/5 px-2 py-1 text-[11px] text-slate-300"
+                    >
+                      {expanded ? "Hide" : "Show"}
+                    </button>
+                    <span className={`rounded-full border px-2 py-1 text-[11px] ${confidenceClass(pct)}`}>
+                      {pct}% confidence
+                    </span>
+                    <p className={`text-sm ${draft.approved ? "text-slate-100" : "text-slate-500 line-through"}`}>
+                      {draft.assignment_name || "Untitled assignment"}
+                    </p>
+                  </div>
+                  {expanded ? (
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      <input
+                        value={draft.assignment_name}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current.map((row) =>
+                              row.id === draft.id
+                                ? { ...row, assignment_name: event.target.value }
+                                : row
+                            )
+                          )
+                        }
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-slate-100"
+                        placeholder="Assignment name"
+                      />
+                      <select
+                        value={draft.assignment_type}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current.map((row) =>
+                              row.id === draft.id
+                                ? { ...row, assignment_type: event.target.value }
+                                : row
+                            )
+                          )
+                        }
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-slate-100"
+                      >
+                        <option value="">Unspecified</option>
+                        <option value="homework">Homework</option>
+                        <option value="lab">Lab</option>
+                        <option value="paper">Paper</option>
+                        <option value="project">Project</option>
+                        <option value="quiz">Quiz</option>
+                        <option value="test">Test</option>
+                      </select>
+                      <input
+                        type="date"
+                        value={draft.due_date}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current.map((row) =>
+                              row.id === draft.id
+                                ? { ...row, due_date: event.target.value }
+                                : row
+                            )
+                          )
+                        }
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-slate-100"
+                      />
+                      <input
+                        value={draft.grading_weight}
+                        onChange={(event) =>
+                          setDrafts((current) =>
+                            current.map((row) =>
+                              row.id === draft.id
+                                ? { ...row, grading_weight: event.target.value }
+                                : row
+                            )
+                          )
+                        }
+                        placeholder="Weight %"
+                        className="rounded-lg border border-white/15 bg-black/20 px-3 py-2 text-sm text-slate-100"
+                      />
+                      <div className="md:col-span-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDrafts((current) =>
+                              current.map((row) =>
+                                row.id === draft.id ? { ...row, approved: true } : row
+                              )
+                            )
+                          }
+                          className="rounded-lg border border-emerald-300/35 bg-emerald-500/15 px-3 py-1.5 text-xs text-emerald-100"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDrafts((current) =>
+                              current.map((row) =>
+                                row.id === draft.id ? { ...row, approved: false } : row
+                              )
+                            )
+                          }
+                          className="rounded-lg border border-red-300/35 bg-red-500/15 px-3 py-1.5 text-xs text-red-100"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
 
-          <button
-            type="button"
-            onClick={publish}
-            disabled={publishing || savingDrafts || approvedCount === 0}
-            className="w-full rounded-xl border border-sky-400/40 bg-sky-500/20 px-4 py-3 text-sm font-medium text-sky-100 transition hover:bg-sky-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {publishing
-              ? "Publishing..."
-              : `Approve & publish ${approvedCount} assignments`}
-          </button>
-        </div>
-      )}
+      {showPublishPreview ? (
+        <SyllabusPublishPreviewModal
+          publishing={publishing}
+          approvedDrafts={approvedDrafts}
+          rejectedCount={rejectedCount}
+          workloadByWeek={workloadByWeek}
+          lowConfidenceApprovedCount={lowConfidenceApproved.length}
+          onClose={() => setShowPublishPreview(false)}
+          onConfirm={publish}
+        />
+      ) : null}
 
-      {error && (
-        <p role="alert" className="text-sm text-red-300">
-          {error}
-        </p>
-      )}
+      {error ? (
+        <AcademicErrorState
+          message={error}
+          className="!min-h-0 border-red-500/40 bg-red-500/10 py-4"
+          retry={() => {
+            void loadReview();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

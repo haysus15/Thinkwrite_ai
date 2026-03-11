@@ -2,7 +2,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { User } from "@supabase/supabase-js";
+import { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 interface AuthContextType {
@@ -26,8 +26,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createSupabaseBrowserClient();
 
   useEffect(() => {
+    if (
+      process.env.NEXT_PUBLIC_E2E === "true" &&
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("e2e-auth") === "1"
+    ) {
+      setUser(
+        {
+          id: "e2e-user",
+          aud: "authenticated",
+          role: "authenticated",
+          email: "e2e@example.com",
+          app_metadata: {},
+          user_metadata: {},
+        } as User
+      );
+      setLoading(false);
+      return;
+    }
+
     // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: { data: { session: Session | null } }) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -35,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       setUser(session?.user ?? null);
       setLoading(false);
     });
@@ -72,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { error: "Supabase URL is missing or invalid. Check environment configuration." };
       }
 
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });

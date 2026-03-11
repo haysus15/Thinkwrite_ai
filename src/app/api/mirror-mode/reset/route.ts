@@ -3,6 +3,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { EMPTY_FINGERPRINT } from '@/lib/mirror-mode/emptyFingerprint';
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
     let chambersSnapshot: any[] = [];
     try {
       const { data: chamberRows } = await supabase
-        .from('voice_profiles_chambers')
+        .from('voice_chambers')
         .select('*')
         .eq('user_id', user.id);
       chambersSnapshot = chamberRows || [];
@@ -105,51 +106,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Reset voice profile to initial state (current schema)
     const emptyFingerprint = {
-      vocabulary: {
-        uniqueWordCount: 0,
-        avgWordLength: 0,
-        complexWordRatio: 0,
-        contractionRatio: 0,
-        topWords: [],
-        rarityScore: 0,
-      },
-      rhythm: {
-        avgSentenceLength: 0,
-        shortSentenceRatio: 0,
-        longSentenceRatio: 0,
-        sentenceLengthVariance: 0,
-      },
-      punctuation: {
-        commaDensity: 0,
-        periodDensity: 0,
-        semicolonDensity: 0,
-        colonDensity: 0,
-        dashDensity: 0,
-        ellipsisDensity: 0,
-        exclamationDensity: 0,
-        questionDensity: 0,
-        quoteDensity: 0,
-      },
-      voice: {
-        activeVoiceRatio: 0,
-        passiveVoiceRatio: 0,
-        hedgeDensity: 0,
-        assertiveDensity: 0,
-        personalPronounRate: 0,
-        formalityScore: 0,
-      },
-      rhetoric: {
-        structureScore: 0,
-        clarityScore: 0,
-        emphasisPatterns: [],
-      },
+      ...EMPTY_FINGERPRINT,
       meta: {
-        sampleWordCount: 0,
-        sampleSentenceCount: 0,
-        extractedAt: new Date().toISOString(),
-        version: '1.0.0',
+        ...EMPTY_FINGERPRINT.meta,
+        extractedAt: now,
       },
     };
 

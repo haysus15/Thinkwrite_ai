@@ -2,14 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeAssignmentType } from "@/lib/academic/assignmentType";
-
-function normalizeDueDate(value: string | null | undefined) {
-  if (value === undefined) return undefined;
-  if (value === null || value === "") return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
+import { normalizeDueDateInput } from "@/lib/academic/dueDate";
 
 export async function PUT(
   request: NextRequest,
@@ -47,7 +40,7 @@ export async function PUT(
       body?.assignment_type === undefined
         ? undefined
         : normalizeAssignmentType(body?.assignment_type, body?.assignment_name),
-    due_date: normalizeDueDate(body?.due_date),
+    due_date: normalizeDueDateInput(body?.due_date),
     requirements: body?.requirements,
     grading_weight: body?.grading_weight,
     draft_status: nextStatus,

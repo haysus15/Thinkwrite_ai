@@ -62,7 +62,7 @@ export default function CareerAssessmentLex() {
   const { resumeContext, isLoading: isLoadingResume } = useResumeContext();
 
   // Pass resume context to conversation
-  const { messages, isTyping, sendMessage } = useLexConversation({
+  const { messages, isTyping, sendMessage, setMessages } = useLexConversation({
     sessionType: "career-assessment",
     welcomeMessage: WELCOME_MESSAGE,
     resumeContext, // 🆕 Pass resume context

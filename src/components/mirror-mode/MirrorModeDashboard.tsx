@@ -7,6 +7,18 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useVoiceStatus } from '@/hooks/useVoiceStatus';
 import { type WritingType, mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
+import { useCaptureLog } from '@/hooks/useCaptureLog';
+import {
+  translateSystemError,
+  type ChamberStatus,
+} from '@/lib/mirror/voiceProfileStatus';
+import ChamberCard from '@/components/mirror/ChamberCard/ChamberCard';
+import ConfidenceRoadmap from '@/components/mirror/ConfidenceRoadmap/ConfidenceRoadmap';
+import GuidedUploadPrompts from '@/components/mirror/GuidedUploadPrompts/GuidedUploadPrompts';
+import QuickStartExercise from '@/components/mirror/QuickStartExercise/QuickStartExercise';
+import MomentumIndicator from '@/components/mirror/MomentumIndicator/MomentumIndicator';
+import FirstUseWalkthrough from '@/components/mirror/FirstUseWalkthrough/FirstUseWalkthrough';
+import CaptureTransparencyPanel from '@/components/mirror/CaptureTransparencyPanel/CaptureTransparencyPanel';
 import DocumentDetailModal from './DocumentDetailModal';
 import styles from './MirrorModeDashboard.module.css';
 
@@ -83,6 +95,21 @@ const tabItems: Array<{ key: TabKey; label: string }> = [
   { key: 'upload', label: 'Upload' },
 ];
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.txt'];
+const ALLOWED_TYPES = [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+];
+
+function formatRelative(value?: string): string {
+  if (!value) return 'Unknown';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString();
+}
+
 export default function MirrorModeDashboard({ userId }: Props) {
   void userId;
 
@@ -96,8 +123,14 @@ export default function MirrorModeDashboard({ userId }: Props) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<UploadSuccessData | null>(null);
+  const [uploadObservations, setUploadObservations] = useState<string[]>([]);
+  const [showMomentum, setShowMomentum] = useState(false);
+  const [momentumStateLabel, setMomentumStateLabel] = useState('Learning');
   const [dragActive, setDragActive] = useState(false);
   const [selectedUploadChamber, setSelectedUploadChamber] = useState<ChamberKey>('general');
+  const [hasSelectedChamber, setHasSelectedChamber] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [walkthroughDismissed, setWalkthroughDismissed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
@@ -113,29 +146,37 @@ export default function MirrorModeDashboard({ userId }: Props) {
   const [ursieSavedCount, setUrsieSavedCount] = useState<number>(0);
   const [ursieIsSaved, setUrsieIsSaved] = useState<boolean>(false);
   const [ursieNotice, setUrsieNotice] = useState<string | null>(null);
+  const [ursieLoadError, setUrsieLoadError] = useState<string | null>(null);
+  const [observationsLoadError, setObservationsLoadError] = useState<string | null>(null);
+  const [epochsLoadError, setEpochsLoadError] = useState<string | null>(null);
   const [ursieObservations, setUrsieObservations] = useState<Array<{ id: string; text: string; type?: string; chamber?: string; createdAt?: string }>>([]);
   const [manualMemoryInput, setManualMemoryInput] = useState('');
+  const {
+    captureLog,
+    loading: captureLogLoading,
+    error: captureLogError,
+    refetch: refetchCaptureLog,
+  } = useCaptureLog(7);
 
   const [epochs, setEpochs] = useState<Array<{ id: string; epoch_number: number | null; started_at: string; ended_at: string | null }>>([]);
 
   const chatRefMain = useRef<HTMLDivElement>(null);
   const chatRefFloating = useRef<HTMLDivElement>(null);
 
-  const MAX_FILE_SIZE = 10 * 1024 * 1024;
-  const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.txt'];
-  const ALLOWED_TYPES = [
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain',
-  ];
-
   const overview = status?.overview;
   const highlights = status?.voiceHighlights || [];
   const chamberSummaries = status?.chamberSummaries || null;
+  const chamberStatuses = status?.chamberStatuses || null;
+  const mirrorPreferences = status?.preferences || null;
   const chamberWarnings = status?.chamberWarnings || [];
-  const recentUploads = status?.documents?.recentUploads || [];
-  const evolutionHistory = status?.evolutionHistory || [];
-
+  const recentUploads = useMemo(
+    () => status?.documents?.recentUploads ?? [],
+    [status?.documents?.recentUploads]
+  );
+  const evolutionHistory = useMemo(
+    () => status?.evolutionHistory ?? [],
+    [status?.evolutionHistory]
+  );
   const documents: MirrorDocument[] = useMemo(
     () => recentUploads.map((doc: any) => ({
       id: doc.id,
@@ -184,6 +225,24 @@ export default function MirrorModeDashboard({ userId }: Props) {
     return counts;
   }, [chamberDocs]);
 
+  const getFallbackChamberStatus = useCallback(
+    (chamber: ChamberKey): ChamberStatus => ({
+      state: 'empty',
+      displayLabel: 'Not started',
+      documentCount: chamberDocCounts[chamber] || 0,
+      confidenceScore: 0,
+      nextMilestone: 'Upload your first writing sample to begin.',
+      progressToNext: 0,
+    }),
+    [chamberDocCounts]
+  );
+
+  const getStatusLabel = (state: ChamberStatus['state']) => {
+    if (state === 'strong') return 'Strong';
+    if (state === 'ready') return 'Ready';
+    return 'Learning';
+  };
+
   const profileSampleCount = overview?.documentCount || 0;
   const documentCount = status?.documents?.total || 0;
   const chamberSignalCounts = useMemo(() => {
@@ -224,20 +283,6 @@ export default function MirrorModeDashboard({ userId }: Props) {
     return `${(value / 1000).toFixed(1)}k`;
   };
 
-  const formatRelative = (value?: string): string => {
-    if (!value) return 'Now';
-    const time = new Date(value).getTime();
-    if (Number.isNaN(time)) return 'Recent';
-    const diff = Date.now() - time;
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'Now';
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  };
-
   const describeChange = (change: string): string => {
     const map: Record<string, string> = {
       'initial-profile-created': 'First profile established',
@@ -252,12 +297,8 @@ export default function MirrorModeDashboard({ userId }: Props) {
     return map[change] || change.replace(/-/g, ' ');
   };
 
-  const getConfidenceLabel = (confidence: number, docsInChamber: number): 'Learning' | 'Developing' | 'Confident' | 'Mastered' | 'Empty' => {
-    if (docsInChamber === 0) return 'Empty';
-    if (confidence < 25) return 'Learning';
-    if (confidence < 45) return 'Developing';
-    if (confidence < 70) return 'Confident';
-    return 'Mastered';
+  const getChamberDisplayStatus = (chamber: ChamberKey): ChamberStatus => {
+    return (chamberStatuses?.[chamber] as ChamberStatus | undefined) || getFallbackChamberStatus(chamber);
   };
 
   const getIdentityOneLiner = (): string => {
@@ -302,7 +343,32 @@ export default function MirrorModeDashboard({ userId }: Props) {
     return 'Good range. Keep feeding each chamber so your voice stays sharp.';
   };
 
-  const validateFile = (file: File): string | null => {
+  const markRoadmapDismissed = useCallback(async (chamber: ChamberKey) => {
+    try {
+      await fetch('/api/mirror-mode/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roadmapDismissedChamber: chamber }),
+      });
+    } catch {
+      // best effort
+    }
+  }, []);
+
+  const completeFirstVisit = useCallback(async () => {
+    try {
+      await fetch('/api/mirror-mode/preferences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mirrorModeFirstVisit: false }),
+      });
+    } catch {
+      // best effort
+    }
+    setWalkthroughDismissed(true);
+  }, []);
+
+  const validateFile = useCallback((file: File): string | null => {
     if (file.size > MAX_FILE_SIZE) {
       const mb = (file.size / (1024 * 1024)).toFixed(2);
       return `File too large (${mb}MB). Maximum size is 10MB.`;
@@ -314,7 +380,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
     }
 
     return null;
-  };
+  }, []);
 
   const handleUpload = useCallback(async (file: File) => {
     setUploadError(null);
@@ -347,14 +413,26 @@ export default function MirrorModeDashboard({ userId }: Props) {
         chamber: selectedUploadChamber,
         isFirstDocument: Boolean(data.learning?.isFirstDocument),
       });
+      const observations = Array.isArray(data?.observations)
+        ? data.observations
+        : Array.isArray(data?.learning?.observations)
+          ? data.learning.observations
+          : [];
+      setUploadObservations(observations);
+      const stateLabel = data?.newState || data?.chamberStatus?.displayLabel || 'Learning';
+      setMomentumStateLabel(typeof stateLabel === 'string' ? stateLabel : 'Learning');
+      setShowMomentum(true);
+      await completeFirstVisit();
+      await markRoadmapDismissed(selectedUploadChamber);
       refetch();
       window.setTimeout(() => setUploadSuccess(null), 5000);
     } catch (err: any) {
-      setUploadError(err.message || 'Upload failed');
+      const raw = err?.message || 'UNKNOWN';
+      setUploadError(translateSystemError(raw));
     } finally {
       setUploading(false);
     }
-  }, [refetch, selectedUploadChamber]);
+  }, [completeFirstVisit, markRoadmapDismissed, refetch, selectedUploadChamber, validateFile]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -377,15 +455,27 @@ export default function MirrorModeDashboard({ userId }: Props) {
     if (file) handleUpload(file);
   };
 
+  const handleQuickStartCompleted = useCallback(async (result: {
+    observations: string[];
+    chamberStatus?: { displayLabel: string };
+  }) => {
+    setUploadObservations(result.observations || []);
+    setMomentumStateLabel(result?.chamberStatus?.displayLabel || 'Learning');
+    setShowMomentum(true);
+    await completeFirstVisit();
+    await markRoadmapDismissed(selectedUploadChamber);
+    refetch();
+  }, [completeFirstVisit, markRoadmapDismissed, refetch, selectedUploadChamber]);
+
   const handleDeleteDocument = useCallback(async (documentId: string) => {
     setDeletingDocumentId(documentId);
     try {
       const res = await fetch(`/api/mirror-mode/document/${encodeURIComponent(documentId)}`, { method: 'DELETE' });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Delete failed');
+      if (!res.ok) throw new Error(data.error || 'Hide failed');
       refetch();
     } catch (err: any) {
-      setUploadError(err?.message || 'Delete failed');
+      setUploadError(translateSystemError(err?.message || 'UNKNOWN'));
     } finally {
       setDeletingDocumentId(null);
     }
@@ -399,7 +489,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
       setUrsieNotice('Started a fresh epoch.');
       refetch();
     } catch (err: any) {
-      setUrsieNotice(err?.message || 'Reset failed.');
+      setUrsieNotice(translateSystemError(err?.message || 'UNKNOWN'));
     }
   }, [refetch]);
 
@@ -407,6 +497,13 @@ export default function MirrorModeDashboard({ userId }: Props) {
     setActiveTab('archive');
     setOpenArchiveChamber(chamber);
   };
+
+  useEffect(() => {
+    if (status?.preferences?.isFirstMirrorModeVisit === false) {
+      setWalkthroughDismissed(true);
+      setHasSelectedChamber(true);
+    }
+  }, [status?.preferences?.isFirstMirrorModeVisit]);
 
   useEffect(() => {
     const savedTab = window.sessionStorage.getItem('mirror-mode-active-tab') as TabKey | null;
@@ -422,84 +519,87 @@ export default function MirrorModeDashboard({ userId }: Props) {
     }
   }, [activeTab]);
 
-  useEffect(() => {
-    let isActive = true;
-
-    const loadUrsie = async () => {
-      try {
-        const res = await fetch('/api/mirror-mode/ursie/chat', { cache: 'no-store' });
-        const data = await res.json();
-        if (!isActive || !data?.success) return;
-
-        setUrsieSessionId(data.sessionId || null);
-        setUrsieSavedCount(data.savedCount || 0);
-        setUrsieIsSaved(Boolean(data.isSaved));
-
-        const loaded = (data.messages || []).map((m: any) => ({
-          id: m.id,
-          sender: m.sender,
-          message: m.message,
-        }));
-
-        if (loaded.length === 0) {
-          setUrsieMessages([
-            {
-              id: 'ursie-default',
-              sender: 'ursie',
-              message: "I'm here. Ask me about your voice, your chambers, or what to upload next.",
-            },
-          ]);
-        } else {
-          setUrsieMessages(loaded);
-        }
-      } catch {
-        if (isActive) setUrsieNotice('Failed to load Ursie chat.');
+  const loadUrsie = useCallback(async () => {
+    try {
+      setUrsieLoadError(null);
+      const res = await fetch('/api/mirror-mode/ursie/chat', { cache: 'no-store' });
+      const data = await res.json();
+      if (!data?.success) {
+        throw new Error(data?.error || 'UNKNOWN');
       }
-    };
 
-    const loadObservations = async () => {
-      try {
-        const res = await fetch('/api/mirror-mode/observations?limit=20', { cache: 'no-store' });
-        const data = await res.json();
-        if (!isActive || !data?.success) return;
+      setUrsieSessionId(data.sessionId || null);
+      setUrsieSavedCount(data.savedCount || 0);
+      setUrsieIsSaved(Boolean(data.isSaved));
 
-        setUrsieObservations((data.observations || []).map((o: any) => ({
-          id: o.id,
-          text: o.observation_text,
-          type: o.observation_type,
-          chamber: o.chamber,
-          createdAt: o.generated_at,
-        })));
-      } catch {
-        // Silent fail
+      const loaded = (data.messages || []).map((m: any) => ({
+        id: m.id,
+        sender: m.sender,
+        message: m.message,
+      }));
+
+      if (loaded.length === 0) {
+        setUrsieMessages([
+          {
+            id: 'ursie-default',
+            sender: 'ursie',
+            message: "I'm here. Ask me about your voice, your chambers, or what to upload next.",
+          },
+        ]);
+      } else {
+        setUrsieMessages(loaded);
       }
-    };
-
-    const loadEpochs = async () => {
-      try {
-        const res = await fetch('/api/mirror-mode/epochs', { cache: 'no-store' });
-        const data = await res.json();
-        if (!isActive || !data?.success) return;
-
-        setEpochs((data.epochs || []).map((epoch: any) => ({
-          id: epoch.id,
-          epoch_number: epoch.epoch_number ?? null,
-          started_at: epoch.started_at,
-          ended_at: epoch.ended_at,
-        })));
-      } catch {
-        // Silent fail
-      }
-    };
-
-    loadUrsie();
-    loadObservations();
-    loadEpochs();
-
-    return () => {
-      isActive = false;
-    };
+    } catch (err: any) {
+      setUrsieLoadError(translateSystemError(err?.message || 'UNKNOWN'));
+    }
   }, []);
+
+  const loadObservations = useCallback(async () => {
+    try {
+      setObservationsLoadError(null);
+      const res = await fetch('/api/mirror-mode/observations?limit=20', { cache: 'no-store' });
+      const data = await res.json();
+      if (!data?.success) {
+        throw new Error(data?.error || 'UNKNOWN');
+      }
+
+      setUrsieObservations((data.observations || []).map((o: any) => ({
+        id: o.id,
+        text: o.observation_text,
+        type: o.observation_type,
+        chamber: o.chamber,
+        createdAt: o.generated_at,
+      })));
+    } catch (err: any) {
+      setObservationsLoadError(translateSystemError(err?.message || 'UNKNOWN'));
+    }
+  }, []);
+
+  const loadEpochs = useCallback(async () => {
+    try {
+      setEpochsLoadError(null);
+      const res = await fetch('/api/mirror-mode/epochs', { cache: 'no-store' });
+      const data = await res.json();
+      if (!data?.success) {
+        throw new Error(data?.error || 'UNKNOWN');
+      }
+
+      setEpochs((data.epochs || []).map((epoch: any) => ({
+        id: epoch.id,
+        epoch_number: epoch.epoch_number ?? null,
+        started_at: epoch.started_at,
+        ended_at: epoch.ended_at,
+      })));
+    } catch (err: any) {
+      setEpochsLoadError(translateSystemError(err?.message || 'UNKNOWN'));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadUrsie();
+    void loadObservations();
+    void loadEpochs();
+  }, [loadEpochs, loadObservations, loadUrsie]);
 
   useEffect(() => {
     if (chatRefMain.current) {
@@ -544,7 +644,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
         },
       ]);
     } catch (err: any) {
-      setUrsieNotice(err?.message || 'Ursie had trouble responding.');
+      setUrsieNotice(translateSystemError(err?.message || 'UNKNOWN'));
     } finally {
       setUrsieThinking(false);
     }
@@ -565,7 +665,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
       setUrsieSavedCount((value) => Math.min(value + 1, 10));
       setUrsieNotice('Chat saved.');
     } catch (err: any) {
-      setUrsieNotice(err?.message || 'Unable to save chat.');
+      setUrsieNotice(translateSystemError(err?.message || 'UNKNOWN'));
     }
   };
 
@@ -580,7 +680,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
       setUrsieIsSaved(false);
       setUrsieNotice('New chat started.');
     } catch (err: any) {
-      setUrsieNotice(err?.message || 'Unable to start new chat.');
+      setUrsieNotice(translateSystemError(err?.message || 'UNKNOWN'));
     }
   };
 
@@ -600,7 +700,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
       setManualMemoryInput('');
       setUrsieNotice('Saved for Ursie.');
     } catch (err: any) {
-      setUrsieNotice(err?.message || 'Failed to save memory.');
+      setUrsieNotice(translateSystemError(err?.message || 'UNKNOWN'));
     }
   };
 
@@ -678,6 +778,18 @@ export default function MirrorModeDashboard({ userId }: Props) {
 
   const activeArchiveDocs = openArchiveChamber ? (chamberDocs[openArchiveChamber] || []) : [];
   const lastTimelineEvent = evolutionEvents[evolutionEvents.length - 1] || null;
+  const activeChamberStatus =
+    (chamberStatuses?.[selectedUploadChamber] as ChamberStatus | undefined) ||
+    getFallbackChamberStatus(selectedUploadChamber);
+  const roadmapDismissed = Boolean(
+    mirrorPreferences?.roadmapDismissedByChamber?.[selectedUploadChamber]
+  );
+  const showRoadmap =
+    activeChamberStatus.documentCount === 0 && !roadmapDismissed;
+  const showQuickStart = activeChamberStatus.documentCount < 3;
+  const showWalkthrough =
+    !walkthroughDismissed &&
+    Boolean(mirrorPreferences?.isFirstMirrorModeVisit);
 
   const archiveObservationByChamber = useMemo(() => {
     const map: Record<ChamberKey, string | null> = {
@@ -761,6 +873,73 @@ export default function MirrorModeDashboard({ userId }: Props) {
           ))}
         </nav>
 
+        {showWalkthrough && (
+          <FirstUseWalkthrough
+            visible={showWalkthrough}
+            hasSelectedChamber={hasSelectedChamber}
+            hasFirstUpload={activeChamberStatus.documentCount > 0}
+            onSkip={completeFirstVisit}
+            onRequestUploadFocus={() => setActiveTab('upload')}
+          />
+        )}
+
+        <section className={styles.actionFirstSection}>
+          <div className={styles.chamberTabs} id="chamber-tabs">
+            {chamberOrder.map((chamber) => (
+              <button
+                key={chamber.key}
+                type="button"
+                className={`${styles.chamberTabBtn} ${selectedUploadChamber === chamber.key ? styles.chamberTabBtnActive : ''}`}
+                onClick={() => {
+                  setSelectedUploadChamber(chamber.key);
+                  setHasSelectedChamber(true);
+                }}
+              >
+                {chamber.label}
+              </button>
+            ))}
+          </div>
+
+          <ChamberCard
+            chamberLabel={`${chamberOrder.find((c) => c.key === selectedUploadChamber)?.label || 'General'} chamber`}
+            status={activeChamberStatus}
+            onPrimaryAction={() => setActiveTab('upload')}
+            primaryActionLabel={activeChamberStatus.state === 'strong' ? 'View profile' : 'Add sample'}
+          />
+
+          <div className={styles.nextActionBar}>
+            <p>{activeChamberStatus.nextMilestone}</p>
+            <button
+              type="button"
+              className={styles.nextActionBtn}
+              onClick={() => setActiveTab('upload')}
+            >
+              {activeChamberStatus.state === 'strong' ? 'Open archive' : 'Add sample'}
+            </button>
+          </div>
+
+          <details
+            className={styles.advancedPanel}
+            open={advancedOpen}
+            onToggle={(event) =>
+              setAdvancedOpen((event.target as HTMLDetailsElement).open)
+            }
+          >
+            <summary>Advanced</summary>
+            <div className={styles.advancedContent}>
+              <p>
+                Confidence: {activeChamberStatus.confidenceScore}
+              </p>
+              <p>
+                Progress to next: {activeChamberStatus.progressToNext}%
+              </p>
+              <p>
+                Raw chamber warnings: {chamberWarnings.length}
+              </p>
+            </div>
+          </details>
+        </section>
+
         <main className={styles.tabContentWrap}>
           {activeTab === 'identity' && (
             <section className={styles.tabContent}>
@@ -775,7 +954,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
                     <p className={styles.timelineCompactPreview}>
                       {lastTimelineEvent?.documentName
                         ? `${lastTimelineEvent.documentName}: ${lastTimelineEvent.text}`
-                        : (lastTimelineEvent?.text || "Ursie's timeline appears as your archive grows.")}
+                        : (lastTimelineEvent?.text || "Ursie timeline appears as your archive grows.")}
                     </p>
                     <div className={styles.timelineCompactFooter}>
                       <span>{evolutionEvents.length} entries</span>
@@ -784,7 +963,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
                   </button>
 
                   <div className={styles.identityMainMock}>
-                    <p className={styles.assessmentLabel}>Ursie's assessment</p>
+                    <p className={styles.assessmentLabel}>Ursie assessment</p>
                     <p className={styles.assessmentLine}>{getIdentityOneLiner()}</p>
 
                     <div className={styles.metaRowMock}>
@@ -801,15 +980,21 @@ export default function MirrorModeDashboard({ userId }: Props) {
                         <p className={styles.metaKey}>Analyzed</p>
                       </div>
                     </div>
+
+                    <CaptureTransparencyPanel
+                      captureLog={captureLog}
+                      loading={captureLogLoading}
+                      error={captureLogError}
+                      onRetry={refetchCaptureLog}
+                    />
                   </div>
                 </div>
                 <div className={styles.identityDivider} />
                 <div className={styles.identityChamberRowMock}>
                   {chamberOrder.map((chamber) => {
-                    const summary = chamberSummaries?.[chamber.key as keyof typeof chamberSummaries] as ChamberSummary | null;
                     const count = chamberDocCounts[chamber.key];
                     const signalCount = chamberSignalCounts[chamber.key];
-                    const confidence = getConfidenceLabel(summary?.confidenceLevel || 0, count);
+                    const displayStatus = getChamberDisplayStatus(chamber.key);
 
                     return (
                       <button
@@ -828,7 +1013,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
                             {count > 0 ? `${count} docs` : 'No documents'}
                             {signalCount > 0 ? ` + ${signalCount} signals` : ''}
                           </span>
-                          <span style={{ color: count > 0 ? `var(${chamber.colorVar})` : undefined }}>{confidence}</span>
+                          <span style={{ color: count > 0 ? `var(${chamber.colorVar})` : undefined }}>{getStatusLabel(displayStatus.state)}</span>
                         </div>
                       </button>
                     );
@@ -851,10 +1036,10 @@ export default function MirrorModeDashboard({ userId }: Props) {
                 <div className={styles.archiveList}>
                   {chamberOrder.map((chamber) => {
                     const isOpen = openArchiveChamber === chamber.key;
-                    const summary = chamberSummaries?.[chamber.key as keyof typeof chamberSummaries] as ChamberSummary | null;
                     const count = chamberDocCounts[chamber.key];
                     const signalCount = chamberSignalCounts[chamber.key];
                     const chamberObservation = archiveObservationByChamber[chamber.key];
+                    const displayStatus = getChamberDisplayStatus(chamber.key);
 
                     return (
                       <section
@@ -916,7 +1101,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
                                       onClick={() => handleDeleteDocument(doc.id)}
                                       disabled={deletingDocumentId === doc.id}
                                     >
-                                      {deletingDocumentId === doc.id ? 'Removing...' : 'Remove'}
+                                      {deletingDocumentId === doc.id ? 'Hiding...' : 'Hide'}
                                     </button>
                                   </div>
                                 ))}
@@ -929,7 +1114,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
                               <p className={styles.archiveEmptyState}>This chamber has learned from studio activity, but direct uploads are not listed here yet.</p>
                             )}
 
-                            <p className={styles.archiveStatusHint}>{summary?.confidenceLabel || getConfidenceLabel(summary?.confidenceLevel || 0, count)}</p>
+                            <p className={styles.archiveStatusHint}>{getStatusLabel(displayStatus.state)}</p>
                           </div>
                         )}
                       </section>
@@ -963,6 +1148,14 @@ export default function MirrorModeDashboard({ userId }: Props) {
                     </header>
 
                     <div className={styles.quickActionRow}>
+                      {ursieLoadError && (
+                        <div className={styles.uploadError}>
+                          {ursieLoadError}
+                          <button type="button" className={styles.smallActionBtn} onClick={() => void loadUrsie()}>
+                            Retry
+                          </button>
+                        </div>
+                      )}
                       {['How is my voice?', 'What should I upload?', 'What patterns do you see?'].map((q) => (
                         <button key={q} type="button" className={styles.quickActionBtn} onClick={() => sendUrsieMessage(q)}>{q}</button>
                       ))}
@@ -1002,8 +1195,16 @@ export default function MirrorModeDashboard({ userId }: Props) {
                     <p className={styles.sectionTitle}>OBSERVATIONS</p>
 
                     <div className={styles.observationScroll}>
+                      {observationsLoadError && (
+                        <div className={styles.uploadError}>
+                          {observationsLoadError}
+                          <button type="button" className={styles.smallActionBtn} onClick={() => void loadObservations()}>
+                            Retry
+                          </button>
+                        </div>
+                      )}
                       {ursieObservations.length === 0 ? (
-                        <p className={styles.observationEmpty}>I'm watching. I'll share what I notice as your archive grows.</p>
+                        <p className={styles.observationEmpty}>I am watching. I will share what I notice as your archive grows.</p>
                       ) : (
                         ursieObservations.map((item) => (
                           <article key={item.id} className={styles.observationItem}>
@@ -1052,7 +1253,10 @@ export default function MirrorModeDashboard({ userId }: Props) {
                           key={chamber.key}
                           type="button"
                           className={`${styles.uploadPill} ${selectedUploadChamber === chamber.key ? styles.uploadPillActive : ''}`}
-                          onClick={() => setSelectedUploadChamber(chamber.key)}
+                          onClick={() => {
+                            setSelectedUploadChamber(chamber.key);
+                            setHasSelectedChamber(true);
+                          }}
                           disabled={uploading}
                         >
                           {chamber.label}
@@ -1060,7 +1264,27 @@ export default function MirrorModeDashboard({ userId }: Props) {
                       ))}
                     </div>
 
+                    {showRoadmap && (
+                      <ConfidenceRoadmap
+                        documentCount={activeChamberStatus.documentCount}
+                      />
+                    )}
+
+                    <div className={styles.uploadAssistStack}>
+                      <GuidedUploadPrompts
+                        chamber={selectedUploadChamber}
+                        documentCount={activeChamberStatus.documentCount}
+                        status={activeChamberStatus}
+                      />
+                      <QuickStartExercise
+                        chamber={selectedUploadChamber}
+                        show={showQuickStart}
+                        onCompleted={handleQuickStartCompleted}
+                      />
+                    </div>
+
                     <div
+                      id="upload-dropzone"
                       className={`${styles.dropZone} ${dragActive ? styles.dropZoneActive : ''}`}
                       onDragEnter={handleDrag}
                       onDragLeave={handleDrag}
@@ -1069,7 +1293,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
                     >
                       <p className={styles.dropIcon}>↑</p>
                       <p className={styles.dropTitle}>Drop a document here or click to browse</p>
-                      <p className={styles.dropMeta}>PDF, DOCX, or TXT — 50+ words</p>
+                      <p className={styles.dropMeta}>PDF, DOCX, or TXT — 80+ words</p>
 
                       <input
                         ref={fileInputRef}
@@ -1106,10 +1330,9 @@ export default function MirrorModeDashboard({ userId }: Props) {
 
                     <div className={styles.statusList}>
                       {chamberOrder.map((chamber) => {
-                        const summary = chamberSummaries?.[chamber.key as keyof typeof chamberSummaries] as ChamberSummary | null;
                         const count = chamberDocCounts[chamber.key];
                         const signalCount = chamberSignalCounts[chamber.key];
-                        const confidence = getConfidenceLabel(summary?.confidenceLevel || 0, count);
+                        const displayStatus = getChamberDisplayStatus(chamber.key);
 
                         return (
                           <div key={chamber.key} className={styles.statusRow}>
@@ -1120,7 +1343,7 @@ export default function MirrorModeDashboard({ userId }: Props) {
                             <span className={styles.statusText}>
                               {count > 0 ? `${count} docs` : 'Empty'}
                               {signalCount > 0 ? ` • ${signalCount} signals` : ''}
-                              {count > 0 || signalCount > 0 ? ` • ${confidence}` : ''}
+                              {count > 0 || signalCount > 0 ? ` • ${getStatusLabel(displayStatus.state)}` : ''}
                             </span>
                           </div>
                         );
@@ -1129,6 +1352,14 @@ export default function MirrorModeDashboard({ userId }: Props) {
 
                     <div className={styles.varietyNudge}>
                       <p>Ursie: {getVarietyNudge()}</p>
+                      {epochsLoadError && (
+                        <span className={styles.uploadError}>
+                          {epochsLoadError}{' '}
+                          <button type="button" className={styles.smallActionBtn} onClick={() => void loadEpochs()}>
+                            Retry
+                          </button>
+                        </span>
+                      )}
                     </div>
                   </aside>
                 </div>
@@ -1139,6 +1370,14 @@ export default function MirrorModeDashboard({ userId }: Props) {
 
         {ursieNotice && <div className={styles.noticeToast}>{ursieNotice}</div>}
       </div>
+
+      <MomentumIndicator
+        chamberLabel={chamberOrder.find((c) => c.key === selectedUploadChamber)?.label || 'General'}
+        stateLabel={momentumStateLabel}
+        observations={uploadObservations}
+        visible={showMomentum}
+        onDismiss={() => setShowMomentum(false)}
+      />
 
       {shouldShowFloatingUrsie && (
         <div className={styles.floatingWrap}>

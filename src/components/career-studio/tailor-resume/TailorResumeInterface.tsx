@@ -187,6 +187,7 @@ export default function TailorResumeInterface({
   //  ADDED: Save button state
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveMirrorUpdated, setSaveMirrorUpdated] = useState(false);
 
   const [selectedResumeId, setSelectedResumeId] = useState<string>(
     initialMasterResumeId || ""
@@ -446,6 +447,9 @@ export default function TailorResumeInterface({
       const data = await response.json();
       if (!data?.success || !data?.resume?.id) {
         throw new Error(data?.error || "Failed to save draft");
+      }
+      if (data?.mirror?.captured) {
+        alert("Draft saved. Mirror Mode updated from your revision.");
       }
       setDraftDirty(false);
       setViewMode("edit-passes");
@@ -827,6 +831,7 @@ export default function TailorResumeInterface({
 
     setIsSaving(true);
     setSaveSuccess(false);
+    setSaveMirrorUpdated(false);
 
     try {
       const response = await fetch(
@@ -845,6 +850,7 @@ export default function TailorResumeInterface({
 
       if (data.success) {
         setSaveSuccess(true);
+        setSaveMirrorUpdated(Boolean(data?.mirror?.captured));
         console.log(" Resume saved:", data.fileName);
         if (selectedJobId && tailoredResume?.id) {
           try {
@@ -2151,7 +2157,7 @@ export default function TailorResumeInterface({
                     {isSaving ? (
                       "Saving..."
                     ) : saveSuccess ? (
-                      "Saved to My Resumes!"
+                      saveMirrorUpdated ? "Saved + Mirror Mode Updated" : "Saved to My Resumes!"
                     ) : (
                       "Save to My Resumes"
                     )}

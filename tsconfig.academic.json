@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/app/academic*/**/*.ts",
+    "src/app/academic*/**/*.tsx",
+    "src/app/api/travis/**/*.ts",
+    "src/components/academic*/**/*.ts",
+    "src/components/academic*/**/*.tsx",
+    "src/components/academic-studio/**/*.ts",
+    "src/components/academic-studio/**/*.tsx",
+    "src/types/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "extension"
+  ]
+}

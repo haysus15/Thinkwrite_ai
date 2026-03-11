@@ -7,6 +7,7 @@ import { Errors } from '@/lib/api/errors';
 import { transformResumeToDB } from '@/types/resume-builder';
 import type { ResumeBuilderData } from '@/types/resume-builder';
 import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
+import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
 
 // GET: List all resumes built by user
 export async function GET(request: NextRequest) {
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Mirror Mode: Learn + archive user-authored builder input in career chamber
+    let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
     try {
       const textForCapture = [
         body.summary,
@@ -91,10 +93,11 @@ export async function POST(request: NextRequest) {
       ].filter(Boolean).join('\n\n');
 
       if (textForCapture.length > 50) {
-        await ingestStudioWriting({
+        mirrorResult = await ingestStudioWriting({
           supabase,
           userId,
           sourceStudio: 'career',
+          sourceAuthority: SOURCE_AUTHORITY.USER_TYPED,
           text: textForCapture,
           sessionId: data.id,
           context: 'resume_builder_input',
@@ -134,7 +137,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      resume: { ...body, id: data.id, userId }
+      resume: { ...body, id: data.id, userId },
+      mirror: mirrorResult,
     });
 
   } catch (error: any) {

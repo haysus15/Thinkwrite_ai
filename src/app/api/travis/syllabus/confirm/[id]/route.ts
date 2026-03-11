@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeAssignmentType } from "@/lib/academic/assignmentType";
+import { normalizeDueDateInput } from "@/lib/academic/dueDate";
 
 type DraftUpdateInput = {
   id: string;
@@ -16,14 +17,13 @@ type DraftUpdateInput = {
   rejected?: boolean;
 };
 
-function normalizeDueDate(value: string | null | undefined): string | null | undefined {
-  if (value === null) return null;
-  if (value === undefined) return undefined;
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString();
-}
+type ParsedAssignmentFallback = {
+  name?: string;
+  type?: string | null;
+  due_date?: string | null;
+  requirements?: Record<string, unknown> | null;
+  grading_weight?: number | null;
+};
 
 export async function POST(
   request: Request,
@@ -100,7 +100,7 @@ export async function POST(
       ? syllabus.parsed_data.assignments
       : [];
     if (parsedAssignments.length > 0) {
-      const fallbackDrafts = parsedAssignments.map((assignment: any, index: number) => ({
+      const fallbackDrafts = parsedAssignments.map((assignment: ParsedAssignmentFallback, index: number) => ({
         syllabus_id: syllabus.id,
         user_id: userId,
         class_name: syllabus.class_name,
@@ -109,7 +109,7 @@ export async function POST(
           assignment.type,
           assignment.name || null
         ),
-        due_date: normalizeDueDate(assignment.due_date),
+        due_date: normalizeDueDateInput(assignment.due_date),
         requirements: assignment.requirements || null,
         grading_weight:
           typeof assignment.grading_weight === "number"
@@ -167,7 +167,7 @@ export async function POST(
       );
     }
 
-    const dueDate = normalizeDueDate(draft.due_date);
+    const dueDate = normalizeDueDateInput(draft.due_date);
     const updates: Record<string, unknown> = {};
     if (draft.class_name !== undefined) updates.class_name = draft.class_name;
     if (draft.assignment_name !== undefined) {

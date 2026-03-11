@@ -10,6 +10,7 @@ interface BlendConsentModalProps {
   toChamber: string;
   onApprove: () => void;
   onClose: () => void;
+  testId?: string;
 }
 
 export default function BlendConsentModal({
@@ -17,10 +18,14 @@ export default function BlendConsentModal({
   toChamber,
   onApprove,
   onClose,
+  testId,
 }: BlendConsentModalProps) {
   const fromLabel = fromChambers.join(", ");
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm">
+    <div
+      data-testid={testId}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm"
+    >
       <div className="w-full sm:max-w-xl mx-4 mb-6 sm:mb-0 rounded-2xl border border-white/15 bg-black/80 p-6 text-white shadow-2xl">
         <div className="text-sm uppercase tracking-[0.2em] text-white/40">
           Ursie — Consent Required

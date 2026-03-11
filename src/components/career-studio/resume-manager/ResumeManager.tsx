@@ -376,7 +376,8 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
           if (data.resume.isMasterResume) {
             selectResume(data.resume.id);
           }
-          alert(data.message);
+          const mirrorNote = data?.mirror?.captured ? "\nMirror Mode updated from this upload." : "";
+          alert(`${data.message}${mirrorNote}`);
         } else {
           throw new Error(data.details || data.error || "Upload failed");
         }
@@ -433,6 +434,9 @@ export default function ResumeManagerPage({ onContextUpdate }: ResumeManagerProp
       }
       dispatchResumeUpdated({ resumeId: data.resume.id });
       setDraftDirty(false);
+      if (data?.mirror?.captured) {
+        alert("Draft saved. Mirror Mode updated from your revision.");
+      }
     } catch (err: any) {
       console.error("Save draft failed:", err);
       setDraftSaveError(err?.message || "Failed to save draft");

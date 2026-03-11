@@ -5,8 +5,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function GET(
   request: Request,
-  { params }: { params: { subject: string } }
+  { params }: { params: Promise<{ subject: string }> }
 ) {
+  const { subject } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -20,7 +21,7 @@ export async function GET(
     .from("challenge_intensity")
     .select("intensity_level")
     .eq("user_id", userId)
-    .eq("subject", params.subject)
+    .eq("subject", subject)
     .maybeSingle();
 
   return NextResponse.json(
@@ -31,8 +32,9 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { subject: string } }
+  { params }: { params: Promise<{ subject: string }> }
 ) {
+  const { subject } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -57,7 +59,7 @@ export async function PUT(
     .upsert(
       {
         user_id: userId,
-        subject: params.subject,
+        subject,
         intensity_level: intensity,
         updated_at: new Date().toISOString(),
       },

@@ -6,7 +6,52 @@ export type VictorMode =
   | "challenge"
   | "study"
   | "math"
-  | "coding_review";
+  | "coding_review"
+  | "teaching";
+
+export type Subject =
+  | "math"
+  | "science"
+  | "writing"
+  | "history"
+  | "computer-science"
+  | "general";
+
+export type AttemptResult =
+  | "correct"
+  | "partial"
+  | "misconception"
+  | "unattempted";
+
+export interface ScaffoldedStep {
+  stepNumber: number;
+  title: string;
+  instruction: string;
+  gap: string | null;
+  revealed: boolean;
+  studentAttempt: string | null;
+  attemptResult: AttemptResult | null;
+  victorFeedback: string | null;
+  subSteps: ScaffoldedStep[];
+}
+
+export interface UnderstandingProfile {
+  strongConcepts: string[];
+  gapConcepts: string[];
+  misconceptions: string[];
+  retriedSteps: number[];
+}
+
+export interface TeachingSession {
+  sessionId: string;
+  subject: Subject;
+  problemStatement: string;
+  steps: ScaffoldedStep[];
+  currentStepIndex: number;
+  completedAt: string | null;
+  understandingProfile: UnderstandingProfile;
+  plannedStepCount?: number;
+}
 
 export interface VictorSessionSummary {
   id: string;
@@ -105,11 +150,45 @@ export interface AssignmentRequirements {
 
 export interface AssignmentRow {
   id: string;
+  syllabus_id?: string | null;
   assignment_name: string;
   class_name: string;
   due_date: string | null;
+  agenda_date?: string | null;
   assignment_type: string | null;
   requirements: AssignmentRequirements | null;
   notes?: string | null;
   completed: boolean;
+  archived_at?: string | null;
+  updated_at?: string | null;
+  status?:
+    | "inbox"
+    | "planned"
+    | "in_progress"
+    | "ready_to_submit"
+    | "submitted"
+    | "completed";
+  priority?: "low" | "medium" | "high" | "critical" | null;
+  grading_weight?: number | null;
+  progress_percent?: number;
+  is_at_risk?: boolean;
+  days_until_due?: number;
+  assignment_tasks?: Array<{
+    id: string;
+    task_type: "research" | "outline" | "draft" | "revise" | "submit" | "other";
+    label: string | null;
+    status: "pending" | "in_progress" | "complete";
+    planned_date: string | null;
+    completed_at: string | null;
+    sort_order: number;
+  }>;
+  tasks?: Array<{
+    id: string;
+    task_type: "research" | "outline" | "draft" | "revise" | "submit" | "other";
+    label: string | null;
+    status: "pending" | "in_progress" | "complete";
+    planned_date: string | null;
+    completed_at: string | null;
+    sort_order: number;
+  }>;
 }

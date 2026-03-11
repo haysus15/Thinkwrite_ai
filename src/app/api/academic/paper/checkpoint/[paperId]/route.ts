@@ -20,8 +20,9 @@ function parseClaudeJson(text: string) {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { paperId: string } }
+  { params }: { params: Promise<{ paperId: string }> }
 ) {
+  const { paperId } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -58,7 +59,7 @@ export async function POST(
   const { data: paper, error: paperError } = await supabase
     .from("academic_papers")
     .select("id, topic, paper_content")
-    .eq("id", params.paperId)
+    .eq("id", paperId)
     .eq("user_id", userId)
     .single();
 
@@ -96,7 +97,10 @@ Did the student demonstrate genuine understanding?`,
 
   let evaluation;
   try {
-    evaluation = parseClaudeJson(response.content?.[0]?.text || "");
+    const firstBlock = response.content?.[0];
+    const firstText =
+      firstBlock && firstBlock.type === "text" ? firstBlock.text : "";
+    evaluation = parseClaudeJson(firstText);
   } catch (parseError) {
     return NextResponse.json(
       { success: false, error: "Failed to parse evaluation." },
@@ -113,7 +117,7 @@ Did the student demonstrate genuine understanding?`,
       understanding_conversation: conversation,
       completed_at: passed ? new Date().toISOString() : null,
     })
-    .eq("id", params.paperId)
+    .eq("id", paperId)
     .eq("user_id", userId);
 
   if (updateError) {

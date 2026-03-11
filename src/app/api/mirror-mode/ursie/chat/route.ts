@@ -90,6 +90,13 @@ type UrsieMessage = {
   created_at: string;
 };
 
+type UrsieMessageRow = {
+  id: string;
+  role: "user" | "ursie" | "assistant";
+  message_text: string;
+  created_at: string;
+};
+
 export async function GET(req: NextRequest) {
   try {
     const { userId, error: authError } = await getAuthUser();
@@ -299,7 +306,7 @@ async function loadMessages(
     .order("created_at", { ascending: true });
 
   return (
-    data?.map((msg) => ({
+    (data as UrsieMessageRow[] | null)?.map((msg) => ({
       id: msg.id,
       sender: msg.role === "user" ? "user" : "ursie",
       message: msg.message_text,
@@ -321,7 +328,7 @@ async function loadRecentHistory(
     .limit(limit);
 
   const messages =
-    data?.map((msg) => ({
+    (data as UrsieMessageRow[] | null)?.map((msg): UrsieMessage => ({
       id: msg.id,
       sender: msg.role === "user" ? "user" : "ursie",
       message: msg.message_text,

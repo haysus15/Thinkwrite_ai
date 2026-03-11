@@ -36,9 +36,8 @@ type Props = {
 // Confidence milestones (labels only; no percentages displayed)
 const milestones = [
   { value: 25, label: 'Learning' },
-  { value: 45, label: 'Developing' },
-  { value: 65, label: 'Confident' },
-  { value: 85, label: 'Mastered' },
+  { value: 70, label: 'Ready' },
+  { value: 101, label: 'Strong' },
 ];
 
 export default function VoiceEvolutionTimeline({

@@ -11,8 +11,9 @@ function buildTitle(messages: Array<{ role: string; content: string }>) {
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -22,7 +23,7 @@ export async function POST(
   }
 
   const supabase = await createSupabaseServerClient();
-  const { data: savedCount } = await supabase
+  const { count: savedCount } = await supabase
     .from("victor_conversations")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
@@ -41,7 +42,7 @@ export async function POST(
   const { data: conversation, error: fetchError } = await supabase
     .from("victor_conversations")
     .select("id, messages, title")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId)
     .single();
 
@@ -56,7 +57,7 @@ export async function POST(
   const { error: updateError } = await supabase
     .from("victor_conversations")
     .update({ saved: true, title })
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId);
 
   if (updateError) {

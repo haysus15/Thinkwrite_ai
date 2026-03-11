@@ -1,7 +1,12 @@
-// src/app/academic-studio/quiz/[id]/page.tsx
-import QuizInterface from "@/components/academic-studio/quiz/QuizInterface";
+// Legacy route retained for backwards compatibility.
+// Canonical route: /academic/quiz/[id]
+import { redirect } from "next/navigation";
 
-export default async function QuizPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LegacyAcademicQuizPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
-  return <QuizInterface quizId={id} />;
+  redirect(`/academic/quiz/${id}`);
 }

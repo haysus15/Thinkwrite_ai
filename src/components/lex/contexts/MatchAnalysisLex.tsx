@@ -54,7 +54,7 @@ export default function MatchAnalysisLex() {
   const { resumeContext, isLoading: isLoadingResume } = useResumeContext();
   const { matchContext, isLoading: isLoadingMatch } = useMatchContext();
 
-  const { messages, isTyping, sendMessage } = useLexConversation({
+  const { messages, isTyping, sendMessage, setMessages } = useLexConversation({
     sessionType: "match-analysis",
     welcomeMessage: WELCOME_MESSAGE,
     resumeContext,

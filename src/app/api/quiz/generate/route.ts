@@ -4,6 +4,9 @@ import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { QuizQuestion, QuizQuestionType } from "@/types/academic-studio";
+import { validateQuizOutput } from "@/lib/academic/contentQualityGuard";
+import { logEvent } from "@/lib/telemetry/logEvent";
+import { DEFAULT_QUIZ_DEFAULTS, parseMaterialMetadata } from "@/components/academic/study-hub/metadata";
 
 export const runtime = "nodejs";
 
@@ -161,10 +164,13 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json();
   const studyMaterialId = body?.studyMaterialId as string;
-  const questionCount = Number(body?.questionCount || 10);
-  const difficulty = Number(body?.difficulty || 3);
-  const questionTypes = (body?.questionTypes ||
-    []) as QuizQuestionType[];
+  const requestedQuestionCount =
+    typeof body?.questionCount === "number" ? Number(body.questionCount) : null;
+  const requestedDifficulty =
+    typeof body?.difficulty === "number" ? Number(body.difficulty) : null;
+  const requestedQuestionTypes = Array.isArray(body?.questionTypes)
+    ? (body.questionTypes as QuizQuestionType[])
+    : null;
 
   if (!studyMaterialId) {
     return NextResponse.json(
@@ -176,17 +182,39 @@ export async function POST(request: NextRequest) {
   const supabase = await createSupabaseServerClient();
   const { data: material, error: materialError } = await supabase
     .from("study_materials")
-    .select("id, title, content")
+    .select("id, title, content, source_id")
     .eq("id", studyMaterialId)
     .eq("user_id", userId)
     .single();
 
   if (materialError || !material) {
+    void logEvent({
+      userId,
+      eventType: "quiz_generation_failed",
+      workspace: "study_library",
+      severity: "error",
+      payload: { reason: "study_material_not_found", studyMaterialId },
+    });
     return NextResponse.json(
       { success: false, error: "Study material not found." },
       { status: 404 }
     );
   }
+  const materialMeta = parseMaterialMetadata(material.source_id);
+  const quizDefaults = materialMeta.quizDefaults || DEFAULT_QUIZ_DEFAULTS;
+  const questionCount = Math.max(
+    5,
+    Math.min(50, Number(requestedQuestionCount ?? quizDefaults.questionCount ?? 10))
+  );
+  const difficulty = Math.max(
+    1,
+    Math.min(5, Number(requestedDifficulty ?? quizDefaults.difficulty ?? 3))
+  );
+  const questionTypes = (
+    requestedQuestionTypes && requestedQuestionTypes.length > 0
+      ? requestedQuestionTypes
+      : quizDefaults.questionTypes
+  ) as QuizQuestionType[];
   const rawStudyContent = (material.content || "").trim();
   const studyContent = sanitizeStudyContent(rawStudyContent);
   const hasStrongSanitized =
@@ -204,6 +232,24 @@ export async function POST(request: NextRequest) {
 
   // Only hard-fail when material is effectively empty.
   if (quizSourceContent.trim().length < 20) {
+    void logEvent({
+      userId,
+      eventType: "quiz_generation_failed",
+      workspace: "study_library",
+      severity: "error",
+      payload: { reason: "source_content_too_short", studyMaterialId },
+    });
+    void logEvent({
+      userId,
+      eventType: "quiz_generation_failed",
+      workspace: "study_library",
+      severity: "error",
+      payload: {
+        phase: "fallback",
+        reason: "insufficient_questions_after_fallback",
+        studyMaterialId,
+      },
+    });
     return NextResponse.json(
       {
         success: false,
@@ -256,7 +302,7 @@ Rules:
 
   const generateFallbackCandidate = async () => {
     const fallbackSystemPrompt = `You are generating a quiz from study material.
-Return JSON: { "questions": [ { "id": "q-1", "type": "multiple_choice|true_false|short_answer|essay", "text": "...", "options": [], "correct_answer": "...", "explanation": "..." } ] }
+Return JSON: { "questions": [ { "id": "q-1", "type": "multiple_choice|true_false|short_answer|essay", "text": "...", "options": [], "correct_answer": "...", "explanation": "...", "source_snippet": "exact quote from material" } ] }
 
 Rules:
 - Total questions: ${questionCount}
@@ -284,7 +330,7 @@ Rules:
     const json = JSON.parse(
       response.choices[0]?.message?.content || "{\"questions\":[]}"
     );
-    return normalizeQuestions(json.questions || []);
+    return normalizeQuestionsWithSource(json.questions || []);
   };
 
   let candidates = await generateCandidate();
@@ -315,19 +361,73 @@ Rules:
     );
   }
 
-  const questions = normalizeQuestions(
-    (grounded.length ? grounded : candidates).slice(0, questionCount)
+  let selectedWithSource = (grounded.length ? grounded : candidates).slice(
+    0,
+    questionCount
   );
+  let questions = normalizeQuestions(selectedWithSource);
 
   if (questions.length < Math.max(3, Math.floor(questionCount * 0.5))) {
     const fallbackQuestions = await generateFallbackCandidate();
-    const usableFallback = fallbackQuestions
+    let usableFallback = fallbackQuestions
       .filter((question) =>
         !isLikelyArtifactQuestion(
-          `${question.text || ""} ${question.explanation || ""}`
+          `${question.text || ""} ${question.explanation || ""} ${
+            question.source_snippet || ""
+          }`
         )
       )
       .slice(0, questionCount);
+
+    let fallbackValidation = validateQuizOutput(
+      usableFallback,
+      quizSourceContent
+    );
+    if (!fallbackValidation.passed) {
+      void logEvent({
+        userId,
+        eventType: "quiz_generation_low_quality",
+        workspace: "study_library",
+        severity: "warn",
+        payload: {
+          phase: "fallback",
+          reason: fallbackValidation.reason,
+          studyMaterialId,
+        },
+      });
+      const fallbackRetry = await generateFallbackCandidate();
+      usableFallback = fallbackRetry
+        .filter((question) =>
+          !isLikelyArtifactQuestion(
+            `${question.text || ""} ${question.explanation || ""} ${
+              question.source_snippet || ""
+            }`
+          )
+        )
+        .slice(0, questionCount);
+      fallbackValidation = validateQuizOutput(usableFallback, quizSourceContent);
+    }
+
+    if (!fallbackValidation.passed) {
+      void logEvent({
+        userId,
+        eventType: "quiz_generation_failed",
+        workspace: "study_library",
+        severity: "error",
+        payload: {
+          phase: "fallback",
+          reason: fallbackValidation.reason,
+          studyMaterialId,
+        },
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Quiz quality guard failed: ${fallbackValidation.reason}`,
+        },
+        { status: 400 }
+      );
+    }
 
     if (usableFallback.length >= Math.max(3, Math.floor(questionCount * 0.5))) {
       const { data: fallbackQuiz, error: fallbackInsertError } = await supabase
@@ -336,13 +436,24 @@ Rules:
           user_id: userId,
           study_material_id: studyMaterialId,
           title: `${material.title} Quiz`,
-          questions: usableFallback,
+          questions: normalizeQuestions(usableFallback),
           difficulty,
         })
         .select("id, title")
         .single();
 
       if (fallbackInsertError || !fallbackQuiz) {
+        void logEvent({
+          userId,
+          eventType: "quiz_generation_failed",
+          workspace: "study_library",
+          severity: "error",
+          payload: {
+            phase: "fallback",
+            reason: "quiz_save_failed",
+            studyMaterialId,
+          },
+        });
         return NextResponse.json(
           {
             success: false,
@@ -372,6 +483,54 @@ Rules:
     );
   }
 
+  let quizValidation = validateQuizOutput(selectedWithSource, quizSourceContent);
+  if (!quizValidation.passed) {
+    void logEvent({
+      userId,
+      eventType: "quiz_generation_low_quality",
+      workspace: "study_library",
+      severity: "warn",
+      payload: {
+        phase: "primary",
+        reason: quizValidation.reason,
+        studyMaterialId,
+      },
+    });
+    const retryCandidates = await generateCandidate();
+    const retryGrounded = retryCandidates.filter((question) =>
+      isQuestionGrounded(question, quizSourceContent)
+    );
+    selectedWithSource = (retryGrounded.length ? retryGrounded : retryCandidates)
+      .filter(
+        (question) =>
+          !isLikelyArtifactQuestion(
+            `${question.text || ""} ${question.explanation || ""} ${
+              question.source_snippet || ""
+            }`
+          )
+      )
+      .slice(0, questionCount);
+    questions = normalizeQuestions(selectedWithSource);
+    quizValidation = validateQuizOutput(selectedWithSource, quizSourceContent);
+  }
+
+  if (!quizValidation.passed) {
+    void logEvent({
+      userId,
+      eventType: "quiz_generation_failed",
+      workspace: "study_library",
+      severity: "error",
+      payload: { phase: "primary", reason: quizValidation.reason, studyMaterialId },
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Quiz quality guard failed: ${quizValidation.reason}`,
+      },
+      { status: 400 }
+    );
+  }
+
   const { data: quiz, error: insertError } = await supabase
     .from("quizzes")
     .insert({
@@ -385,6 +544,13 @@ Rules:
     .single();
 
   if (insertError || !quiz) {
+    void logEvent({
+      userId,
+      eventType: "quiz_generation_failed",
+      workspace: "study_library",
+      severity: "error",
+      payload: { phase: "primary", reason: "quiz_save_failed", studyMaterialId },
+    });
     return NextResponse.json(
       { success: false, error: insertError?.message || "Quiz save failed." },
       { status: 500 }

@@ -90,8 +90,9 @@ function buildDocx(title: string, content: string) {
 
 export async function GET(
   request: Request,
-  { params }: { params: { paperId: string } }
+  { params }: { params: Promise<{ paperId: string }> }
 ) {
+  const { paperId } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -106,7 +107,7 @@ export async function GET(
     .select(
       "id, topic, paper_content, checkpoint_passed, emergency_skip_used"
     )
-    .eq("id", params.paperId)
+    .eq("id", paperId)
     .eq("user_id", userId)
     .single();
 
@@ -129,7 +130,7 @@ export async function GET(
   const buffer = await Packer.toBuffer(doc);
   const filename = `${slugify(paper.topic || "academic-paper") || "academic-paper"}.docx`;
 
-  return new NextResponse(buffer, {
+  return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

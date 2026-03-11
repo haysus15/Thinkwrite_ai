@@ -34,14 +34,36 @@ export async function GET(
     const epochNumber = epoch?.epoch_number || null;
     let documentSamples: any[] = [];
     if (epochNumber) {
-      const { data: docs } = await supabase
+      const docsWithUploadedAt = await supabase
         .from('mirror_documents')
-        .select('id, file_name, writing_type, word_count, uploaded_at')
+        .select('id, file_name, writing_type, word_count, created_at, uploaded_at')
         .eq('user_id', user.id)
         .eq('epoch_number', epochNumber)
-        .order('uploaded_at', { ascending: false })
+        .order('created_at', { ascending: false })
         .limit(5);
-      documentSamples = docs || [];
+
+      // Backward-compat fallback for schemas that do not have uploaded_at.
+      if (docsWithUploadedAt.error?.message?.includes('uploaded_at')) {
+        const docsWithoutUploadedAt = await supabase
+          .from('mirror_documents')
+          .select('id, file_name, writing_type, word_count, created_at')
+          .eq('user_id', user.id)
+          .eq('epoch_number', epochNumber)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        documentSamples = (docsWithoutUploadedAt.data || []).map((doc: any) => ({
+          ...doc,
+          uploaded_at: doc.uploaded_at ?? doc.created_at ?? null,
+          created_at: doc.created_at ?? doc.uploaded_at ?? null,
+        }));
+      } else {
+        documentSamples = (docsWithUploadedAt.data || []).map((doc: any) => ({
+          ...doc,
+          uploaded_at: doc.uploaded_at ?? doc.created_at ?? null,
+          created_at: doc.created_at ?? doc.uploaded_at ?? null,
+        }));
+      }
     }
 
     const profile = epoch?.archived_profile_data?.profile || null;

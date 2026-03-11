@@ -176,6 +176,9 @@ export default function ContextPanelUnified({
       if (!data?.success || !data?.resume?.id) {
         throw new Error(data?.error || 'Import failed');
       }
+      if (data?.mirror?.captured) {
+        alert("Imported to Resume Builder. Mirror Mode updated from this resume.");
+      }
       onWorkspaceSwitch('resume-builder', { selectedResumeId: data.resume.id });
     } catch (error: any) {
       console.error('Failed to import resume:', error);

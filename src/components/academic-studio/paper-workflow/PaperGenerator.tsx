@@ -2,103 +2,106 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, FileText, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import StepByStepPanel from "../shared/StepByStepPanel/StepByStepPanel";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
+import { useOutlineContext } from "./hooks/useOutlineContext";
+import { usePaperTeaching } from "./hooks/usePaperTeaching";
+import { usePaperGeneration } from "./hooks/usePaperGeneration";
 
 interface PaperGeneratorProps {
   outlineId: string | null;
   assignmentId?: string | null;
+  paperId?: string | null;
+  assignmentSetId?: string | null;
+  setOrder?: number | null;
   onBack: () => void;
-  onContinue: (paperId: string) => void;
+  onGenerated?: () => void;
+  onContinue: (paperId: string, generatedContent?: string) => void;
 }
 
 export default function PaperGenerator({
   outlineId,
   assignmentId,
+  paperId,
+  assignmentSetId,
+  setOrder,
   onBack,
+  onGenerated,
   onContinue,
 }: PaperGeneratorProps) {
-  const outlineReady = Boolean(outlineId);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [guardrails, setGuardrails] = useState<{
-    sufficientData: boolean;
-    warnings: string[];
-  } | null>(null);
-  const [voiceSources, setVoiceSources] = useState<string[]>([]);
+  const {
+    outlineReady,
+    outlineBody,
+    outlineLoading,
+    outlineError,
+    outlineMeta,
+    effectiveAssignmentId,
+  } = useOutlineContext(outlineId, assignmentId);
 
-  const handleGenerate = async () => {
-    if (!outlineId) return;
-    setLoading(true);
-    setError(null);
-    setStatus(null);
+  const {
+    teachingSteps,
+    teachingCurrentStepIndex,
+    teachingLoading,
+    teachingError,
+    setTeachingSteps,
+    setTeachingCurrentStepIndex,
+    startPaperTeaching,
+    handleTeachingAttempt,
+    handleTeachingHelp,
+  } = usePaperTeaching({ outlineBody, outlineMeta });
 
-    try {
-      const response = await fetch("/api/academic/paper/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          outlineId,
-          requirements: {
-            assignmentId,
-          },
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        setGuardrails(data.guardrails || null);
-        throw new Error(data.error || "Generation failed.");
-      }
-      setStatus("Draft ready. Move to checkpoint.");
-      setGuardrails(data.guardrails || null);
-      onContinue(data.paperId);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Generation failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    loading,
+    generationError,
+    status,
+    voiceSources,
+    voiceSourceError,
+    reloadVoiceSources,
+    handleGenerate,
+  } = usePaperGeneration({
+    outlineId,
+    outlineBody,
+    effectiveAssignmentId,
+    targetPaperId: paperId || null,
+    assignmentSetId: assignmentSetId || null,
+    setOrder: setOrder ?? null,
+    onGenerated,
+    onContinue,
+  });
 
-  useEffect(() => {
-    let active = true;
-    const fetchSources = async () => {
-      try {
-        const response = await fetch("/api/voice-profile/gatekeeper", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            requesting_studio: "academic",
-            context: "paper_generator",
-            requested_chambers: ["academic", "general", "overall"],
-          }),
-        });
-        const data = await response.json();
-        if (!active) return;
-        const sources: string[] = [];
-        const primaryLabel = data?.voice_profile?.primary_chamber;
-        if (primaryLabel) sources.push(primaryLabel);
-        if (data?.voice_profile?.general) sources.push("general");
-        if (data?.voice_profile?.overall) sources.push("overall");
-        setVoiceSources(sources.length ? sources : ["standard"]);
-      } catch {
-        if (!active) return;
-        setVoiceSources(["standard"]);
-      }
-    };
-    fetchSources();
-    return () => {
-      active = false;
-    };
-  }, []);
+  const blockingError = generationError || teachingError || outlineError;
+
+  if (!outlineReady) {
+    return (
+      <AcademicEmptyState
+        title="No outline to generate from"
+        description="Complete and save your outline first, then return here to generate the draft."
+      />
+    );
+  }
+
+  if (outlineLoading) {
+    return <AcademicLoadingState message="Preparing your paper generation context..." />;
+  }
+
+  if (!outlineBody) {
+    return (
+      <AcademicErrorState
+        message={
+          blockingError || "We could not load your outline details. Go back to outline and try again."
+        }
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
         <div className="flex items-center gap-3">
           <FileText className="h-5 w-5 text-slate-200" />
-          <p className="text-sm font-semibold text-slate-100">
-            Paper generator
-          </p>
+          <p className="text-sm font-semibold text-slate-100">Paper generator</p>
         </div>
         <p className="mt-3 text-sm text-slate-400">
           Mirror Mode voice confidence must be above 50 before generation.
@@ -114,30 +117,25 @@ export default function PaperGenerator({
             </span>
           ))}
         </div>
+        {voiceSourceError && (
+          <AcademicErrorState
+            message={voiceSourceError}
+            retry={() => void reloadVoiceSources()}
+            className="mt-3 !min-h-0 py-3"
+          />
+        )}
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-              Length
-            </p>
-            <p className="mt-2 text-sm text-slate-100">
-              Assignment requirements
-            </p>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Length</p>
+            <p className="mt-2 text-sm text-slate-100">Assignment requirements</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-              Citation
-            </p>
-            <p className="mt-2 text-sm text-slate-100">
-              Assignment requirements
-            </p>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Citation</p>
+            <p className="mt-2 text-sm text-slate-100">Assignment requirements</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-              Sources
-            </p>
-            <p className="mt-2 text-sm text-slate-100">
-              Assignment requirements
-            </p>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Sources</p>
+            <p className="mt-2 text-sm text-slate-100">Assignment requirements</p>
           </div>
         </div>
       </div>
@@ -145,13 +143,10 @@ export default function PaperGenerator({
       <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
         <div className="flex items-center gap-3">
           <ShieldCheck className="h-5 w-5 text-sky-200" />
-          <p className="text-sm font-semibold text-slate-100">
-            Requirements check
-          </p>
+          <p className="text-sm font-semibold text-slate-100">Requirements check</p>
         </div>
         <p className="mt-3 text-sm text-slate-400">
-          Travis validates sources, sections, and formatting before you move
-          forward.
+          Travis validates sources, sections, and formatting before you move forward.
         </p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
           <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
@@ -173,18 +168,58 @@ export default function PaperGenerator({
               Assignment linked
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => void startPaperTeaching()}
+            disabled={!outlineReady || teachingLoading}
+            className="rounded-full border border-sky-400/40 bg-sky-500/10 px-3 py-1 text-sky-200 disabled:opacity-60"
+          >
+            {teachingLoading ? "Loading steps..." : "Help me understand this section"}
+          </button>
         </div>
         {status && (
           <div className="mt-4 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
             {status}
           </div>
         )}
-        {error && (
-          <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            {error}
-          </div>
+        {generationError && (
+          <AcademicErrorState
+            message={generationError}
+            retry={() => void handleGenerate()}
+            className="mt-4 !min-h-0 py-3"
+          />
+        )}
+        {teachingError && (
+          <AcademicErrorState
+            message={teachingError}
+            retry={() => void startPaperTeaching()}
+            className="mt-4 !min-h-0 py-3"
+          />
         )}
       </div>
+
+      {teachingSteps.length > 0 && (
+        <StepByStepPanel
+          steps={teachingSteps}
+          currentStepIndex={teachingCurrentStepIndex}
+          onRequestNextStep={(stepNumber) => {
+            setTeachingSteps((prev) =>
+              prev.map((step, index) =>
+                index <= stepNumber ? { ...step, revealed: true } : step
+              )
+            );
+            setTeachingCurrentStepIndex((prev) =>
+              Math.min(prev + 1, Math.max(0, teachingSteps.length - 1))
+            );
+          }}
+          onStepAttempt={(stepNumber, attempt) =>
+            void handleTeachingAttempt(stepNumber, attempt)
+          }
+          onRequestHint={() => null}
+          onRequestVictorHelp={(stepNumber) => void handleTeachingHelp(stepNumber)}
+          isLoading={teachingLoading}
+        />
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
@@ -197,7 +232,7 @@ export default function PaperGenerator({
         </button>
         <button
           type="button"
-          onClick={handleGenerate}
+          onClick={() => void handleGenerate()}
           className="inline-flex items-center gap-2 rounded-full border border-sky-400/40 bg-sky-500/15 px-5 py-2 text-sm text-sky-200 transition hover:border-sky-300/70 disabled:cursor-not-allowed disabled:opacity-60"
           disabled={!outlineReady || loading}
         >

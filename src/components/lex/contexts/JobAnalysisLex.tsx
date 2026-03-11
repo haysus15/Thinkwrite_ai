@@ -58,7 +58,7 @@ export default function JobAnalysisLex({ jobId }: JobAnalysisLexProps) {
   const { resumeContext, isLoading: isLoadingResume } = useResumeContext();
   const { jobContext, isLoading: isLoadingJob } = useJobContext(jobId);
 
-  const { messages, isTyping, sendMessage } = useLexConversation({
+  const { messages, isTyping, sendMessage, setMessages } = useLexConversation({
     sessionType: "job-discussion",
     welcomeMessage: WELCOME_MESSAGE,
     resumeContext,

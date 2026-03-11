@@ -1,0 +1,72 @@
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  padding: 14px;
+  background: rgba(10, 14, 24, 0.55);
+  backdrop-filter: blur(14px);
+}
+
+.heading {
+  margin: 0;
+  color: #e6eeff;
+  font-size: 16px;
+}
+
+.prompt {
+  margin: 8px 0 10px;
+  color: #bdc8dd;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 120px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(5, 9, 16, 0.7);
+  color: #edf3ff;
+  padding: 10px;
+  resize: vertical;
+}
+
+.footer {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.counter {
+  color: #91a0bc;
+  font-size: 12px;
+}
+
+.button {
+  border: 1px solid rgba(177, 233, 255, 0.45);
+  background: rgba(44, 94, 122, 0.4);
+  color: #ddf4ff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  margin: 8px 0 0;
+  color: #ffb3b3;
+  font-size: 12px;
+}
+
+.result {
+  margin: 10px 0 0;
+  color: #cae1ff;
+  font-size: 12px;
+  line-height: 1.35;
+}

@@ -9,15 +9,56 @@ import {
   useState,
   useEffect,
 } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { useSearchParams } from "next/navigation";
-import type { VictorMode } from "@/types/academic-studio";
+import type {
+  TeachingSession,
+  VictorMode,
+} from "@/types/academic-studio";
+import type { MisconceptionLevel } from "@/lib/academic/victor/victorTypes";
+import type { CoachingProfile } from "@/lib/academic/victor/coachingProfiles";
 import { createCodingReviewSession } from "@/lib/academic/codingReviewApi";
 
 export interface VictorMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  responseType?: "step" | "feedback" | "complete" | "conversation";
+  misconceptionLevel?: MisconceptionLevel;
 }
+
+const EMPTY_VICTOR_MESSAGES: VictorMessage[] = [];
+const EMPTY_SAVED_SESSIONS: SavedSession[] = [];
+const NOOP_SET_MODE = (_mode: VictorMode) => undefined;
+const NOOP_SET_ID = (_id: string | null) => undefined;
+const NOOP_SET_MESSAGES: Dispatch<SetStateAction<VictorMessage[]>> = (_value) => undefined;
+const NOOP_SET_SESSIONS: Dispatch<SetStateAction<SavedSession[]>> = (_value) => undefined;
+const NOOP_REFRESH = () => undefined;
+const NOOP_SET_SUGGESTED = (_mode: VictorMode | null) => undefined;
+const NOOP_LOAD_SESSION = async (_id: string) => undefined;
+const NOOP_SET_TEACHING = (_session: TeachingSession | null) => undefined;
+const NOOP_SET_PROFILE = (_profile: CoachingProfile) => undefined;
+
+const FALLBACK_VICTOR_CHAT_STATE: VictorChatState = {
+  mode: "default",
+  setMode: NOOP_SET_MODE,
+  conversationId: null,
+  setConversationId: NOOP_SET_ID,
+  messages: EMPTY_VICTOR_MESSAGES,
+  setMessages: NOOP_SET_MESSAGES,
+  savedSessions: EMPTY_SAVED_SESSIONS,
+  setSavedSessions: NOOP_SET_SESSIONS,
+  refreshSavedSessions: NOOP_REFRESH,
+  suggestedMode: null,
+  setSuggestedMode: NOOP_SET_SUGGESTED,
+  loadSession: NOOP_LOAD_SESSION,
+  codingReviewSessionId: null,
+  setCodingReviewSessionId: NOOP_SET_ID,
+  teachingSession: null,
+  setTeachingSession: NOOP_SET_TEACHING,
+  coachingProfile: "tutor",
+  setCoachingProfile: NOOP_SET_PROFILE,
+};
 
 interface SavedSession {
   id: string;
@@ -32,15 +73,19 @@ interface VictorChatState {
   conversationId: string | null;
   setConversationId: (id: string | null) => void;
   messages: VictorMessage[];
-  setMessages: (messages: VictorMessage[]) => void;
+  setMessages: Dispatch<SetStateAction<VictorMessage[]>>;
   savedSessions: SavedSession[];
-  setSavedSessions: (sessions: SavedSession[]) => void;
+  setSavedSessions: Dispatch<SetStateAction<SavedSession[]>>;
   refreshSavedSessions: () => void;
   suggestedMode: VictorMode | null;
   setSuggestedMode: (mode: VictorMode | null) => void;
   loadSession: (id: string) => Promise<void>;
   codingReviewSessionId: string | null;
   setCodingReviewSessionId: (id: string | null) => void;
+  teachingSession: TeachingSession | null;
+  setTeachingSession: (session: TeachingSession | null) => void;
+  coachingProfile: CoachingProfile;
+  setCoachingProfile: (profile: CoachingProfile) => void;
 }
 
 const VictorChatContext = createContext<VictorChatState | undefined>(undefined);
@@ -54,6 +99,10 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
   const [codingReviewSessionId, setCodingReviewSessionId] = useState<string | null>(
     null
   );
+  const [teachingSession, setTeachingSession] = useState<TeachingSession | null>(
+    null
+  );
+  const [coachingProfile, setCoachingProfile] = useState<CoachingProfile>("tutor");
   const searchParams = useSearchParams();
 
   const refreshSavedSessions = useCallback(() => {
@@ -77,6 +126,7 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
     setMode(data.conversation.mode);
     setMessages(data.conversation.messages || []);
     setSuggestedMode(null);
+    setTeachingSession(null);
   }, []);
 
   useEffect(() => {
@@ -110,12 +160,16 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
       savedSessions,
       setSavedSessions,
       refreshSavedSessions,
-    suggestedMode,
-    setSuggestedMode,
-    loadSession,
-    codingReviewSessionId,
-    setCodingReviewSessionId,
-  }),
+      suggestedMode,
+      setSuggestedMode,
+      loadSession,
+      codingReviewSessionId,
+      setCodingReviewSessionId,
+      teachingSession,
+      setTeachingSession,
+      coachingProfile,
+      setCoachingProfile,
+    }),
     [
       mode,
       conversationId,
@@ -126,6 +180,9 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
       loadSession,
       codingReviewSessionId,
       setCodingReviewSessionId,
+      teachingSession,
+      setTeachingSession,
+      coachingProfile,
     ]
   );
 
@@ -137,9 +194,9 @@ export function VictorChatProvider({ children }: { children: React.ReactNode }) 
 }
 
 export function useVictorChat() {
-  const context = useContext(VictorChatContext);
-  if (!context) {
-    throw new Error("useVictorChat must be used within VictorChatProvider");
-  }
-  return context;
+  return useContext(VictorChatContext) ?? FALLBACK_VICTOR_CHAT_STATE;
+}
+
+export function useVictorChatOptional() {
+  return useContext(VictorChatContext) ?? null;
 }

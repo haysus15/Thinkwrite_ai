@@ -6,6 +6,8 @@ import QuizProgress from "./QuizProgress";
 import QuizNavigator from "./QuizNavigator";
 import QuizQuestion from "./QuizQuestion";
 import QuizResults from "./QuizResults";
+import AcademicErrorState from "../shared/AcademicErrorState";
+import AcademicLoadingState from "../shared/AcademicLoadingState";
 import type { QuizQuestion as QuizQuestionType } from "@/types/academic-studio";
 
 interface QuizInterfaceProps {
@@ -46,7 +48,7 @@ export default function QuizInterface({ quizId }: QuizInterfaceProps) {
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-white/60">Loading quiz...</p>
+        <AcademicLoadingState message="Loading your quiz..." className="!min-h-0 border-0 bg-transparent py-0" />
       </div>
     );
   }
@@ -54,7 +56,7 @@ export default function QuizInterface({ quizId }: QuizInterfaceProps) {
   if (error) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p className="text-red-300">{error}</p>
+        <AcademicErrorState message={error} className="!min-h-0 border-red-500/40 bg-red-500/10 py-4" />
       </div>
     );
   }
@@ -70,7 +72,7 @@ export default function QuizInterface({ quizId }: QuizInterfaceProps) {
       <div className="mx-auto w-full max-w-4xl">
         <div className="mb-8">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
-            Study Mode Quiz
+            Study Hub Quiz
           </p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-100">
             {title}

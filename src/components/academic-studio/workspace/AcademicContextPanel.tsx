@@ -1,14 +1,13 @@
 // src/components/academic-studio/workspace/AcademicContextPanel.tsx
 "use client";
 
-import { ClipboardCheck, ShieldCheck, Sparkles, Timer } from "lucide-react";
+import { ClipboardCheck, ShieldCheck } from "lucide-react";
 import TravisSidebar from "../travis-sidebar/TravisSidebar";
 
 type AcademicWorkspaceView =
   | "dashboard"
+  | "agenda"
   | "paper-workflow"
-  | "study-materials"
-  | "study-library"
   | "assignments"
   | "syllabi"
   | "math-mode"
@@ -22,10 +21,6 @@ export default function AcademicContextPanel({
   switch (view) {
     case "paper-workflow":
       return <PaperWorkflowContextPanel />;
-    case "study-materials":
-      return <StudyMaterialsContextPanel />;
-    case "study-library":
-      return <StudyLibraryContextPanel />;
     case "assignments":
       return <AssignmentsContextPanel />;
     case "syllabi":
@@ -33,7 +28,8 @@ export default function AcademicContextPanel({
     case "math-mode":
       return <MathModeContextPanel />;
     case "coding-review":
-      return <TravisSidebar />;
+      return <CodingReviewContextPanel />;
+    case "agenda":
     case "dashboard":
     default:
       return <TravisSidebar />;
@@ -79,56 +75,6 @@ function PaperWorkflowContextPanel() {
         >
           Review checkpoint rules
         </button>
-      </div>
-    </div>
-  );
-}
-
-function StudyMaterialsContextPanel() {
-  return (
-    <div className="space-y-5">
-      <div className="academic-nested-card rounded-xl p-5">
-        <div className="flex items-center gap-3">
-          <Sparkles className="h-5 w-5 text-sky-300" />
-          <p className="text-sm font-semibold text-slate-100">
-            Study focus
-          </p>
-        </div>
-        <p className="mt-3 text-sm text-slate-400">
-          Upload clean notes to get sharper quiz questions.
-        </p>
-      </div>
-      <div className="academic-nested-card rounded-xl p-5">
-        <div className="flex items-center gap-3">
-          <Timer className="h-5 w-5 text-teal-300" />
-          <p className="text-sm font-semibold text-slate-100">Reminder</p>
-        </div>
-        <p className="mt-3 text-sm text-slate-400">
-          Victor in Study mode will quiz for understanding, not recall.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function StudyLibraryContextPanel() {
-  return (
-    <div className="space-y-5">
-      <div className="academic-nested-card rounded-xl p-5">
-        <p className="text-sm font-semibold text-slate-100">
-          Study library snapshot
-        </p>
-        <p className="mt-3 text-sm text-slate-400">
-          Review quizzes, check scores, and decide where to focus next.
-        </p>
-      </div>
-      <div className="academic-nested-card rounded-xl p-5">
-        <p className="text-sm font-semibold text-slate-100">
-          Next review
-        </p>
-        <p className="mt-3 text-sm text-slate-400">
-          Target weak topics before the next deadline.
-        </p>
       </div>
     </div>
   );
@@ -191,6 +137,25 @@ function MathModeContextPanel() {
         <p className="text-sm font-semibold text-slate-100">Verification</p>
         <p className="mt-3 text-sm text-slate-400">
           Use Verify All once every step is written cleanly.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function CodingReviewContextPanel() {
+  return (
+    <div className="space-y-5">
+      <div className="academic-nested-card rounded-xl p-5">
+        <p className="text-sm font-semibold text-slate-100">Coding review</p>
+        <p className="mt-3 text-sm text-slate-400">
+          Focus on debugging and code quality. Victor will challenge your reasoning step by step.
+        </p>
+      </div>
+      <div className="academic-nested-card rounded-xl p-5">
+        <p className="text-sm font-semibold text-slate-100">Execution first</p>
+        <p className="mt-3 text-sm text-slate-400">
+          Run tests, inspect output, then ask Victor about failures or design tradeoffs.
         </p>
       </div>
     </div>

@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
 import { getGatekeeperContext } from '@/services/voice-profile/gatekeeper';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
@@ -66,8 +67,11 @@ export async function POST(req: NextRequest) {
       const now = new Date().toISOString();
       const allowedSet = new Set(
         (consents || [])
-          .filter((c: any) => !c.expires_at || c.expires_at > now)
-          .map((c: any) => c.from_chamber)
+          .filter(
+            (c: { expires_at: string | null; from_chamber: string }) =>
+              !c.expires_at || c.expires_at > now
+          )
+          .map((c: { from_chamber: string }) => c.from_chamber)
       );
       blendDenied = nonPrimaryRequests.filter((ch) => !allowedSet.has(ch));
     }
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
       },
       context: context || null,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Gatekeeper error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },

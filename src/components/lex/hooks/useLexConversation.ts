@@ -113,6 +113,17 @@ export function useLexConversation({
           };
 
           setMessages((prev) => [...prev, lexMessage]);
+          if (data?.mirror?.captured) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: "lex-mirror-" + Date.now(),
+                text: "Mirror Mode updated from your latest message.",
+                sender: "lex",
+                timestamp: new Date(),
+              },
+            ]);
+          }
         } else {
           throw new Error(data.error || "Failed to get response");
         }

@@ -12,6 +12,10 @@ import {
   type VoiceProfile 
 } from '@/lib/mirror-mode/voiceAggregation';
 import { isWritingType, mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
+import { getChamberStatus } from '@/lib/mirror/voiceProfileStatus';
+import { buildVoiceObservations } from '@/lib/mirror/voiceObservations';
+import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
+import { shouldIngestForProfile } from '@/lib/mirror-mode/ingestionPolicy';
 
 export const runtime = 'nodejs';
 
@@ -123,6 +127,8 @@ export async function POST(req: NextRequest) {
       word_count: wordCount,
       status: 'uploaded',
       training_allowed: true,
+      source_authority: SOURCE_AUTHORITY.USER_UPLOADED,
+      excluded_from_profile: false,
       visibility_status: 'active',
       epoch_number: currentEpochNumber,
     };
@@ -145,6 +151,8 @@ export async function POST(req: NextRequest) {
         word_count: wordCount,
         status: 'uploaded',
         training_allowed: true,
+        source_authority: SOURCE_AUTHORITY.USER_UPLOADED,
+        excluded_from_profile: false,
       };
       ({ data: document, error: docError } = await supabase
         .from('mirror_documents')
@@ -198,7 +206,11 @@ export async function POST(req: NextRequest) {
     // ---- VOICE LEARNING (unless skipped) ----
     let learningResult: any = null;
 
-    if (!skipLearning && wordCount >= 50) {
+    const ingestionDecision = shouldIngestForProfile(
+      wordCount,
+      SOURCE_AUTHORITY.USER_UPLOADED
+    );
+    if (!skipLearning && ingestionDecision.eligible) {
       try {
         // Extract fingerprint from new document
         const newFingerprint = extractVoiceFingerprint(extractedText);
@@ -217,6 +229,8 @@ export async function POST(req: NextRequest) {
           .single();
 
         let existingProfile: VoiceProfile | null = null;
+        const previousOverallConfidence = existingRow?.confidence_level || 0;
+        const previousOverallDocs = existingRow?.document_count || 0;
 
         if (existingRow) {
           existingProfile = {
@@ -260,14 +274,22 @@ export async function POST(req: NextRequest) {
           });
 
         // Save chamber profile (best effort; table may not exist yet)
+        let previousChamberConfidence = 0;
+        let previousChamberDocs = 0;
+        let newChamberConfidence = 0;
+        let newChamberDocs = 0;
+        const chamber = mapWritingTypeToChamber(writingType);
         try {
-          const chamber = mapWritingTypeToChamber(writingType);
           const { data: existingChamberRow } = await supabase
-            .from('voice_profiles_chambers')
+            .from('voice_chambers')
             .select('*')
             .eq('user_id', userId)
             .eq('chamber', chamber)
             .maybeSingle();
+          previousChamberConfidence = existingChamberRow?.confidence_level || 0;
+          previousChamberDocs = existingChamberRow?.document_count || 0;
+          newChamberConfidence = previousChamberConfidence;
+          newChamberDocs = previousChamberDocs;
 
           let existingChamberProfile: VoiceProfile | null = null;
           if (existingChamberRow) {
@@ -289,9 +311,11 @@ export async function POST(req: NextRequest) {
             { fileName: file.name, writingType, wordCount }
           );
           updatedChamberProfile.userId = userId;
+          newChamberConfidence = updatedChamberProfile.confidenceLevel;
+          newChamberDocs = updatedChamberProfile.documentCount;
 
           await supabase
-            .from('voice_profiles_chambers')
+            .from('voice_chambers')
             .upsert({
               user_id: userId,
               chamber,
@@ -306,9 +330,15 @@ export async function POST(req: NextRequest) {
               onConflict: 'user_id,chamber',
             });
 
+          await supabase
+            .from("voice_chambers")
+            .update({ last_momentum_at: new Date().toISOString() })
+            .eq("user_id", userId)
+            .eq("chamber", chamber);
+
           // Optional: store overall in chamber table as well
           await supabase
-            .from('voice_profiles_chambers')
+            .from('voice_chambers')
             .upsert({
               user_id: userId,
               chamber: 'overall',
@@ -343,6 +373,16 @@ export async function POST(req: NextRequest) {
         const confidenceGain = isFirstDocument 
           ? updatedProfile.confidenceLevel 
           : updatedProfile.confidenceLevel - existingProfile!.confidenceLevel;
+        const observations = buildVoiceObservations(updatedProfile.aggregateFingerprint);
+        const previousState = getChamberStatus(
+          previousChamberDocs,
+          previousChamberConfidence
+        );
+        const newState = getChamberStatus(newChamberDocs, newChamberConfidence);
+        const overallStatus = getChamberStatus(
+          updatedProfile.documentCount,
+          updatedProfile.confidenceLevel
+        );
 
         learningResult = {
           learned: true,
@@ -353,6 +393,16 @@ export async function POST(req: NextRequest) {
           documentCount: updatedProfile.documentCount,
           totalWordCount: updatedProfile.totalWordCount,
           voiceDescription: describeVoice(updatedProfile.aggregateFingerprint),
+          observations,
+          previousState: previousState.state,
+          newState: newState.state,
+          stateChanged: previousState.state !== newState.state,
+          chamberStatus: newState,
+          overallStatus,
+          previousOverallState: getChamberStatus(
+            previousOverallDocs,
+            previousOverallConfidence
+          ).state,
         };
 
       } catch (learnError: any) {
@@ -363,10 +413,10 @@ export async function POST(req: NextRequest) {
           details: learnError?.message,
         };
       }
-    } else if (wordCount < 50) {
+    } else if (!ingestionDecision.eligible) {
       learningResult = {
         learned: false,
-        reason: `Document too short for learning (${wordCount} words, minimum 50)`,
+        reason: ingestionDecision.reason,
       };
     } else {
       learningResult = {
@@ -393,6 +443,11 @@ export async function POST(req: NextRequest) {
       },
 
       learning: learningResult,
+      observations: learningResult?.observations || [],
+      previousState: learningResult?.previousState || null,
+      newState: learningResult?.newState || null,
+      stateChanged: learningResult?.stateChanged || false,
+      chamberStatus: learningResult?.chamberStatus || null,
     });
 
   } catch (error: any) {

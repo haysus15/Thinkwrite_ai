@@ -7,6 +7,7 @@ import { Errors } from '@/lib/api/errors';
 import ContentAwareEducationalScoringEngine from '../../../lib/educational-scoring-engine';
 import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
 import { extractTextFromFile } from '@/lib/mirror-mode/extractText';
+import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
 
 export const runtime = 'nodejs';
 
@@ -177,7 +178,9 @@ export async function POST(request: NextRequest) {
     // Extract file content
     const extraction = await extractTextFromFile(file);
     if (!extraction.ok) {
-      return Errors.badRequest(extraction.error);
+      return Errors.badRequest(
+        "error" in extraction ? extraction.error : "Failed to extract resume text."
+      );
     }
     const rawFileContent = extraction.text;
 
@@ -228,11 +231,13 @@ export async function POST(request: NextRequest) {
       }
 
       // Mirror Mode: Learn + archive user-authored resume in career chamber
+      let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
       try {
-        await ingestStudioWriting({
+        mirrorResult = await ingestStudioWriting({
           supabase,
           userId,
           sourceStudio: 'career',
+          sourceAuthority: SOURCE_AUTHORITY.USER_UPLOADED,
           text: cleanedContent,
           sessionId: newResume.id,
           context: 'resume_manager_upload',
@@ -284,7 +289,8 @@ export async function POST(request: NextRequest) {
           analysisResults: analysisResults,
           analysisStatus: 'complete',
           hasLegacyAnalysis: false
-        }
+        },
+        mirror: mirrorResult,
       });
 
     } catch (analysisError) {

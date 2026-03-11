@@ -41,7 +41,7 @@ export default function FeaturesSection() {
       borderColor: "rgba(156, 194, 231, 0.35)",
       glowColor: "rgba(156, 194, 231, 0.12)",
       highlight: "Powered by Victor and Travis",
-      route: "/academic-studio/landing",
+      route: "/academic/agenda",
       available: true
     },
     {

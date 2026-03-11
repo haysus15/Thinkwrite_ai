@@ -17,10 +17,23 @@ function normalizeAnswer(answer: unknown) {
   return answer;
 }
 
+function readFirstText(content: unknown): string {
+  if (!Array.isArray(content) || content.length === 0) return "";
+  const first = content[0];
+  if (first && typeof first === "object" && "type" in first) {
+    const block = first as { type?: string; text?: unknown };
+    if (block.type === "text" && typeof block.text === "string") {
+      return block.text;
+    }
+  }
+  return "";
+}
+
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const { userId, error } = await getAuthUser();
   if (error || !userId) {
     return NextResponse.json(
@@ -36,7 +49,7 @@ export async function POST(
   const { data: quiz, error: quizError } = await supabase
     .from("quizzes")
     .select("id, title, questions")
-    .eq("id", params.id)
+    .eq("id", id)
     .eq("user_id", userId)
     .single();
 
@@ -98,7 +111,7 @@ STUDENT: ${answer}`,
           },
         ],
       });
-      const parsed = JSON.parse(response.content?.[0]?.text || "{}");
+      const parsed = JSON.parse(readFirstText(response.content) || "{}");
       result = {
         ...result,
         correct: Boolean(parsed.correct),
@@ -124,7 +137,7 @@ STUDENT: ${answer}`,
         ...result,
         correct: null,
         points: null,
-        feedback: response.content?.[0]?.text || "",
+        feedback: readFirstText(response.content) || "",
       };
     }
 

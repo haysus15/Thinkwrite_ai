@@ -4,10 +4,10 @@ import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { VictorMode } from "@/types/academic-studio";
 
-type PersistedVictorMode = Exclude<VictorMode, "coding_review">;
+type PersistedVictorMode = VictorMode;
 
 function toPersistedMode(mode: VictorMode): PersistedVictorMode {
-  return mode === "coding_review" ? "default" : mode;
+  return mode;
 }
 
 export async function POST(request: NextRequest) {

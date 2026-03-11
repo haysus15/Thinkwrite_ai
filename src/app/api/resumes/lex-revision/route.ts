@@ -3,6 +3,7 @@ import { getAuthUser, createSupabaseAdmin } from "@/lib/auth/getAuthUser";
 import { Errors } from "@/lib/api/errors";
 import ContentAwareEducationalScoringEngine from "@/lib/educational-scoring-engine";
 import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
+import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
 
 const scoringEngine = new ContentAwareEducationalScoringEngine();
 
@@ -104,11 +105,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Mirror Mode: Learn + archive accepted resume revision in career chamber
+    let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
     try {
-      await ingestStudioWriting({
+      mirrorResult = await ingestStudioWriting({
         supabase,
         userId,
         sourceStudio: "career",
+        sourceAuthority: SOURCE_AUTHORITY.AI_GENERATED_ACCEPTED,
         text: cleanedContent,
         sessionId: newResume.id,
         context: "lex_resume_revision",
@@ -195,6 +198,7 @@ export async function POST(request: NextRequest) {
         analysisStatus: "complete",
         hasLegacyAnalysis: false,
       },
+      mirror: mirrorResult,
     });
   } catch (error: any) {
     console.error("[Resumes Lex Revision POST]:", error?.message || error);

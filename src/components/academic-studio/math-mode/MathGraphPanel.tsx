@@ -2,9 +2,17 @@
 
 import dynamic from "next/dynamic";
 import { useMemo } from "react";
+import type { ComponentType, CSSProperties } from "react";
 import { evaluate } from "mathjs";
 
-const Plot = dynamic(() => import("react-plotly.js"), { ssr: false });
+type PlotProps = {
+  data: Array<Record<string, unknown>>;
+  layout: Record<string, unknown>;
+  config: Record<string, unknown>;
+  style: CSSProperties;
+};
+
+const Plot = dynamic(() => import("react-plotly.js"), { ssr: false }) as unknown as ComponentType<PlotProps>;
 
 export default function MathGraphPanel({
   expression,

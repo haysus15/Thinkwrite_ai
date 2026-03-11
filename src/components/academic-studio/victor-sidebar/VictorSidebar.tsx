@@ -9,10 +9,15 @@ import {
   Flame,
   Shield,
   Code2,
+  GraduationCap,
 } from "lucide-react";
 import type { VictorMode } from "@/types/academic-studio";
+import type { VictorContext } from "@/lib/academic/victor/victorTypes";
+import type { CoachingProfile } from "@/lib/academic/victor/coachingProfiles";
 import { useVictorChat } from "../victor-chat/VictorChatContext";
 import VictorChatContainer from "../victor-chat/VictorChatContainer";
+import AcademicEmptyState from "../shared/AcademicEmptyState";
+import AcademicErrorState from "../shared/AcademicErrorState";
 import BlendConsentModal from "@/components/mirror-mode/BlendConsentModal";
 
 const modes: Array<{
@@ -37,7 +42,7 @@ const modes: Array<{
   },
   {
     id: "study",
-    label: "Study",
+    label: "Study Hub",
     icon: Shield,
   },
   {
@@ -49,6 +54,11 @@ const modes: Array<{
     id: "coding_review",
     label: "Coding Review",
     icon: Code2,
+  },
+  {
+    id: "teaching",
+    label: "Teaching",
+    icon: GraduationCap,
   },
 ];
 
@@ -77,6 +87,12 @@ export default function VictorSidebar({
   } | null>(null);
   const [showBlendConsent, setShowBlendConsent] = useState(false);
   const [voiceSources, setVoiceSources] = useState<string[]>([]);
+  const [paperVictorContext, setPaperVictorContext] = useState<
+    Partial<VictorContext> | undefined
+  >(undefined);
+  const [activeAssignmentId, setActiveAssignmentId] = useState<string | null>(null);
+  const [defaultCoachingProfile, setDefaultCoachingProfile] =
+    useState<CoachingProfile>("tutor");
 
   useEffect(() => {
     refreshSavedSessions();
@@ -124,6 +140,57 @@ export default function VictorSidebar({
   useEffect(() => {
     fetchGuardrails();
   }, [fetchGuardrails]);
+
+  useEffect(() => {
+    const match = workspaceContext?.match(/Assignment\s+([a-f0-9-]{8,})/i);
+    const assignmentId = match?.[1];
+    if (!workspaceContext?.toLowerCase().includes("paper") || !assignmentId) {
+      setActiveAssignmentId(null);
+      setDefaultCoachingProfile("tutor");
+      setPaperVictorContext(undefined);
+      return;
+    }
+    setActiveAssignmentId(assignmentId);
+
+    let active = true;
+    fetch(`/api/travis/assignment/${assignmentId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        const assignment = data?.assignment;
+        if (!assignment) {
+          setPaperVictorContext(undefined);
+          return;
+        }
+        setPaperVictorContext({
+          assignmentName: assignment.assignment_name || "",
+          className: assignment.class_name || "",
+          paperType: assignment.assignment_type || null,
+          assignmentRequirements:
+            assignment.requirements && typeof assignment.requirements === "object"
+              ? assignment.requirements
+              : null,
+          sectionTitle: "Current paper section",
+          sectionBody: null,
+        });
+        const nextProfile =
+          assignment.victor_coaching_profile === "critic" ||
+          assignment.victor_coaching_profile === "exam_prep" ||
+          assignment.victor_coaching_profile === "fast_review"
+            ? assignment.victor_coaching_profile
+            : "tutor";
+        setDefaultCoachingProfile(nextProfile);
+      })
+      .catch(() => {
+        if (!active) return;
+        setDefaultCoachingProfile("tutor");
+        setPaperVictorContext(undefined);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [workspaceContext]);
 
   const handleApproveBlend = async () => {
     if (!guardrails?.blendDenied?.length || !guardrails.primaryChamber) return;
@@ -181,7 +248,7 @@ export default function VictorSidebar({
           <div className="h-10 w-10 rounded-full border border-sky-400/30 bg-gradient-to-br from-sky-500/40 to-blue-700/40 shadow-[0_0_15px_rgba(14,165,233,0.3)]" />
           <div>
             <p className="text-sm font-semibold text-slate-100">Victor</p>
-            <p className="text-xs text-slate-400">Socratic rigor</p>
+            <p className="text-xs text-slate-400">Academic Coach</p>
           </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -269,12 +336,12 @@ export default function VictorSidebar({
 
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-600">
-              Study
+              Study Hub
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
               {modes
                 .filter((modeOption) =>
-                  ["study", "math", "coding_review"].includes(modeOption.id)
+                  ["study", "math", "coding_review", "teaching"].includes(modeOption.id)
                 )
                 .map((modeOption, index, list) => {
                   const isActive = mode === modeOption.id;
@@ -298,7 +365,7 @@ export default function VictorSidebar({
             </div>
           </div>
         </div>
-        {error && <p className="mt-2 text-xs text-red-300">{error}</p>}
+        {error && <AcademicErrorState message={error} className="mt-2 !min-h-0 py-2" />}
       </div>
 
       <div className="mt-4 flex min-h-0 flex-1 flex-col">
@@ -316,6 +383,12 @@ export default function VictorSidebar({
                 workspaceContext={workspaceContext}
                 showStudyPanel={false}
                 variant="sidebar"
+                victorContext={paperVictorContext}
+                assignmentId={activeAssignmentId}
+                defaultCoachingProfile={defaultCoachingProfile}
+                showProfileSelector={
+                  workspaceContext?.toLowerCase().includes("paper")
+                }
               />
             </div>
           </div>
@@ -324,6 +397,12 @@ export default function VictorSidebar({
             workspaceContext={workspaceContext}
             showStudyPanel={false}
             variant="sidebar"
+            victorContext={paperVictorContext}
+            assignmentId={activeAssignmentId}
+            defaultCoachingProfile={defaultCoachingProfile}
+            showProfileSelector={
+              workspaceContext?.toLowerCase().includes("paper") || mode === "study"
+            }
           />
         )}
       </div>
@@ -347,9 +426,11 @@ export default function VictorSidebar({
         </p>
         <div className="mt-3 max-h-32 space-y-2 overflow-y-auto text-xs text-slate-300">
           {savedSessions.length === 0 && (
-            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-slate-400">
-              No saved sessions yet.
-            </div>
+            <AcademicEmptyState
+              title="No saved sessions yet"
+              description="Save a Victor chat session to reopen it later."
+              className="!min-h-0 py-2"
+            />
           )}
           {savedSessions.map((session) => (
             <button

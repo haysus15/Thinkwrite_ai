@@ -5,10 +5,18 @@ import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { extractTextFromFile } from "@/lib/mirror-mode/extractText";
 import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
+import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
 
 export const runtime = "nodejs";
 const MIRROR_REFERENCE_PATTERN = /syllabus|assignment[_\s-]?requirements?|writing[_\s-]?requirements?|course[_\s-]?requirements?|school[_\s-]?requirements?|job[_\s-]?analysis/i;
+const STUDY_SYSTEM_ARTIFACT_PATTERN = /syllabus|quiz|quiz[_\s-]?source|study[_\s-]?guide|lesson[_\s-]?notes?|reference/i;
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ALLOWED_SOURCE_TYPES = new Set([
+  "coding_review_guide",
+  "learning_coach_guide",
+  "quiz_source",
+  "math_guide",
+]);
 
 function sanitizeStudyMaterialText(raw: string): string {
   const pdfArtifactPattern =
@@ -96,8 +104,64 @@ export async function POST(request: Request) {
   const title = String(formData.get("title") || "");
   const className = String(formData.get("className") || "");
   const topic = String(formData.get("topic") || "");
-  // Keep source_type on an allowed DB value; store richer source metadata in title/class/topic.
-  const sourceType = "uploaded";
+  const rawSourceType = String(formData.get("sourceType") || "")
+    .trim()
+    .toLowerCase();
+  const sourceType = ALLOWED_SOURCE_TYPES.has(rawSourceType)
+    ? rawSourceType
+    : "quiz_source";
+  const rawOriginWorkspace = String(formData.get("originWorkspace") || "")
+    .trim()
+    .toLowerCase();
+  const rawOriginMode = String(formData.get("originMode") || "")
+    .trim()
+    .toLowerCase();
+  const rawLanguage = String(formData.get("language") || "")
+    .trim()
+    .toLowerCase();
+  const rawMaterialKind = String(formData.get("materialKind") || "")
+    .trim()
+    .toLowerCase();
+  const rawSourceMeta = String(formData.get("sourceMeta") || "").trim();
+  const originWorkspace =
+    rawOriginWorkspace === "coding_review" ? rawOriginWorkspace : null;
+  const originMode = rawOriginMode || null;
+  const language =
+    rawLanguage === "python" || rawLanguage === "sql" || rawLanguage === "javascript"
+      ? rawLanguage
+      : null;
+  const materialKind =
+    rawMaterialKind === "study_guide" ||
+    rawMaterialKind === "lesson_notes" ||
+    rawMaterialKind === "reference" ||
+    rawMaterialKind === "uploaded_doc"
+      ? rawMaterialKind
+      : null;
+  let sourceMeta: string | null = null;
+  if (rawSourceMeta) {
+    try {
+      const parsed = JSON.parse(rawSourceMeta) as {
+        tags?: unknown;
+        quizDefaults?: unknown;
+        lastAccessedAt?: unknown;
+      };
+      sourceMeta = JSON.stringify({
+        tags: Array.isArray(parsed.tags)
+          ? parsed.tags
+              .map((item) => (typeof item === "string" ? item.trim() : ""))
+              .filter(Boolean)
+          : [],
+        quizDefaults:
+          parsed.quizDefaults && typeof parsed.quizDefaults === "object"
+            ? parsed.quizDefaults
+            : undefined,
+        lastAccessedAt:
+          typeof parsed.lastAccessedAt === "string" ? parsed.lastAccessedAt : null,
+      });
+    } catch {
+      sourceMeta = null;
+    }
+  }
 
   const hasFile = file instanceof File;
   const hasPastedContent = pastedContent.length > 0;
@@ -122,7 +186,13 @@ export async function POST(request: Request) {
     const extractResult = await extractTextFromFile(uploadFile);
     if (!extractResult.ok) {
       return NextResponse.json(
-        { success: false, error: extractResult.error },
+        {
+          success: false,
+          error:
+            "error" in extractResult
+              ? extractResult.error
+              : "Failed to extract text from uploaded file.",
+        },
         { status: 400 }
       );
     }
@@ -188,7 +258,11 @@ export async function POST(request: Request) {
       class_name: className || null,
       topic: topic || null,
       source_type: sourceType,
-      source_id: null,
+      source_id: sourceMeta,
+      origin_workspace: originWorkspace,
+      origin_mode: originMode,
+      language,
+      material_kind: materialKind,
     })
     .select("id, title")
     .single();
@@ -203,12 +277,33 @@ export async function POST(request: Request) {
   // Mirror Mode: ingest academic uploads unless they are reference artifacts.
   const mirrorContext = `study_material_upload ${sourceName} ${topic || ""}`.trim();
   const isReferenceArtifact = MIRROR_REFERENCE_PATTERN.test(mirrorContext);
+  let mirrorResult: {
+    captured: boolean;
+    archived: boolean;
+    needsConsent: boolean;
+    mirrorDocumentId: string | null;
+    wordCount: number;
+  } | null = null;
+
   if (!isReferenceArtifact) {
+    const aiLikeSourceType =
+      sourceType === "coding_review_guide" ||
+      sourceType === "learning_coach_guide" ||
+      sourceType === "math_guide";
+    const looksSystemGenerated = STUDY_SYSTEM_ARTIFACT_PATTERN.test(
+      `${sourceName} ${topic} ${materialKind || ""}`.toLowerCase()
+    );
+    const sourceAuthority =
+      aiLikeSourceType || looksSystemGenerated
+        ? SOURCE_AUTHORITY.AI_GENERATED_ACCEPTED
+        : SOURCE_AUTHORITY.USER_UPLOADED;
+
     try {
-      await ingestStudioWriting({
+      mirrorResult = await ingestStudioWriting({
         supabase,
         userId,
         sourceStudio: "academic",
+        sourceAuthority,
         text: finalStudyText,
         sessionId: data.id,
         context: mirrorContext,
@@ -218,8 +313,8 @@ export async function POST(request: Request) {
         writingType: "academic",
         registerInArchive: true,
       });
-    } catch {
-      // Silent fail
+    } catch (mirrorError) {
+      console.warn("Mirror ingest failed for study upload", mirrorError);
     }
   }
 
@@ -242,12 +337,12 @@ export async function POST(request: Request) {
           },
         ],
       });
-  } catch (e) {
-    // Silent fail
+  } catch (lineageError) {
+    console.warn("Document lineage write failed for study upload", lineageError);
   }
 
   return NextResponse.json(
-    { success: true, material: data, warning: uploadWarning },
+    { success: true, material: data, warning: uploadWarning, mirror: mirrorResult },
     { status: 200 }
   );
 }

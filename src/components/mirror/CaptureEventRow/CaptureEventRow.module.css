@@ -1,0 +1,78 @@
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  transition: background 0.18s ease;
+}
+
+.row:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-top: 6px;
+}
+
+.dotEligible {
+  background: var(--accent);
+}
+
+.dotExcluded {
+  background: var(--text-tertiary);
+}
+
+.content {
+  min-width: 0;
+}
+
+.topLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.sourceLabel {
+  font-size: 0.79rem;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.retentionUsed {
+  font-size: 0.71rem;
+  color: var(--text-secondary);
+}
+
+.retentionMuted {
+  font-size: 0.71rem;
+  color: var(--text-tertiary);
+}
+
+.retentionPattern {
+  font-size: 0.71rem;
+  color: color-mix(in srgb, var(--text-tertiary) 82%, var(--accent) 18%);
+}
+
+.metaLine {
+  margin-top: 3px;
+  font-size: 0.71rem;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.wordCountStrong {
+  color: var(--text-secondary);
+}
+
+.wordCountMuted {
+  color: var(--text-tertiary);
+}

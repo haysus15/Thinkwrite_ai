@@ -6,6 +6,7 @@ import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import type { TailoredResumeDB, StructuredResumeContent, ResumeChange } from '@/types/tailored-resume';
 import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
+import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
 
 export async function POST(
   request: NextRequest,
@@ -113,11 +114,13 @@ export async function POST(
     console.log('✅ Saved as new resume:', savedResume.id);
 
     // Mirror Mode: accepted tailored output becomes a user-authored career artifact.
+    let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
     try {
-      await ingestStudioWriting({
+      mirrorResult = await ingestStudioWriting({
         supabase,
         userId,
         sourceStudio: 'career',
+        sourceAuthority: SOURCE_AUTHORITY.AI_GENERATED_ACCEPTED,
         text: extractedText,
         sessionId: savedResume.id,
         context: 'tailored_resume_saved',
@@ -144,7 +147,8 @@ export async function POST(
       success: true,
       message: 'Resume saved successfully',
       resumeId: savedResume.id,
-      fileName: fileName
+      fileName: fileName,
+      mirror: mirrorResult,
     });
 
   } catch (error) {
