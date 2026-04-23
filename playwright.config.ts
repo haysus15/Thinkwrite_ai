@@ -5,12 +5,12 @@ export default defineConfig({
   timeout: 30_000,
   retries: 0,
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:3001',
     headless: true,
   },
   webServer: {
-    command: 'NEXT_PUBLIC_E2E=true npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: true,
+    command: 'NEXT_PUBLIC_E2E=true npm run dev -- --port 3001',
+    url: 'http://localhost:3001',
+    reuseExistingServer: false,
   },
 });

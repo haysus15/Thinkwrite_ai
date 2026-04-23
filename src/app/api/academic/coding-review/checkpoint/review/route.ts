@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { learnFromTextDirect } from "@/lib/mirror-mode/liveLearning";
-import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 
 export const runtime = "nodejs";
 
@@ -153,24 +152,6 @@ Return JSON only.`;
     );
   }
 
-  // Mirror Mode capture: only on pass
-  let mirrorLearning: { learned: boolean; error?: string } | null = null;
-  if (pass) {
-    const combinedText = `${explain}\n\n${modify}`.trim();
-    if (combinedText) {
-      mirrorLearning = await learnFromTextDirect({
-        userId,
-        text: combinedText,
-        source: "coding-review",
-        sourceAuthority: SOURCE_AUTHORITY.USER_TYPED,
-        metadata: {
-          context: "coding_checkpoint",
-          writingType: "academic",
-          title: "Coding Review Checkpoint",
-        },
-      });
-    }
-  }
 
   return NextResponse.json(
     {
@@ -179,7 +160,6 @@ Return JSON only.`;
       feedback,
       submission_id: submission.id,
       review_id: review.id,
-      mirror: mirrorLearning,
     },
     { status: 200 }
   );

@@ -5,17 +5,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
 import { extractTextFromFile } from '@/lib/mirror-mode/extractText';
-import { extractVoiceFingerprint, describeVoice } from '@/lib/mirror-mode/voiceAnalysis';
+import { extractVoiceFingerprint, describeVoice } from '@/lib/mirror-core/voiceAnalysis';
 import { 
   aggregateFingerprints, 
   getConfidenceLabel,
   type VoiceProfile 
-} from '@/lib/mirror-mode/voiceAggregation';
-import { isWritingType, mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
+} from '@/lib/mirror-core/voiceAggregation';
+import { isWritingType, mapWritingTypeToChamber } from '@/lib/mirror-core/writingTypes';
 import { getChamberStatus } from '@/lib/mirror/voiceProfileStatus';
 import { buildVoiceObservations } from '@/lib/mirror/voiceObservations';
-import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
-import { shouldIngestForProfile } from '@/lib/mirror-mode/ingestionPolicy';
+import { SOURCE_AUTHORITY } from '@/lib/mirror-core/sourceAuthority';
+import { shouldIngestForProfile } from '@/lib/mirror-core/ingestionPolicy';
 
 export const runtime = 'nodejs';
 
@@ -102,22 +102,25 @@ export async function POST(req: NextRequest) {
     const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     // ---- DETERMINE CURRENT EPOCH (BEST EFFORT) ----
     let currentEpochNumber = 1;
-    try {
-      const { data: epochRow } = await supabase
-        .from('voice_profile_epochs')
-        .select('epoch_number')
-        .eq('user_id', userId)
-        .is('ended_at', null)
-        .order('epoch_number', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (epochRow?.epoch_number) currentEpochNumber = epochRow.epoch_number;
-    } catch (err) {
-      // If epochs table isn't present yet, default to epoch 1
+    const { data: epochRow, error: epochError } = await supabase
+      .from('voice_profile_epochs')
+      .select('epoch_number')
+      .eq('user_id', userId)
+      .is('ended_at', null)
+      .order('epoch_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (epochError) {
+      console.error('Epoch lookup error:', epochError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to determine current epoch', details: epochError.message },
+        { status: 500 }
+      );
     }
+    if (epochRow?.epoch_number) currentEpochNumber = epochRow.epoch_number;
 
     // ---- CREATE DOCUMENT RECORD ----
-    let insertPayload: Record<string, any> = {
+    const insertPayload: Record<string, any> = {
       user_id: userId,
       file_name: file.name,
       mime_type: file.type || 'application/octet-stream',
@@ -133,33 +136,11 @@ export async function POST(req: NextRequest) {
       epoch_number: currentEpochNumber,
     };
 
-    let { data: document, error: docError } = await supabase
+    const { data: document, error: docError } = await supabase
       .from('mirror_documents')
       .insert(insertPayload)
       .select('id')
       .single();
-
-    // If schema isn't upgraded yet, retry without new fields
-    if (docError?.message?.includes('column') || docError?.message?.includes('visibility_status') || docError?.message?.includes('epoch_number')) {
-      insertPayload = {
-        user_id: userId,
-        file_name: file.name,
-        mime_type: file.type || 'application/octet-stream',
-        file_size: file.size,
-        storage_path: null,
-        writing_type: writingType,
-        word_count: wordCount,
-        status: 'uploaded',
-        training_allowed: true,
-        source_authority: SOURCE_AUTHORITY.USER_UPLOADED,
-        excluded_from_profile: false,
-      };
-      ({ data: document, error: docError } = await supabase
-        .from('mirror_documents')
-        .insert(insertPayload)
-        .select('id')
-        .single());
-    }
 
     if (docError || !document) {
       return NextResponse.json(

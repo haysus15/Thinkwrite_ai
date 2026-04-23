@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { getWritingTypeAbbrev, getWritingTypeLabel } from '@/lib/mirror-mode/writingTypes';
+import { getWritingTypeAbbrev, getWritingTypeLabel } from '@/lib/mirror-core/writingTypes';
 
 export type VoiceEvolution = {
   timestamp: string;

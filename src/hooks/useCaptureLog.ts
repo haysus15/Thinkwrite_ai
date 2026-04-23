@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { translateSystemError } from "@/lib/mirror/voiceProfileStatus";
-import type { SourceAuthority } from "@/lib/mirror-mode/sourceAuthority";
+import type { SourceAuthority } from "@/lib/mirror-core/sourceAuthority";
 
 export type CaptureChamber = "career" | "academic" | "creative" | "general";
 

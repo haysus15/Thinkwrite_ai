@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { extractTextFromFile } from "@/lib/mirror-mode/extractText";
+import { extractTextFromFile } from "@/lib/utils/extractText";
 import {
   mergeWithLlmAssignments,
   parseSyllabusAssignments,

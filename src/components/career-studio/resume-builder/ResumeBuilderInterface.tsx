@@ -3,7 +3,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import BlendConsentModal from "@/components/mirror-mode/BlendConsentModal";
 import { usePathname, useRouter } from "next/navigation";
 import {
   FileText,
@@ -897,17 +896,7 @@ export default function ResumeBuilderInterface({
         </section>
       </div>
 
-      {showBlendConsent && guardrails?.blendDenied?.length && guardrails.primaryChamber && (
-        <BlendConsentModal
-          fromChambers={guardrails.blendDenied}
-          toChamber={guardrails.primaryChamber}
-          onClose={() => setShowBlendConsent(false)}
-          onApprove={async () => {
-            await handleApproveBlend();
-            setShowBlendConsent(false);
-          }}
-        />
-      )}
+      {/* Voice features connect when Mirror Mode standalone is integrated */}
     </Shell>
   );
 }

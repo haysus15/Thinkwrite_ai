@@ -1,4 +1,4 @@
-import type { VoiceFingerprint } from './voiceAnalysis';
+import type { VoiceFingerprint } from '@/lib/mirror-core/voiceAnalysis';
 
 export const EMPTY_FINGERPRINT: VoiceFingerprint = {
   vocabulary: {

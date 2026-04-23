@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
-import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
+import { SOURCE_AUTHORITY } from '@/lib/mirror-core/sourceAuthority';
 
 export const runtime = 'nodejs';
 

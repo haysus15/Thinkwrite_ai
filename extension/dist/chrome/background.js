@@ -1,64 +1,3 @@
-// lib/auth.ts
-var THINKWRITE_API_BASE = true ? "http://localhost:3000" : "https://thinkwrite.ai";
-function parseAuthCookie(rawValue) {
-  try {
-    const stripped = rawValue.startsWith("base64-") ? rawValue.slice("base64-".length) : rawValue;
-    let jsonString;
-    try {
-      jsonString = atob(stripped);
-    } catch {
-      try {
-        jsonString = decodeURIComponent(stripped);
-      } catch {
-        jsonString = stripped;
-      }
-    }
-    const parsed = JSON.parse(jsonString);
-    const data = Array.isArray(parsed) ? parsed[0] : parsed;
-    if (!data || typeof data === "string") {
-      return { accessToken: null, userId: null };
-    }
-    return {
-      accessToken: data.access_token || null,
-      userId: data.user?.id || null
-    };
-  } catch {
-    return { accessToken: null, userId: null };
-  }
-}
-async function getAuthState() {
-  return await new Promise((resolve) => {
-    chrome.cookies.getAll({}, (cookies) => {
-      const baseCookie = cookies.find(
-        (cookie) => /^sb-.+-auth-token$/.test(cookie.name) && !cookie.name.includes("code-verifier")
-      );
-      if (!baseCookie) {
-        resolve({
-          accessToken: null,
-          userId: null,
-          isAuthenticated: false,
-          apiBase: THINKWRITE_API_BASE,
-          cookieName: null,
-          cookieDomain: null
-        });
-        return;
-      }
-      const baseName = baseCookie.name;
-      const chunks = cookies.filter((cookie) => cookie.name.startsWith(`${baseName}.`)).sort((a, b) => a.name.localeCompare(b.name));
-      const rawValue = chunks.length > 0 ? chunks.map((cookie) => cookie.value).join("") : baseCookie.value;
-      const result = parseAuthCookie(rawValue);
-      resolve({
-        accessToken: result.accessToken,
-        userId: result.userId,
-        isAuthenticated: Boolean(result.accessToken && result.userId),
-        apiBase: THINKWRITE_API_BASE,
-        cookieName: baseCookie.name,
-        cookieDomain: baseCookie.domain || null
-      });
-    });
-  });
-}
-
 // lib/runtime.ts
 function hasThen(value) {
   return Boolean(value) && typeof value.then === "function";
@@ -86,6 +25,39 @@ async function callMaybePromise(call, callbackStyle) {
   }
 }
 var ext = globalThis.chrome ?? globalThis.browser ?? null;
+async function localGet(key) {
+  const storage = (globalThis.chrome ?? globalThis.browser)?.storage?.local;
+  if (!storage) {
+    console.warn("[MirrorMode] storage.local not available at localGet call time");
+    return {};
+  }
+  return new Promise((resolve) => {
+    storage.get(key, (result) => resolve(result || {}));
+  });
+}
+async function localSet(value) {
+  const storage = (globalThis.chrome ?? globalThis.browser)?.storage?.local;
+  if (!storage) {
+    console.warn("[MirrorMode] storage.local not available at localSet call time");
+    return;
+  }
+  return new Promise((resolve) => {
+    storage.set(value, () => resolve());
+  });
+}
+async function localRemove(key) {
+  if (!ext?.storage?.local) return;
+  try {
+    await callMaybePromise(
+      () => ext.storage.local.remove(key),
+      (resolve) => ext.storage.local.remove(key, () => resolve(void 0))
+    );
+  } catch (error) {
+    if (!isContextInvalidatedError(error)) {
+      throw error;
+    }
+  }
+}
 async function syncGet(key) {
   if (!ext?.storage?.sync) return {};
   try {
@@ -103,6 +75,100 @@ async function syncGet(key) {
 function runtimeOnMessageAddListener(listener) {
   if (!ext?.runtime?.onMessage?.addListener) return;
   ext.runtime.onMessage.addListener(listener);
+}
+
+// lib/auth.ts
+var THINKWRITE_API_BASE = true ? "http://localhost:3000" : "https://mirrormode.ai";
+var EXTENSION_SESSION_STORAGE_KEY = "mirrormode_ext_session";
+function isStoredSession(value) {
+  return Boolean(value) && typeof value === "object" && typeof value.token === "string";
+}
+function isExpired(expiresAt) {
+  if (!expiresAt) return true;
+  const timestamp = Date.parse(expiresAt);
+  if (Number.isNaN(timestamp)) return true;
+  return Date.now() >= timestamp;
+}
+async function getStoredSession() {
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(EXTENSION_SESSION_STORAGE_KEY, (result) => {
+        resolve(result || {});
+      });
+    });
+  }
+  return localGet(EXTENSION_SESSION_STORAGE_KEY);
+}
+async function readStoredSession() {
+  const stored = await getStoredSession();
+  const session = stored[EXTENSION_SESSION_STORAGE_KEY];
+  return isStoredSession(session) ? session : null;
+}
+async function storeSession(session) {
+  await localSet({ [EXTENSION_SESSION_STORAGE_KEY]: session });
+}
+async function clearSession() {
+  await localRemove(EXTENSION_SESSION_STORAGE_KEY);
+}
+async function getAuthState() {
+  const session = await readStoredSession();
+  const expired = isExpired(session?.expiresAt);
+  return {
+    accessToken: session?.token ?? null,
+    userId: session?.userId ?? null,
+    email: session?.email ?? null,
+    isAuthenticated: Boolean(session?.token && session?.userId && !expired),
+    isExpired: Boolean(session?.token && expired),
+    needsReconnect: Boolean(session?.token && expired),
+    expiresAt: session?.expiresAt ?? null,
+    apiBase: THINKWRITE_API_BASE
+  };
+}
+async function postExtensionAuth(path, init) {
+  const response = await fetch(`${THINKWRITE_API_BASE}${path}`, init);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error || "Extension authentication request failed");
+  }
+  return data;
+}
+async function refreshSession() {
+  const session = await readStoredSession();
+  if (!session?.token) {
+    return null;
+  }
+  try {
+    const data = await postExtensionAuth(
+      "/api/extension/auth/refresh",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+    if (!data.session) {
+      await clearSession();
+      return null;
+    }
+    await storeSession(data.session);
+    return getAuthState();
+  } catch {
+    await clearSession();
+    return null;
+  }
+}
+async function getValidAccessToken() {
+  const auth = await getAuthState();
+  if (auth.isAuthenticated && auth.accessToken) {
+    return auth.accessToken;
+  }
+  if (!auth.isExpired) {
+    return null;
+  }
+  const refreshed = await refreshSession();
+  return refreshed?.isAuthenticated ? refreshed.accessToken : null;
 }
 
 // lib/domainMap.ts
@@ -147,9 +213,9 @@ function getSessionStats() {
   };
 }
 async function handleFingerprint(fingerprint, hostname) {
-  const auth = await getAuthState();
-  if (!auth.isAuthenticated || !auth.accessToken) {
-    console.warn("[ThinkWrite BG] dropping fingerprint due to missing auth");
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) {
+    console.warn("[MirrorMode BG] dropping fingerprint due to missing auth");
     return;
   }
   try {
@@ -158,32 +224,39 @@ async function handleFingerprint(fingerprint, hostname) {
       ...fingerprint,
       chamber: assignment.chamber
     };
-    const endpoint = `${auth.apiBase}/api/mirror-mode/extension/fingerprint`;
+    const endpoint = `${THINKWRITE_API_BASE}/api/mirror/extension/fingerprint`;
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${auth.accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
         "x-extension-hostname": hostname
       },
       body: JSON.stringify(payload)
     });
     await response.text().catch(() => "");
+    console.log("[MirrorMode BG] fingerprint sent successfully, status:", response.status);
+    if (response.status === 401) {
+      await clearSession();
+      console.warn("[MirrorMode Extension] Session expired; cleared stored token");
+      return;
+    }
     if (!response.ok) {
-      console.warn("[ThinkWrite Extension] Fingerprint send failed", response.status);
+      console.warn("[MirrorMode Extension] Fingerprint send failed", response.status);
       return;
     }
     stats.capturedCount += 1;
     stats.lastCapturedAt = (/* @__PURE__ */ new Date()).toISOString();
     stats.domainBreakdown[hostname] = (stats.domainBreakdown[hostname] || 0) + 1;
   } catch (error) {
-    console.warn("[ThinkWrite Extension] Fingerprint send error", error);
+    console.warn("[MirrorMode Extension] Fingerprint send error", error);
   }
 }
 runtimeOnMessageAddListener((message, _sender, sendResponse) => {
+  console.log("[MirrorMode BG] message received:", message.type);
   if (message.type === "VOICE_FINGERPRINT") {
     handleFingerprint(message.fingerprint, message.url).then(() => sendResponse({ success: true })).catch((err) => {
-      console.warn("[ThinkWrite BG] fingerprint send failed:", err);
+      console.warn("[MirrorMode BG] fingerprint send failed:", err);
       sendResponse({ success: false, error: String(err?.message || err) });
     });
     return true;

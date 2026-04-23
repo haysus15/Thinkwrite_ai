@@ -3,7 +3,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { getWritingTypeAbbrev, getWritingTypeLabel } from '@/lib/mirror-mode/writingTypes';
+import { getWritingTypeAbbrev, getWritingTypeLabel } from '@/lib/mirror-core/writingTypes';
 import { translateSystemError } from '@/lib/mirror/voiceProfileStatus';
 
 type VoiceFingerprint = {

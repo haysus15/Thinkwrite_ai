@@ -1,4 +1,10 @@
 import {
+  clearSession,
+  getAuthState,
+  loginWithCredentials,
+  refreshSession,
+} from "../../lib/auth";
+import {
   getDomainAssignment,
   pauseDomain,
   resumeDomain,
@@ -41,9 +47,9 @@ async function setGlobalPause(value: boolean): Promise<void> {
 
 async function getSessionStats(): Promise<SessionStats> {
   return new Promise((resolve) => {
-    runtimeSendMessage<SessionStats>({ type: "GET_SESSION_STATS" }).then((response) => {
+    runtimeSendMessage({ type: "GET_SESSION_STATS" }).then((response) => {
       resolve(
-        response || {
+        (response as SessionStats) || {
           capturedCount: 0,
           sessionStartedAt: new Date().toISOString(),
           lastCapturedAt: null,
@@ -54,19 +60,91 @@ async function getSessionStats(): Promise<SessionStats> {
   });
 }
 
-async function render(): Promise<void> {
-  const app = document.getElementById("app");
-  if (!app) return;
+function renderAuthShell(title: string, body: string): string {
+  return `
+    <section class="panel">
+      <h1>Mirror Mode</h1>
+      <div class="small">${title}</div>
+      <div style="height:12px"></div>
+      ${body}
+    </section>
+  `;
+}
 
+async function renderLogin(app: HTMLElement, errorMessage?: string): Promise<void> {
+  app.innerHTML = renderAuthShell(
+    "Sign in to reconnect the extension to your Mirror Mode account.",
+    `
+      <form id="login-form">
+        <div class="row"><input id="email" type="email" placeholder="Email" required /></div>
+        <div class="row"><input id="password" type="password" placeholder="Password" required /></div>
+        ${errorMessage ? `<div class="small" style="color:#fca5a5">${errorMessage}</div>` : ""}
+        <div style="height:8px"></div>
+        <button type="submit">Sign in</button>
+      </form>
+    `
+  );
+
+  const form = app.querySelector<HTMLFormElement>("#login-form");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = app.querySelector<HTMLInputElement>("#email")?.value?.trim() || "";
+    const password = app.querySelector<HTMLInputElement>("#password")?.value || "";
+
+    try {
+      await loginWithCredentials(email, password);
+      // Debug: verify session was stored
+      const stored = await chrome.storage.local.get('mirrormode_ext_session');
+      console.log('[MirrorMode Popup] session after login:', JSON.stringify(stored));
+      await render();
+    } catch (error) {
+      await renderLogin(
+        app,
+        error instanceof Error ? error.message : "Could not sign in to Mirror Mode."
+      );
+    }
+  });
+}
+
+async function renderReconnect(app: HTMLElement): Promise<void> {
+  app.innerHTML = renderAuthShell(
+    "Your extension session expired.",
+    `
+      <div class="small">Reconnect to resume Mirror Mode collection.</div>
+      <div style="height:12px"></div>
+      <button id="reconnect">Reconnect</button>
+      <div style="height:8px"></div>
+      <button id="logout">Clear session</button>
+    `
+  );
+
+  app.querySelector<HTMLButtonElement>("#reconnect")?.addEventListener("click", async () => {
+    const auth = await refreshSession();
+    if (auth?.isAuthenticated) {
+      await render();
+      return;
+    }
+    await renderLogin(app, "Reconnect failed. Sign in again.");
+  });
+
+  app.querySelector<HTMLButtonElement>("#logout")?.addEventListener("click", async () => {
+    await clearSession();
+    await render();
+  });
+}
+
+async function renderAuthenticated(app: HTMLElement): Promise<void> {
   const hostname = await getActiveHostname();
   const assignment = await getDomainAssignment(hostname);
   const globalPaused = await getGlobalPause();
   const stats = await getSessionStats();
+  const auth = await getAuthState();
 
   app.innerHTML = `
     <section class="panel">
-      <h1>ThinkWrite Mirror Mode</h1>
+      <h1>Mirror Mode</h1>
       <div class="row"><span class="small">${globalPaused ? "Mirror Mode is paused" : "Mirror Mode is active"}</span></div>
+      <div class="small">${auth.email || "Connected"}</div>
       <button id="toggle-global">${globalPaused ? "Resume collection" : "Pause collection"}</button>
 
       <h2>This site</h2>
@@ -87,6 +165,8 @@ async function render(): Promise<void> {
       <div class="small">${stats.capturedCount} samples captured</div>
       <div class="small">Started ${minutesSince(stats.sessionStartedAt)}</div>
       <div class="list" id="breakdown"></div>
+      <div style="height:8px"></div>
+      <button id="logout">Disconnect extension</button>
     </section>
   `;
 
@@ -104,14 +184,12 @@ async function render(): Promise<void> {
     await setDomainAssignment(hostname, chamber);
   });
 
-  const globalBtn = app.querySelector<HTMLButtonElement>("#toggle-global");
-  globalBtn?.addEventListener("click", async () => {
+  app.querySelector<HTMLButtonElement>("#toggle-global")?.addEventListener("click", async () => {
     await setGlobalPause(!globalPaused);
     await render();
   });
 
-  const domainBtn = app.querySelector<HTMLButtonElement>("#toggle-domain");
-  domainBtn?.addEventListener("click", async () => {
+  app.querySelector<HTMLButtonElement>("#toggle-domain")?.addEventListener("click", async () => {
     if (assignment.isPaused) {
       await resumeDomain(hostname);
     } else {
@@ -119,6 +197,29 @@ async function render(): Promise<void> {
     }
     await render();
   });
+
+  app.querySelector<HTMLButtonElement>("#logout")?.addEventListener("click", async () => {
+    await clearSession();
+    await render();
+  });
+}
+
+async function render(): Promise<void> {
+  const app = document.getElementById("app");
+  if (!app) return;
+
+  const auth = await getAuthState();
+  if (!auth.accessToken) {
+    await renderLogin(app);
+    return;
+  }
+
+  if (auth.needsReconnect) {
+    await renderReconnect(app);
+    return;
+  }
+
+  await renderAuthenticated(app);
 }
 
 void render();

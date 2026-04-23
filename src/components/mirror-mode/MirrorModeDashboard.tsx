@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useVoiceStatus } from '@/hooks/useVoiceStatus';
-import { type WritingType, mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
+import { type WritingType, mapWritingTypeToChamber } from '@/lib/mirror-core/writingTypes';
 import { useCaptureLog } from '@/hooks/useCaptureLog';
 import {
   translateSystemError,

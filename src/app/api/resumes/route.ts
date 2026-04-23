@@ -5,9 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import ContentAwareEducationalScoringEngine from '../../../lib/educational-scoring-engine';
-import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
-import { extractTextFromFile } from '@/lib/mirror-mode/extractText';
-import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
+import { extractTextFromFile } from '@/lib/utils/extractText';
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 
 export const runtime = 'nodejs';
 
@@ -230,26 +229,6 @@ export async function POST(request: NextRequest) {
         return Errors.databaseError(insertError?.message || 'Insert failed');
       }
 
-      // Mirror Mode: Learn + archive user-authored resume in career chamber
-      let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
-      try {
-        mirrorResult = await ingestStudioWriting({
-          supabase,
-          userId,
-          sourceStudio: 'career',
-          sourceAuthority: SOURCE_AUTHORITY.USER_UPLOADED,
-          text: cleanedContent,
-          sessionId: newResume.id,
-          context: 'resume_manager_upload',
-          fileName: file.name,
-          mimeType: file.type || 'text/plain',
-          fileSize: file.size,
-          writingType: 'professional',
-          registerInArchive: true,
-        });
-      } catch (e) {
-        // Silent fail - capture shouldn't break upload
-      }
 
       // Mirror Mode: Register lineage (best effort)
       try {
@@ -290,7 +269,6 @@ export async function POST(request: NextRequest) {
           analysisStatus: 'complete',
           hasLegacyAnalysis: false
         },
-        mirror: mirrorResult,
       });
 
     } catch (analysisError) {

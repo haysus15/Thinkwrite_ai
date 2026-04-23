@@ -17,7 +17,6 @@ import {
   dispatchStrategySummary,
   type LexPromptPayload,
 } from '@/lib/career-studio/lexBus';
-import BlendConsentModal from '@/components/mirror-mode/BlendConsentModal';
 
 interface Message {
   id: string;
@@ -1029,17 +1028,7 @@ export default function LexSidebarUnified({
         <div ref={messagesEndRef} />
       </div>
 
-      {showBlendConsent && guardrails?.blendDenied?.length && guardrails.primaryChamber && (
-        <BlendConsentModal
-          fromChambers={guardrails.blendDenied}
-          toChamber={guardrails.primaryChamber}
-          onClose={() => setShowBlendConsent(false)}
-          onApprove={async () => {
-            await handleApproveBlend();
-            setShowBlendConsent(false);
-          }}
-        />
-      )}
+      {/* Voice features connect when Mirror Mode standalone is integrated */}
 
       {/* Quick Actions */}
       <div className="px-4 pb-2 flex-shrink-0">

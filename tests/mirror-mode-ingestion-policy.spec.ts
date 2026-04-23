@@ -5,11 +5,11 @@ import {
   getSourceLabel,
   MINIMUM_WORD_COUNT,
   shouldIngestForProfile,
-} from "@/lib/mirror-mode/ingestionPolicy";
+} from "@/lib/mirror-core/ingestionPolicy";
 import {
   SOURCE_AUTHORITY,
   type SourceAuthority,
-} from "@/lib/mirror-mode/sourceAuthority";
+} from "@/lib/mirror-core/sourceAuthority";
 
 const ALL_SOURCES = Object.values(SOURCE_AUTHORITY) as SourceAuthority[];
 

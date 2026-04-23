@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     if (docsHideError) {
       console.error('Documents hide error:', docsHideError);
       return NextResponse.json(
-        { error: 'Failed to hide documents (schema upgrade required?)' },
+        { error: 'Failed to hide documents', details: docsHideError.message },
         { status: 500 }
       );
     }

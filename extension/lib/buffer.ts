@@ -8,7 +8,7 @@ export interface BufferState {
 
 const MIN_WORDS = 80;
 const REEXTRACT_COOLDOWN_MS = 30_000;
-const IDLE_MS = 90_000;
+const IDLE_MS = 15000; // 15 seconds
 
 export interface BufferEvaluation {
   shouldExtract: boolean;

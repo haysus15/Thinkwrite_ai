@@ -2,17 +2,17 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
-import { extractVoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
+import { extractVoiceFingerprint } from "@/lib/mirror-core/voiceAnalysis";
 import {
   aggregateFingerprints,
   getConfidenceLabel,
   type VoiceProfile,
-} from "@/lib/mirror-mode/voiceAggregation";
+} from "@/lib/mirror-core/voiceAggregation";
 import { getChamberStatus } from "@/lib/mirror/voiceProfileStatus";
 import { buildVoiceObservations } from "@/lib/mirror/voiceObservations";
-import type { Chamber } from "@/lib/mirror-mode/writingTypes";
-import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
-import { getIngestionWeight } from "@/lib/mirror-mode/ingestionPolicy";
+import type { Chamber } from "@/lib/mirror-core/writingTypes";
+import { SOURCE_AUTHORITY } from "@/lib/mirror-core/sourceAuthority";
+import { getIngestionWeight } from "@/lib/mirror-core/ingestionPolicy";
 
 export const runtime = "nodejs";
 
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
     { onConflict: "user_id" }
   );
 
-  let { error: chamberUpsertError } = await supabase
+  const { error: chamberUpsertError } = await supabase
     .from("voice_chambers")
     .upsert(
       {
@@ -160,24 +160,6 @@ export async function POST(request: NextRequest) {
       },
       { onConflict: "user_id,chamber" }
     );
-  if (chamberUpsertError && String(chamberUpsertError.message || "").includes("column")) {
-    ({ error: chamberUpsertError } = await supabase
-      .from("voice_chambers")
-      .upsert(
-        {
-          user_id: userId,
-          chamber,
-          aggregate_fingerprint: nextChamber.aggregateFingerprint,
-          confidence_level: nextChamber.confidenceLevel,
-          document_count: nextChamber.documentCount,
-          total_word_count: nextChamber.totalWordCount,
-          last_trained_at: nextChamber.lastTrainedAt,
-          evolution_history: nextChamber.evolutionHistory,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,chamber" }
-      ));
-  }
   if (chamberUpsertError) {
     return NextResponse.json(
       { success: false, error: chamberUpsertError.message },
@@ -200,7 +182,7 @@ export async function POST(request: NextRequest) {
     { onConflict: "user_id,chamber" }
   );
 
-  let { error: onboardingUpsertError } = await supabase.from("user_profiles").upsert(
+  const { error: onboardingUpsertError } = await supabase.from("user_profiles").upsert(
     {
       user_id: userId,
       mirror_mode_first_visit: false,
@@ -210,20 +192,6 @@ export async function POST(request: NextRequest) {
     },
     { onConflict: "user_id" }
   );
-  if (
-    onboardingUpsertError &&
-    String(onboardingUpsertError.message || "").includes("column")
-  ) {
-    ({ error: onboardingUpsertError } = await supabase
-      .from("user_profiles")
-      .upsert(
-        {
-          user_id: userId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" }
-      ));
-  }
   if (onboardingUpsertError) {
     return NextResponse.json(
       { success: false, error: onboardingUpsertError.message },

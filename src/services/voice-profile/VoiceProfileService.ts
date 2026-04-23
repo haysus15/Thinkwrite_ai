@@ -2,8 +2,8 @@
 // Centralized Voice Profile Service for all Studios
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
-import { getConfidenceLabel } from "@/lib/mirror-mode/voiceAggregation";
+import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-core/voiceAnalysis";
+import { getConfidenceLabel } from "@/lib/mirror-core/voiceAggregation";
 import { getGatekeeperContext } from "@/services/voice-profile/gatekeeper";
 
 // ============================================================================

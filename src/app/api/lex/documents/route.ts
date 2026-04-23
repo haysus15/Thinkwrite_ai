@@ -4,8 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
-import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
-import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 
 interface DocumentMemory {
   id: string;
@@ -172,28 +171,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to save document' }, { status: 500 });
     }
 
-    // Mirror Mode: Learn + archive user-authored document in career chamber
-    let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
-    if (extractedText && extractedText.trim().length > 0) {
-      try {
-        mirrorResult = await ingestStudioWriting({
-          supabase,
-          userId,
-          sourceStudio: 'career',
-          sourceAuthority: SOURCE_AUTHORITY.USER_UPLOADED,
-          text: extractedText,
-          sessionId: document.id,
-          context: 'lex_document_upload',
-          fileName,
-          mimeType: fileType || 'text/plain',
-          fileSize: fileSize || null,
-          writingType: 'professional',
-          registerInArchive: true,
-        });
-      } catch (e) {
-        // Silent fail
-      }
-    }
 
     // Mirror Mode: Register lineage (best effort)
     try {
@@ -225,7 +202,6 @@ export async function POST(request: NextRequest) {
       success: true,
       documentId: document.id,
       message: 'Document saved to Lex\'s memory',
-      mirror: mirrorResult,
     });
 
   } catch (error) {

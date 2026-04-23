@@ -43,33 +43,26 @@ export function hasExtApi(): boolean {
   return Boolean(ext?.runtime);
 }
 
-export async function localGet<T = Record<string, unknown>>(key: string): Promise<T> {
-  if (!ext?.storage?.local) return {} as T;
-  try {
-    return await callMaybePromise<T>(
-      () => ext.storage.local.get(key),
-      (resolve) => ext.storage.local.get(key, (value: T) => resolve(value || ({} as T)))
-    );
-  } catch (error) {
-    if (isContextInvalidatedError(error)) {
-      return {} as T;
-    }
-    throw error;
+export async function localGet<T = Record<string, unknown>>(key: string | string[] | null): Promise<T> {
+  const storage = (globalThis.chrome ?? (globalThis as any).browser)?.storage?.local;
+  if (!storage) {
+    console.warn('[MirrorMode] storage.local not available at localGet call time');
+    return {} as T;
   }
+  return new Promise<T>((resolve) => {
+    storage.get(key as any, (result: T) => resolve(result || {} as T));
+  });
 }
 
 export async function localSet(value: Record<string, unknown>): Promise<void> {
-  if (!ext?.storage?.local) return;
-  try {
-    await callMaybePromise<void>(
-      () => ext.storage.local.set(value),
-      (resolve) => ext.storage.local.set(value, () => resolve(undefined))
-    );
-  } catch (error) {
-    if (!isContextInvalidatedError(error)) {
-      throw error;
-    }
+  const storage = (globalThis.chrome ?? (globalThis as any).browser)?.storage?.local;
+  if (!storage) {
+    console.warn('[MirrorMode] storage.local not available at localSet call time');
+    return;
   }
+  return new Promise<void>((resolve) => {
+    storage.set(value, () => resolve());
+  });
 }
 
 export async function localRemove(key: string): Promise<void> {
@@ -115,29 +108,6 @@ export async function syncSet(value: Record<string, unknown>): Promise<void> {
   }
 }
 
-export async function cookiesGetAll(
-  filter?: { domain?: string; url?: string }
-): Promise<Array<{ name: string; value: string; domain?: string; path?: string }>> {
-  if (!ext?.cookies) return [];
-  const safeFilter = filter || {};
-  try {
-    return await callMaybePromise<Array<{ name: string; value: string; domain?: string; path?: string }>>(
-      () => ext.cookies.getAll(safeFilter),
-      (resolve) =>
-        ext.cookies.getAll(
-          safeFilter,
-          (items: Array<{ name: string; value: string; domain?: string; path?: string }>) =>
-            resolve(items || [])
-        )
-    );
-  } catch (error) {
-    if (isContextInvalidatedError(error)) {
-      return [];
-    }
-    throw error;
-  }
-}
-
 export async function tabsQuery(
   query: Record<string, unknown>
 ): Promise<Array<{ url?: string }>> {
@@ -156,18 +126,17 @@ export async function tabsQuery(
   }
 }
 
-export async function runtimeSendMessage<T = any>(
-  payload: Record<string, unknown>
-): Promise<T | null> {
-  if (!ext?.runtime?.sendMessage) {
+export async function runtimeSendMessage(payload: unknown): Promise<unknown> {
+  const runtime = (globalThis.chrome ?? (globalThis as any).browser)?.runtime;
+  if (!runtime?.sendMessage) {
     throw new Error("Extension runtime sendMessage API unavailable");
   }
-  return await new Promise<T | null>((resolve, reject) => {
+  return await new Promise((resolve, reject) => {
     try {
-      ext.runtime.sendMessage(payload, (response: T) => {
-        const lastError = ext?.runtime?.lastError;
+      runtime.sendMessage(payload, (response: unknown) => {
+        const lastError = runtime.lastError;
         if (lastError) {
-          reject(new Error(lastError.message || "Unknown runtime sendMessage error"));
+          reject(new Error((lastError as any).message || "Unknown runtime sendMessage error"));
           return;
         }
         resolve(response || null);

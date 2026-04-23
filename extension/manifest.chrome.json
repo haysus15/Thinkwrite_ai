@@ -1,15 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "ThinkWrite Mirror Mode",
+  "name": "Mirror Mode",
   "version": "0.1.2",
-  "description": "Strengthens your ThinkWrite voice profile as you write across the web.",
+  "description": "Mirror Mode captures your writing voice across the web.",
   "permissions": [
     "activeTab",
-    "storage",
-    "cookies"
+    "storage"
   ],
   "host_permissions": [
-    "https://thinkwrite.ai/*",
+    "https://mirrormode.ai/*",
     "http://localhost:3000/*",
     "https://localhost:3000/*",
     "<all_urls>"
@@ -25,16 +24,14 @@
       ],
       "js": [
         "content.js"
-      ],
-      "run_at": "document_idle",
-      "exclude_matches": [
-        "https://thinkwrite.ai/*"
       ]
+      ,
+      "run_at": "document_idle"
     }
   ],
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "ThinkWrite Mirror Mode"
+    "default_title": "Mirror Mode"
   },
   "icons": {
     "16": "assets/icon-16.png",

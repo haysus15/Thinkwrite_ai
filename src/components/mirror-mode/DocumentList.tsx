@@ -3,7 +3,7 @@
 'use client';
 
 import { useState } from 'react';
-import { getWritingTypeAbbrev, getWritingTypeLabel } from '@/lib/mirror-mode/writingTypes';
+import { getWritingTypeAbbrev, getWritingTypeLabel } from '@/lib/mirror-core/writingTypes';
 
 export interface MirrorDocument {
   id: string;

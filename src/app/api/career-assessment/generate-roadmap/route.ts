@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { CareerRoadmap, AssessmentAnswers } from "@/types/career-assessment";
-import { VoiceProfileService } from "@/services/voice-profile";
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 
 export async function POST(request: NextRequest) {
   let body: any = null; // ✅ available in catch
@@ -35,25 +35,11 @@ export async function POST(request: NextRequest) {
       console.warn("resume_snapshot fetch failed:", readErr.message);
     }
 
-    const voiceContext = assessmentData?.user_id
-      ? await VoiceProfileService.getGenerationContext(assessmentData.user_id, "career")
-      : {
-          hasVoiceProfile: false,
-          readiness: {
-            tier: "none",
-            score: 0,
-            isReady: false,
-            canGenerate: true,
-            shouldWarn: true,
-            shouldEncourage: true,
-            message: "No voice profile yet. Content will use standard AI tone.",
-            lexMessage:
-              "I don't know your writing style yet, so this will sound like generic AI. Want to set up Mirror Mode first so I can write like you?",
-          },
-          profile: null,
-          promptInjection:
-            "Write in a professional, polished tone suitable for career documents. Be clear, confident, and action-oriented. Note: No personalized voice profile is available, so this will use standard professional formatting.",
-        };
+    const voiceContext = {
+      hasVoiceProfile: false,
+      promptInjection: "",
+      readiness: { isReady: false, tier: "none", score: 0, shouldWarn: false, lexMessage: "" },
+    };
     const systemPrompt = `You are Lex, a career advisor with deep HR expertise. You help users craft authentic, compelling career documents that showcase their real experience and value.
 
 Your approach:

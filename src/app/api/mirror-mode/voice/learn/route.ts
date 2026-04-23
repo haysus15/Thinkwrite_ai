@@ -5,20 +5,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@/lib/auth/getAuthUser';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { Errors } from '@/lib/api/errors';
-import { extractVoiceFingerprint, describeVoice } from '@/lib/mirror-mode/voiceAnalysis';
-import { mapWritingTypeToChamber } from '@/lib/mirror-mode/writingTypes';
+import { extractVoiceFingerprint, describeVoice } from '@/lib/mirror-core/voiceAnalysis';
+import { mapWritingTypeToChamber } from '@/lib/mirror-core/writingTypes';
 import {
   aggregateFingerprints,
   calculateConfidence,
   getConfidenceLabel,
   type VoiceProfile
-} from '@/lib/mirror-mode/voiceAggregation';
+} from '@/lib/mirror-core/voiceAggregation';
 import {
   SOURCE_AUTHORITY,
   isProfileEligible,
   type SourceAuthority,
-} from '@/lib/mirror-mode/sourceAuthority';
-import { shouldIngestForProfile } from '@/lib/mirror-mode/ingestionPolicy';
+} from '@/lib/mirror-core/sourceAuthority';
+import { shouldIngestForProfile } from '@/lib/mirror-core/ingestionPolicy';
 
 export const runtime = 'nodejs';
 
@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
       rawSourceAuthority === SOURCE_AUTHORITY.USER_TYPED ||
       rawSourceAuthority === SOURCE_AUTHORITY.USER_UPLOADED ||
       rawSourceAuthority === SOURCE_AUTHORITY.USER_QUICKSTART ||
+      rawSourceAuthority === SOURCE_AUTHORITY.PLAYGROUND_CONVERSATION ||
       rawSourceAuthority === SOURCE_AUTHORITY.AI_GENERATED_ACCEPTED ||
       rawSourceAuthority === SOURCE_AUTHORITY.AI_GENERATED_REJECTED ||
       rawSourceAuthority === SOURCE_AUTHORITY.EXTENSION_CAPTURED ||

@@ -1,7 +1,7 @@
 // src/app/api/career-assessment/generate-plan/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { VoiceProfileService } from '@/services/voice-profile';
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 
 const anthropic = new Anthropic({
@@ -35,7 +35,11 @@ export async function POST(request: NextRequest) {
       content: msg.content || msg.text || ''
     }));
 
-    const voiceContext = await VoiceProfileService.getGenerationContext(userId, "career");
+    const voiceContext = {
+      hasVoiceProfile: false,
+      promptInjection: "",
+      readiness: { isReady: false, tier: "none", score: 0, shouldWarn: false, lexMessage: "" },
+    };
     const systemPrompt = `You are Lex, a career advisor with deep HR expertise. You help users craft authentic, compelling career documents that showcase their real experience and value.
 
 Your approach:

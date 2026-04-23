@@ -14,7 +14,6 @@ import { WorkspaceState, WorkspaceView, WorkspaceContext } from '@/types/career-
 import CareerStudioTour from '../CareerStudioTour';
 import ResumeManagerResultsPanel from '../resume-manager/ResumeManagerResultsPanel';
 import { ResumeManagerPanelProvider, useResumeManagerPanel } from '../resume-manager/ResumeManagerPanelContext';
-import StudioConsentModal from '@/components/mirror-mode/StudioConsentModal';
 
 function UnifiedCareerStudioContent() {
   const searchParams = useSearchParams();
@@ -247,12 +246,7 @@ function UnifiedCareerStudioContent() {
 
   return (
     <div className="career-studio-root font-['Orbitron']">
-      {consentChecked && showConsent ? (
-        <StudioConsentModal
-          studioLabel="Career Studio"
-          onAcknowledge={handleConsentAcknowledge}
-        />
-      ) : null}
+      {/* Voice features connect when Mirror Mode standalone is integrated */}
       <div className="career-sky-layer">
         <div className="career-stars-layer" />
         <div className="career-nebula-layer" />

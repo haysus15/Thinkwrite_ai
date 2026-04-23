@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { parseWorksheetText } from "@/lib/math-mode/worksheetParser";
-import { extractTextFromFile } from "@/lib/mirror-mode/extractText";
+import { extractTextFromFile } from "@/lib/utils/extractText";
 
 function getClaudeApiKey() {
   return process.env.CLAUDE_API_KEY || null;

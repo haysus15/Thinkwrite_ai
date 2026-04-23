@@ -3,13 +3,13 @@ import { getAuthUser } from '@/lib/auth/getAuthUser';
 import {
   SOURCE_AUTHORITY,
   type SourceAuthority,
-} from '@/lib/mirror-mode/sourceAuthority';
+} from '@/lib/mirror-core/sourceAuthority';
 import {
   getRetentionLabel,
   getSourceLabel,
-} from '@/lib/mirror-mode/ingestionPolicy';
+} from '@/lib/mirror-core/ingestionPolicy';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { mapWritingTypeToChamber, type Chamber } from '@/lib/mirror-mode/writingTypes';
+import { mapWritingTypeToChamber, type Chamber } from '@/lib/mirror-core/writingTypes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -203,6 +203,7 @@ export async function GET(req: NextRequest) {
       [SOURCE_AUTHORITY.USER_TYPED]: 0,
       [SOURCE_AUTHORITY.USER_UPLOADED]: 0,
       [SOURCE_AUTHORITY.USER_QUICKSTART]: 0,
+      [SOURCE_AUTHORITY.PLAYGROUND_CONVERSATION]: 0,
       [SOURCE_AUTHORITY.AI_GENERATED_ACCEPTED]: 0,
       [SOURCE_AUTHORITY.AI_GENERATED_REJECTED]: 0,
       [SOURCE_AUTHORITY.EXTENSION_CAPTURED]: 0,

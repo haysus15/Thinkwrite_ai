@@ -3,8 +3,7 @@ import { getAuthUser, createSupabaseAdmin } from "@/lib/auth/getAuthUser";
 import { Errors } from "@/lib/api/errors";
 import { transformResumeToDB, generateId } from "@/types/resume-builder";
 import type { ResumeBuilderData } from "@/types/resume-builder";
-import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
-import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 import {
   extractSections,
   extractContactInfo,
@@ -320,31 +319,10 @@ export async function POST(request: NextRequest) {
       return Errors.databaseError(error?.message || "Failed to create resume draft");
     }
 
-    // Mirror Mode: Learn + archive imported resume text in career chamber
-    let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
-    try {
-      mirrorResult = await ingestStudioWriting({
-        supabase,
-        userId,
-        sourceStudio: "career",
-        sourceAuthority: SOURCE_AUTHORITY.USER_UPLOADED,
-        text: resumeText,
-        sessionId: data.id,
-        context: "resume_builder_import",
-        fileName: draft.title || resume.file_name || "Imported Resume",
-        mimeType: "text/plain",
-        fileSize: resumeText.length,
-        writingType: "professional",
-        registerInArchive: true,
-      });
-    } catch {
-      // Silent fail
-    }
 
     return NextResponse.json({
       success: true,
       resume: { ...draft, id: data.id, userId },
-      mirror: mirrorResult,
     });
   } catch (error: any) {
     console.error("[Resume builder import POST]:", error?.message || error);

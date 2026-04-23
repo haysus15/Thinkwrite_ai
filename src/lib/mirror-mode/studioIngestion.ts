@@ -1,21 +1,22 @@
 import { learnFromTextDirect } from "@/lib/mirror-mode/liveLearning";
-import type { WritingType } from "@/lib/mirror-mode/writingTypes";
+import type { WritingType } from "@/lib/mirror-core/writingTypes";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   shouldExcludeFromProfile,
   type SourceAuthority,
-} from "@/lib/mirror-mode/sourceAuthority";
+} from "@/lib/mirror-core/sourceAuthority";
 import {
-  MINIMUM_WORD_COUNT,
+  getMinimumWordThreshold,
   shouldIngestForProfile,
-} from "@/lib/mirror-mode/ingestionPolicy";
+} from "@/lib/mirror-core/ingestionPolicy";
 
-export type Studio = "career" | "academic" | "creative";
+export type Studio = "career" | "academic" | "creative" | "general";
 
 const STUDIO_DEFAULT_WRITING_TYPE: Record<Studio, WritingType> = {
   career: "professional",
   academic: "academic",
   creative: "creative",
+  general: "general",
 };
 
 const ARCHIVE_EXCLUSION_PATTERNS = [
@@ -124,8 +125,9 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
 
   const cleanedText = String(text || "").trim();
   const wordCount = cleanedText.split(/\s+/).filter(Boolean).length;
+  const minimumWordThreshold = getMinimumWordThreshold(sourceAuthority);
 
-  if (!cleanedText || wordCount < MINIMUM_WORD_COUNT) {
+  if (!cleanedText || wordCount < minimumWordThreshold) {
     return {
       captured: false,
       archived: false,
@@ -176,7 +178,7 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
   const canArchive =
     registerInArchive &&
     !excludeFromArchive &&
-    wordCount >= MINIMUM_WORD_COUNT;
+    wordCount >= minimumWordThreshold;
 
   if (!canArchive) {
     return {
@@ -246,39 +248,14 @@ export async function ingestStudioWriting(params: StudioIngestionParams): Promis
     epoch_number: epochNumber,
   };
 
-  let { data: inserted, error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from("mirror_documents")
     .insert(insertPayload)
     .select("id")
     .single();
 
-  if (
-    insertError?.message?.includes("column") ||
-    insertError?.message?.includes("visibility_status") ||
-    insertError?.message?.includes("epoch_number")
-  ) {
-    const fallbackPayload = {
-      user_id: userId,
-      file_name: canonicalName,
-      mime_type: mimeType || "text/plain",
-      file_size: fileSize || cleanedText.length,
-      storage_path: canonicalDocKey,
-      writing_type: resolvedWritingType,
-      word_count: wordCount,
-      status: "learned",
-      training_allowed: true,
-      learned_at: new Date().toISOString(),
-      source_authority: sourceAuthority,
-      excluded_from_profile: excluded,
-    };
-    ({ data: inserted, error: insertError } = await supabase
-      .from("mirror_documents")
-      .insert(fallbackPayload)
-      .select("id")
-      .single());
-  }
-
   if (insertError || !inserted?.id) {
+    console.error("Studio ingestion insert error:", insertError);
     return {
       captured: true,
       archived: false,

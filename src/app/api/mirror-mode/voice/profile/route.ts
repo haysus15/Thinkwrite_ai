@@ -5,8 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Errors } from "@/lib/api/errors";
-import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
-import { getConfidenceLabel } from "@/lib/mirror-mode/voiceAggregation";
+import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-core/voiceAnalysis";
+import { getConfidenceLabel } from "@/lib/mirror-core/voiceAggregation";
 
 export const runtime = "nodejs";
 

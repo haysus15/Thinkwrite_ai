@@ -1,7 +1,7 @@
 // lib/buffer.ts
 var MIN_WORDS = 80;
 var REEXTRACT_COOLDOWN_MS = 3e4;
-var IDLE_MS = 9e4;
+var IDLE_MS = 15e3;
 function countWords(text) {
   return (text.match(/[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g) || []).length;
 }
@@ -353,57 +353,39 @@ function extractFingerprint(text, chamber, sessionId) {
 }
 
 // lib/runtime.ts
-function hasThen(value) {
-  return Boolean(value) && typeof value.then === "function";
-}
-function isContextInvalidatedError(error) {
-  if (!error || typeof error !== "object") return false;
-  const message = "message" in error && typeof error.message === "string" ? error.message : "";
-  return message.toLowerCase().includes("context invalidated");
-}
-async function callMaybePromise(call, callbackStyle) {
-  try {
-    const result = call();
-    if (hasThen(result)) {
-      return await result;
-    }
-    if (callbackStyle) {
-      return await new Promise((resolve) => callbackStyle(resolve));
-    }
-    return result;
-  } catch {
-    if (callbackStyle) {
-      return await new Promise((resolve) => callbackStyle(resolve));
-    }
-    throw new Error("Extension API unavailable");
-  }
-}
 var ext = globalThis.chrome ?? globalThis.browser ?? null;
 function hasExtApi() {
   return Boolean(ext?.runtime);
 }
 async function localGet(key) {
-  if (!ext?.storage?.local) return {};
-  try {
-    return await callMaybePromise(
-      () => ext.storage.local.get(key),
-      (resolve) => ext.storage.local.get(key, (value) => resolve(value || {}))
-    );
-  } catch (error) {
-    if (isContextInvalidatedError(error)) {
-      return {};
-    }
-    throw error;
+  const storage = (globalThis.chrome ?? globalThis.browser)?.storage?.local;
+  if (!storage) {
+    console.warn("[MirrorMode] storage.local not available at localGet call time");
+    return {};
   }
+  return new Promise((resolve) => {
+    storage.get(key, (result) => resolve(result || {}));
+  });
+}
+async function localSet(value) {
+  const storage = (globalThis.chrome ?? globalThis.browser)?.storage?.local;
+  if (!storage) {
+    console.warn("[MirrorMode] storage.local not available at localSet call time");
+    return;
+  }
+  return new Promise((resolve) => {
+    storage.set(value, () => resolve());
+  });
 }
 async function runtimeSendMessage(payload) {
-  if (!ext?.runtime?.sendMessage) {
+  const runtime = (globalThis.chrome ?? globalThis.browser)?.runtime;
+  if (!runtime?.sendMessage) {
     throw new Error("Extension runtime sendMessage API unavailable");
   }
   return await new Promise((resolve, reject) => {
     try {
-      ext.runtime.sendMessage(payload, (response) => {
-        const lastError = ext?.runtime?.lastError;
+      runtime.sendMessage(payload, (response) => {
+        const lastError = runtime.lastError;
         if (lastError) {
           reject(new Error(lastError.message || "Unknown runtime sendMessage error"));
           return;
@@ -418,10 +400,16 @@ async function runtimeSendMessage(payload) {
 
 // src/content.ts
 var SESSION_ID = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+var CAPTURE_ENABLED_KEY = "capture_enabled";
+var REQUEST_SOURCE = "thinkwrite-mirror-page";
+var RESPONSE_SOURCE = "thinkwrite-mirror-extension";
 var fieldMap = /* @__PURE__ */ new Map();
 var runtimeById = /* @__PURE__ */ new Map();
 function getHostname() {
   return window.location.hostname;
+}
+function isThinkWriteHost(hostname) {
+  return hostname === "mirrormode.ai" || hostname === "www.mirrormode.ai" || hostname === "localhost";
 }
 function isSearchField(element) {
   const type = element.getAttribute("type")?.toLowerCase();
@@ -456,11 +444,72 @@ function readFieldText(field) {
   return field.innerText || field.textContent || "";
 }
 async function isCollectionPaused(hostname) {
-  const globalState = await localGet("isPaused");
-  if (Boolean(globalState.isPaused)) return true;
-  const domainState = await localGet(`paused:${hostname}`);
-  if (Boolean(domainState[`paused:${hostname}`])) return true;
-  return false;
+  try {
+    const storage = (globalThis.chrome ?? globalThis.browser)?.storage?.local;
+    if (!storage) return false;
+    const result = await new Promise((resolve) => {
+      storage.get(["capture_enabled", "isPaused", `paused:${hostname}`], (data) => {
+        resolve(data || {});
+      });
+    });
+    if (result["capture_enabled"] === false) return true;
+    if (result["isPaused"] === true) return true;
+    if (result[`paused:${hostname}`] === true) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+function installMirrorSettingsBridge() {
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const data = event.data;
+    if (!data || data.source !== REQUEST_SOURCE || typeof data.requestId !== "string") {
+      return;
+    }
+    const reply = async () => {
+      try {
+        if (data.action === "get_capture_enabled") {
+          const state = await localGet(CAPTURE_ENABLED_KEY);
+          const enabled = state[CAPTURE_ENABLED_KEY] !== false;
+          window.postMessage(
+            {
+              source: RESPONSE_SOURCE,
+              requestId: data.requestId,
+              ok: true,
+              value: enabled
+            },
+            window.location.origin
+          );
+          return;
+        }
+        if (data.action === "set_capture_enabled" && typeof data.value === "boolean") {
+          await localSet({ [CAPTURE_ENABLED_KEY]: data.value });
+          window.postMessage(
+            {
+              source: RESPONSE_SOURCE,
+              requestId: data.requestId,
+              ok: true,
+              value: data.value
+            },
+            window.location.origin
+          );
+          return;
+        }
+      } catch (error) {
+        window.postMessage(
+          {
+            source: RESPONSE_SOURCE,
+            requestId: data.requestId,
+            ok: false,
+            error: error instanceof Error ? error.message : "Bridge error"
+          },
+          window.location.origin
+        );
+      }
+    };
+    void reply();
+  });
 }
 var manager = new TextBufferManager((state) => {
   const runtime = runtimeById.get(state.fieldId);
@@ -469,8 +518,10 @@ var manager = new TextBufferManager((state) => {
 });
 async function processField(runtime, mode) {
   const hostname = getHostname();
-  if (await isCollectionPaused(hostname)) return;
+  const paused = await isCollectionPaused(hostname);
+  if (paused) return;
   const text = readFieldText(runtime.element);
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
   const evaluation = manager.upsert(runtime.fieldId, text);
   if (mode === "input" && !evaluation.shouldExtract) {
     return;
@@ -483,14 +534,23 @@ async function processField(runtime, mode) {
     return;
   }
   manager.markExtracted(runtime.fieldId);
-  try {
-    await runtimeSendMessage({
-      type: "VOICE_FINGERPRINT",
-      fingerprint,
-      url: hostname
-    });
-  } catch (err) {
-    console.warn("[ThinkWrite] sendMessage failed:", err);
+  let sent = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await runtimeSendMessage({
+        type: "VOICE_FINGERPRINT",
+        fingerprint,
+        url: hostname
+      });
+      sent = true;
+      break;
+    } catch (err) {
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      } else {
+        console.warn("[MirrorMode] sendMessage failed after 3 attempts:", err);
+      }
+    }
   }
 }
 function attachField(element) {
@@ -542,9 +602,14 @@ function shouldRunOnThisFrame() {
   }
 }
 if (hasExtApi() && shouldRunOnThisFrame()) {
-  scan();
-  const observer = new MutationObserver(() => {
+  installMirrorSettingsBridge();
+  if (!isThinkWriteHost(getHostname())) {
     scan();
+  }
+  const observer = new MutationObserver(() => {
+    if (!isThinkWriteHost(getHostname())) {
+      scan();
+    }
   });
   observer.observe(document.documentElement, {
     childList: true,

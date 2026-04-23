@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import CaptureEventRow from "@/components/mirror/CaptureEventRow/CaptureEventRow";
-import { SOURCE_AUTHORITY, type SourceAuthority } from "@/lib/mirror-mode/sourceAuthority";
-import { getSourceLabel } from "@/lib/mirror-mode/ingestionPolicy";
+import { SOURCE_AUTHORITY, type SourceAuthority } from "@/lib/mirror-core/sourceAuthority";
+import { getSourceLabel } from "@/lib/mirror-core/ingestionPolicy";
 import type { CaptureLogResponse, CaptureChamber } from "@/hooks/useCaptureLog";
 import styles from "./CaptureTransparencyPanel.module.css";
 

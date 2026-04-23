@@ -8,7 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser, createSupabaseAdmin } from "@/lib/auth/getAuthUser";
 import { Errors } from "@/lib/api/errors";
 import { checkRateLimit } from "@/lib/api/rateLimiter";
-import { VoiceProfileService } from "@/services/voice-profile/VoiceProfileService";
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 
 export const runtime = "nodejs";
 
@@ -203,32 +203,15 @@ export async function POST(request: NextRequest) {
     }
 
     // --------------------------------------------------------
-    // 2) Fetch voice profile for personalized generation
+    // 2) Voice profile — disconnected while Mirror Mode ships standalone
     // --------------------------------------------------------
-    let voiceContext = null;
-    try {
-      voiceContext = await VoiceProfileService.getGenerationContext(userId, "career");
-    } catch (e) {
-      console.log('Voice profile fetch skipped:', e);
-      // Continue without voice - don't break main feature
-      voiceContext = {
-        hasVoiceProfile: false,
-        readiness: {
-          tier: "none",
-          score: 0,
-          isReady: false,
-          canGenerate: true,
-          shouldWarn: true,
-          shouldEncourage: true,
-          message: "No voice profile yet. Content will use standard AI tone.",
-          lexMessage:
-            "I don't know your writing style yet, so this will sound like generic AI. Want to set up Mirror Mode first so I can write like you?",
-        },
-        profile: null,
-        promptInjection:
-          "Write in a professional, polished tone suitable for career documents. Be clear, confident, and action-oriented. Note: No personalized voice profile is available, so this will use standard professional formatting.",
-      };
-    }
+    const voiceContext = {
+      hasVoiceProfile: false,
+      promptInjection: "",
+      readiness: { isReady: false, tier: "none", score: 0, shouldWarn: false, lexMessage: "" },
+      gatekeeper: { sufficientData: true, warnings: [] as string[], counts: null, thresholds: null },
+      profile: null as null | { confidenceLevel: number; confidenceLabel: string; profileId: string | null },
+    };
 
     // --------------------------------------------------------
     // 3) Build prompt

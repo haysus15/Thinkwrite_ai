@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { useVoiceStatusForCareer } from "@/hooks/useVoiceStatusForCareer";
 
 interface ChatMessage {
   id: string;
@@ -88,8 +87,6 @@ export default function CareerStudioDashboardV2() {
   const [applicationsCount, setApplicationsCount] = useState<number>(0);
   const [trackingJobId, setTrackingJobId] = useState<string | null>(null);
 
-  // Mirror Mode voice status
-  const voiceStatus = useVoiceStatusForCareer();
 
   useEffect(() => {
     if (!effectiveUserId) {
@@ -1038,29 +1035,7 @@ export default function CareerStudioDashboardV2() {
             </div>
           )}
 
-          {/* Mirror Mode Voice Status */}
-          <Link href="/mirror-mode">
-            <div className="p-2.5 bg-white/[0.04] rounded-lg border border-white/[0.08] hover:bg-white/[0.06] transition-colors cursor-pointer">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="text-white/60 flex items-center gap-1.5">
-                  <span className="text-violet-400"></span> Voice Profile
-                </span>
-                <span className={voiceStatus.confidenceLevel >= 65 ? "text-emerald-400 font-bold" : voiceStatus.confidenceLevel >= 25 ? "text-[#9333EA] font-medium" : "text-white/50"}>
-                  {voiceStatus.isLoading ? "..." : voiceStatus.confidenceLabel}
-                </span>
-              </div>
-              {!voiceStatus.isLoading && voiceStatus.exists && (
-                <div className="text-[9px] text-white/40 mt-1">
-                  {voiceStatus.documentCount} doc{voiceStatus.documentCount !== 1 ? 's' : ''} learned • {voiceStatus.confidenceLevel}%
-                </div>
-              )}
-              {!voiceStatus.isLoading && !voiceStatus.exists && (
-                <div className="text-[9px] text-white/40 mt-1">
-                  Tap to teach your writing voice
-                </div>
-              )}
-            </div>
-          </Link>
+          {/* Voice features connect when Mirror Mode standalone is integrated */}
 
           {resumeContext.hasResume && jobAnalysisStats.savedAnalyses > 0 && (
             <button

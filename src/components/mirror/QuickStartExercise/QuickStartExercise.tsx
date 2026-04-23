@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import styles from "./QuickStartExercise.module.css";
-import type { Chamber } from "@/lib/mirror-mode/writingTypes";
+import type { Chamber } from "@/lib/mirror-core/writingTypes";
 import { translateSystemError } from "@/lib/mirror/voiceProfileStatus";
 
 const quickStartPrompts: Record<Chamber, string[]> = {

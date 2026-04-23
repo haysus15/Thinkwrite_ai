@@ -1,4 +1,4 @@
-import type { VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
+import type { VoiceFingerprint } from "@/lib/mirror-core/voiceAnalysis";
 
 function clampWordLength(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value * 10) / 10) : 0;

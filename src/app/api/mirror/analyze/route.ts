@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
-import { extractVoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
+import { extractVoiceFingerprint } from "@/lib/mirror-core/voiceAnalysis";
 import { getChamberStatus } from "@/lib/mirror/voiceProfileStatus";
 import { buildVoiceObservations } from "@/lib/mirror/voiceObservations";
-import type { Chamber } from "@/lib/mirror-mode/writingTypes";
-import { QUICKSTART_WORD_COUNT } from "@/lib/mirror-mode/ingestionPolicy";
+import type { Chamber } from "@/lib/mirror-core/writingTypes";
+import { QUICKSTART_WORD_COUNT } from "@/lib/mirror-core/ingestionPolicy";
 
 export const runtime = "nodejs";
 

@@ -5,8 +5,7 @@
   "description": "Strengthens your ThinkWrite voice profile as you write across the web.",
   "permissions": [
     "activeTab",
-    "storage",
-    "cookies"
+    "storage"
   ],
   "host_permissions": [
     "https://thinkwrite.ai/*",
@@ -27,11 +26,9 @@
       ],
       "js": [
         "content.js"
-      ],
-      "run_at": "document_idle",
-      "exclude_matches": [
-        "https://thinkwrite.ai/*"
       ]
+      ,
+      "run_at": "document_idle"
     }
   ],
   "action": {

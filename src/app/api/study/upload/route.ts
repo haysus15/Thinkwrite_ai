@@ -3,9 +3,8 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { extractTextFromFile } from "@/lib/mirror-mode/extractText";
-import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
-import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
+import { extractTextFromFile } from "@/lib/utils/extractText";
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 
 export const runtime = "nodejs";
 const MIRROR_REFERENCE_PATTERN = /syllabus|assignment[_\s-]?requirements?|writing[_\s-]?requirements?|course[_\s-]?requirements?|school[_\s-]?requirements?|job[_\s-]?analysis/i;
@@ -274,49 +273,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Mirror Mode: ingest academic uploads unless they are reference artifacts.
-  const mirrorContext = `study_material_upload ${sourceName} ${topic || ""}`.trim();
-  const isReferenceArtifact = MIRROR_REFERENCE_PATTERN.test(mirrorContext);
-  let mirrorResult: {
-    captured: boolean;
-    archived: boolean;
-    needsConsent: boolean;
-    mirrorDocumentId: string | null;
-    wordCount: number;
-  } | null = null;
-
-  if (!isReferenceArtifact) {
-    const aiLikeSourceType =
-      sourceType === "coding_review_guide" ||
-      sourceType === "learning_coach_guide" ||
-      sourceType === "math_guide";
-    const looksSystemGenerated = STUDY_SYSTEM_ARTIFACT_PATTERN.test(
-      `${sourceName} ${topic} ${materialKind || ""}`.toLowerCase()
-    );
-    const sourceAuthority =
-      aiLikeSourceType || looksSystemGenerated
-        ? SOURCE_AUTHORITY.AI_GENERATED_ACCEPTED
-        : SOURCE_AUTHORITY.USER_UPLOADED;
-
-    try {
-      mirrorResult = await ingestStudioWriting({
-        supabase,
-        userId,
-        sourceStudio: "academic",
-        sourceAuthority,
-        text: finalStudyText,
-        sessionId: data.id,
-        context: mirrorContext,
-        fileName: sourceName,
-        mimeType: fileType || "text/plain",
-        fileSize: fileSize || finalStudyText.length,
-        writingType: "academic",
-        registerInArchive: true,
-      });
-    } catch (mirrorError) {
-      console.warn("Mirror ingest failed for study upload", mirrorError);
-    }
-  }
 
   // Mirror Mode: Register lineage (best effort)
   try {
@@ -342,7 +298,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(
-    { success: true, material: data, warning: uploadWarning, mirror: mirrorResult },
+    { success: true, material: data, warning: uploadWarning },
     { status: 200 }
   );
 }

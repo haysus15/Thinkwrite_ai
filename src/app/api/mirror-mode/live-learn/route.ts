@@ -8,8 +8,8 @@ import { learnFromTextDirect, type LearningSource } from "@/lib/mirror-mode/live
 import {
   SOURCE_AUTHORITY,
   type SourceAuthority,
-} from "@/lib/mirror-mode/sourceAuthority";
-import { getSourceLabel } from "@/lib/mirror-mode/ingestionPolicy";
+} from "@/lib/mirror-core/sourceAuthority";
+import { getSourceLabel } from "@/lib/mirror-core/ingestionPolicy";
 
 export const runtime = "nodejs";
 

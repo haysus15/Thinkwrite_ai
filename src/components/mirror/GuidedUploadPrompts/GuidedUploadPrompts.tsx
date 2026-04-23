@@ -1,7 +1,7 @@
 "use client";
 
 import styles from "./GuidedUploadPrompts.module.css";
-import type { Chamber } from "@/lib/mirror-mode/writingTypes";
+import type { Chamber } from "@/lib/mirror-core/writingTypes";
 import type { ChamberStatus } from "@/lib/mirror/voiceProfileStatus";
 
 type UploadGuidance = {

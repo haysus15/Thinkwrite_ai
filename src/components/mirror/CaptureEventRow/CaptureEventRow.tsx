@@ -1,7 +1,7 @@
 'use client';
 
-import { SOURCE_AUTHORITY, type SourceAuthority } from '@/lib/mirror-mode/sourceAuthority';
-import { MINIMUM_WORD_COUNT } from '@/lib/mirror-mode/ingestionPolicy';
+import { SOURCE_AUTHORITY, type SourceAuthority } from '@/lib/mirror-core/sourceAuthority';
+import { MINIMUM_WORD_COUNT } from '@/lib/mirror-core/ingestionPolicy';
 import styles from './CaptureEventRow.module.css';
 
 type Chamber = 'career' | 'academic' | 'creative' | 'general';

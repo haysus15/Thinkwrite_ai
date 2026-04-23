@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { VoiceProfileService } from "@/services/voice-profile/VoiceProfileService";
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 import { validatePaper } from "@/lib/academic/contentQualityGuard";
 import { logEvent } from "@/lib/telemetry/logEvent";
 
@@ -208,7 +208,12 @@ export async function POST(request: NextRequest) {
     };
   }
 
-  const voiceContext = await VoiceProfileService.getGenerationContext(userId, "academic");
+  const voiceContext = {
+    hasVoiceProfile: false,
+    promptInjection: "",
+    readiness: { isReady: false, tier: "none", score: 0, shouldWarn: false, lexMessage: "" },
+    gatekeeper: { sufficientData: true, warnings: [] as string[], counts: null, thresholds: null },
+  };
   const { data: academicChamber } = await supabase
     .from("voice_chambers")
     .select("aggregate_fingerprint, confidence_level")

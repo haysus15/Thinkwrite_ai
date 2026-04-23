@@ -1,6 +1,6 @@
 import { TextBufferManager, createStableFieldId } from "../lib/buffer";
 import { extractFingerprint, type Chamber } from "../lib/extractor";
-import { hasExtApi, localGet, runtimeSendMessage } from "../lib/runtime";
+import { hasExtApi, localGet, localSet, runtimeSendMessage } from "../lib/runtime";
 
 const TW_EXTENSION_BUILD = "0.1.2";
 
@@ -17,11 +17,19 @@ const SESSION_ID = typeof crypto !== "undefined" && "randomUUID" in crypto
   ? crypto.randomUUID()
   : `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
+const CAPTURE_ENABLED_KEY = "capture_enabled";
+const REQUEST_SOURCE = "thinkwrite-mirror-page";
+const RESPONSE_SOURCE = "thinkwrite-mirror-extension";
+
 const fieldMap = new Map<HTMLElement, FieldRuntime>();
 const runtimeById = new Map<string, FieldRuntime>();
 
 function getHostname(): string {
   return window.location.hostname;
+}
+
+function isThinkWriteHost(hostname: string): boolean {
+  return hostname === "mirrormode.ai" || hostname === "www.mirrormode.ai" || hostname === "localhost";
 }
 
 function isSearchField(element: HTMLElement): boolean {
@@ -70,13 +78,86 @@ function readFieldText(field: QualifyingField): string {
 }
 
 async function isCollectionPaused(hostname: string): Promise<boolean> {
-  const globalState = await localGet<Record<string, unknown>>("isPaused");
-  if (Boolean(globalState.isPaused)) return true;
+  try {
+    const storage = (globalThis.chrome ?? (globalThis as any).browser)?.storage?.local;
+    if (!storage) return false; // fail open — if storage unavailable, allow capture
 
-  const domainState = await localGet<Record<string, unknown>>(`paused:${hostname}`);
-  if (Boolean(domainState[`paused:${hostname}`])) return true;
+    const result = await new Promise<Record<string, unknown>>((resolve) => {
+      storage.get(['capture_enabled', 'isPaused', `paused:${hostname}`], (data: Record<string, unknown>) => {
+        resolve(data || {});
+      });
+    });
 
-  return false;
+    if (result['capture_enabled'] === false) return true;
+    if (result['isPaused'] === true) return true;
+    if (result[`paused:${hostname}`] === true) return true;
+    return false;
+  } catch {
+    return false; // fail open
+  }
+}
+
+function installMirrorSettingsBridge(): void {
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const data = event.data as
+      | {
+          source?: string;
+          requestId?: string;
+          action?: "get_capture_enabled" | "set_capture_enabled";
+          value?: boolean;
+        }
+      | undefined;
+
+    if (!data || data.source !== REQUEST_SOURCE || typeof data.requestId !== "string") {
+      return;
+    }
+
+    const reply = async () => {
+      try {
+        if (data.action === "get_capture_enabled") {
+          const state = await localGet<Record<string, unknown>>(CAPTURE_ENABLED_KEY);
+          const enabled = state[CAPTURE_ENABLED_KEY] !== false;
+          window.postMessage(
+            {
+              source: RESPONSE_SOURCE,
+              requestId: data.requestId,
+              ok: true,
+              value: enabled,
+            },
+            window.location.origin
+          );
+          return;
+        }
+
+        if (data.action === "set_capture_enabled" && typeof data.value === "boolean") {
+          await localSet({ [CAPTURE_ENABLED_KEY]: data.value });
+          window.postMessage(
+            {
+              source: RESPONSE_SOURCE,
+              requestId: data.requestId,
+              ok: true,
+              value: data.value,
+            },
+            window.location.origin
+          );
+          return;
+        }
+      } catch (error) {
+        window.postMessage(
+          {
+            source: RESPONSE_SOURCE,
+            requestId: data.requestId,
+            ok: false,
+            error: error instanceof Error ? error.message : "Bridge error",
+          },
+          window.location.origin
+        );
+      }
+    };
+
+    void reply();
+  });
 }
 
 const manager = new TextBufferManager((state) => {
@@ -87,9 +168,13 @@ const manager = new TextBufferManager((state) => {
 
 async function processField(runtime: FieldRuntime, mode: "input" | "idle"): Promise<void> {
   const hostname = getHostname();
-  if (await isCollectionPaused(hostname)) return;
+  const paused = await isCollectionPaused(hostname);
+
+  if (paused) return;
 
   const text = readFieldText(runtime.element);
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+
   const evaluation = manager.upsert(runtime.fieldId, text);
 
   if (mode === "input" && !evaluation.shouldExtract) {
@@ -108,14 +193,24 @@ async function processField(runtime: FieldRuntime, mode: "input" | "idle"): Prom
 
   manager.markExtracted(runtime.fieldId);
 
-  try {
-    await runtimeSendMessage({
-      type: "VOICE_FINGERPRINT",
-      fingerprint,
-      url: hostname,
-    });
-  } catch (err) {
-    console.warn("[ThinkWrite] sendMessage failed:", err);
+  // Retry up to 3 times with 500ms delay — service worker may need to wake up
+  let sent = false;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await runtimeSendMessage({
+        type: "VOICE_FINGERPRINT",
+        fingerprint,
+        url: hostname,
+      });
+      sent = true;
+      break;
+    } catch (err) {
+      if (attempt < 2) {
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      } else {
+        console.warn("[MirrorMode] sendMessage failed after 3 attempts:", err);
+      }
+    }
   }
 }
 
@@ -177,10 +272,16 @@ function shouldRunOnThisFrame(): boolean {
 }
 
 if (hasExtApi() && shouldRunOnThisFrame()) {
-  scan();
+  installMirrorSettingsBridge();
+
+  if (!isThinkWriteHost(getHostname())) {
+    scan();
+  }
 
   const observer = new MutationObserver(() => {
-    scan();
+    if (!isThinkWriteHost(getHostname())) {
+      scan();
+    }
   });
 
   observer.observe(document.documentElement, {

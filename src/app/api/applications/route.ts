@@ -39,7 +39,7 @@ export async function GET(req: Request) {
 
     if (includeArchived) {
       let query = supabase
-        .from("applications_insights")
+        .from("application_insights")
         .select("*")
         .eq("user_id", userId)
         .eq("is_archived", true)

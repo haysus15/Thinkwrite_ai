@@ -110,8 +110,9 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id);
 
     if (docUpdateError) {
+      console.error('Document purge update error:', docUpdateError);
       return NextResponse.json(
-        { error: 'Failed to mark documents as purged (schema upgrade required?)' },
+        { error: 'Failed to mark documents as purged', details: docUpdateError.message },
         { status: 500 }
       );
     }

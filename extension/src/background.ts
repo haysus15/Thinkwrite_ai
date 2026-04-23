@@ -1,4 +1,4 @@
-import { getAuthState } from "../lib/auth";
+import { clearSession, getValidAccessToken, THINKWRITE_API_BASE } from "../lib/auth";
 import { getDomainAssignment } from "../lib/domainMap";
 import type { VoiceFingerprint } from "../lib/extractor";
 import { runtimeOnMessageAddListener } from "../lib/runtime";
@@ -33,9 +33,9 @@ function getSessionStats(): SessionStats {
 }
 
 async function handleFingerprint(fingerprint: VoiceFingerprint, hostname: string): Promise<void> {
-  const auth = await getAuthState();
-  if (!auth.isAuthenticated || !auth.accessToken) {
-    console.warn("[ThinkWrite BG] dropping fingerprint due to missing auth");
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) {
+    console.warn("[MirrorMode BG] dropping fingerprint due to missing auth");
     return;
   }
 
@@ -46,11 +46,11 @@ async function handleFingerprint(fingerprint: VoiceFingerprint, hostname: string
       chamber: assignment.chamber,
     };
 
-    const endpoint = `${auth.apiBase}/api/mirror-mode/extension/fingerprint`;
+    const endpoint = `${THINKWRITE_API_BASE}/api/mirror/extension/fingerprint`;
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${auth.accessToken}`,
+        Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
         "x-extension-hostname": hostname,
       },
@@ -58,8 +58,15 @@ async function handleFingerprint(fingerprint: VoiceFingerprint, hostname: string
     });
     await response.text().catch(() => "");
 
+    console.log('[MirrorMode BG] fingerprint sent successfully, status:', response.status);
+    if (response.status === 401) {
+      await clearSession();
+      console.warn("[MirrorMode Extension] Session expired; cleared stored token");
+      return;
+    }
+
     if (!response.ok) {
-      console.warn("[ThinkWrite Extension] Fingerprint send failed", response.status);
+      console.warn("[MirrorMode Extension] Fingerprint send failed", response.status);
       return;
     }
 
@@ -67,16 +74,17 @@ async function handleFingerprint(fingerprint: VoiceFingerprint, hostname: string
     stats.lastCapturedAt = new Date().toISOString();
     stats.domainBreakdown[hostname] = (stats.domainBreakdown[hostname] || 0) + 1;
   } catch (error) {
-    console.warn("[ThinkWrite Extension] Fingerprint send error", error);
+    console.warn("[MirrorMode Extension] Fingerprint send error", error);
   }
 }
 
 runtimeOnMessageAddListener((message: FingerprintMessage | { type: "GET_SESSION_STATS" }, _sender: unknown, sendResponse: (value: unknown) => void) => {
+  console.log('[MirrorMode BG] message received:', message.type);
   if (message.type === "VOICE_FINGERPRINT") {
     handleFingerprint(message.fingerprint, message.url)
       .then(() => sendResponse({ success: true }))
       .catch((err) => {
-        console.warn("[ThinkWrite BG] fingerprint send failed:", err);
+        console.warn("[MirrorMode BG] fingerprint send failed:", err);
         sendResponse({ success: false, error: String(err?.message || err) });
       });
     return true;

@@ -4,8 +4,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
-import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
-import { getConfidenceLabel } from "@/lib/mirror-mode/voiceAggregation";
+import { describeVoice, type VoiceFingerprint } from "@/lib/mirror-core/voiceAnalysis";
+import { getConfidenceLabel } from "@/lib/mirror-core/voiceAggregation";
 import { getChamberStatus } from "@/lib/mirror/voiceProfileStatus";
 
 export const runtime = "nodejs";
@@ -85,26 +85,12 @@ export async function GET(req: NextRequest) {
     }
 
     // ---- FETCH DOCUMENT STATS ----
-    const primaryDocsQuery = await supabase
+    const { data: documents, error: docsError } = await supabase
       .from("mirror_documents")
       .select("id, file_name, word_count, file_size, learned_at, created_at, writing_type, visibility_status, deleted_at")
       .eq("user_id", userId)
       .eq("visibility_status", "active")
       .order("created_at", { ascending: false });
-
-    let docsError = primaryDocsQuery.error;
-    let normalizedDocuments = (primaryDocsQuery.data || []) as MirrorDocumentRow[];
-
-    // If schema isn't upgraded yet, retry without visibility filters
-    if (docsError?.message?.includes("column") || docsError?.message?.includes("visibility_status")) {
-      const fallbackDocsQuery = await supabase
-        .from("mirror_documents")
-        .select("id, file_name, word_count, file_size, learned_at, created_at, writing_type")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      docsError = fallbackDocsQuery.error;
-      normalizedDocuments = (fallbackDocsQuery.data || []) as MirrorDocumentRow[];
-    }
 
     if (docsError) {
       return NextResponse.json(
@@ -112,6 +98,8 @@ export async function GET(req: NextRequest) {
         { status: 500, headers: noStoreHeaders }
       );
     }
+
+    const normalizedDocuments = (documents || []) as MirrorDocumentRow[];
 
     const totalDocuments = normalizedDocuments.length || 0;
     const learnedDocuments = normalizedDocuments.filter((d) => d.learned_at).length || 0;

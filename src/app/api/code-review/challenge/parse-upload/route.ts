@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
-import { extractTextFromFile } from "@/lib/mirror-mode/extractText";
+import { extractTextFromFile } from "@/lib/utils/extractText";
 import { parseCodeChallenges } from "@/lib/code-review/challengeParser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 

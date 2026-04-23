@@ -5,10 +5,10 @@
 import {
   isProfileEligible,
   type SourceAuthority,
-} from "@/lib/mirror-mode/sourceAuthority";
+} from "@/lib/mirror-core/sourceAuthority";
 import {
   shouldIngestForProfile,
-} from "@/lib/mirror-mode/ingestionPolicy";
+} from "@/lib/mirror-core/ingestionPolicy";
 
 export type LearningSource =
   | 'cover-letter'
@@ -135,9 +135,9 @@ export async function learnFromTextDirect(
 }> {
   // Dynamic import to avoid circular dependencies
   const { createClient } = await import('@supabase/supabase-js');
-  const { extractVoiceFingerprint } = await import('./voiceAnalysis');
-  const { aggregateFingerprints, getConfidenceLabel } = await import('./voiceAggregation');
-  const { mapWritingTypeToChamber } = await import('./writingTypes');
+  const { extractVoiceFingerprint } = await import('@/lib/mirror-core/voiceAnalysis');
+  const { aggregateFingerprints, getConfidenceLabel } = await import('@/lib/mirror-core/voiceAggregation');
+  const { mapWritingTypeToChamber } = await import('@/lib/mirror-core/writingTypes');
 
   const { userId, text, source, sourceAuthority, metadata } = options;
 

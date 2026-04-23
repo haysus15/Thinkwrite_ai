@@ -26,25 +26,31 @@ async function callMaybePromise(call, callbackStyle) {
 }
 var ext = globalThis.chrome ?? globalThis.browser ?? null;
 async function localGet(key) {
-  if (!ext?.storage?.local) return {};
-  try {
-    return await callMaybePromise(
-      () => ext.storage.local.get(key),
-      (resolve) => ext.storage.local.get(key, (value) => resolve(value || {}))
-    );
-  } catch (error) {
-    if (isContextInvalidatedError(error)) {
-      return {};
-    }
-    throw error;
+  const storage = (globalThis.chrome ?? globalThis.browser)?.storage?.local;
+  if (!storage) {
+    console.warn("[MirrorMode] storage.local not available at localGet call time");
+    return {};
   }
+  return new Promise((resolve) => {
+    storage.get(key, (result) => resolve(result || {}));
+  });
 }
 async function localSet(value) {
+  const storage = (globalThis.chrome ?? globalThis.browser)?.storage?.local;
+  if (!storage) {
+    console.warn("[MirrorMode] storage.local not available at localSet call time");
+    return;
+  }
+  return new Promise((resolve) => {
+    storage.set(value, () => resolve());
+  });
+}
+async function localRemove(key) {
   if (!ext?.storage?.local) return;
   try {
     await callMaybePromise(
-      () => ext.storage.local.set(value),
-      (resolve) => ext.storage.local.set(value, () => resolve(void 0))
+      () => ext.storage.local.remove(key),
+      (resolve) => ext.storage.local.remove(key, () => resolve(void 0))
     );
   } catch (error) {
     if (!isContextInvalidatedError(error)) {
@@ -94,13 +100,14 @@ async function tabsQuery(query) {
   }
 }
 async function runtimeSendMessage(payload) {
-  if (!ext?.runtime?.sendMessage) {
+  const runtime = (globalThis.chrome ?? globalThis.browser)?.runtime;
+  if (!runtime?.sendMessage) {
     throw new Error("Extension runtime sendMessage API unavailable");
   }
   return await new Promise((resolve, reject) => {
     try {
-      ext.runtime.sendMessage(payload, (response) => {
-        const lastError = ext?.runtime?.lastError;
+      runtime.sendMessage(payload, (response) => {
+        const lastError = runtime.lastError;
         if (lastError) {
           reject(new Error(lastError.message || "Unknown runtime sendMessage error"));
           return;
@@ -111,6 +118,101 @@ async function runtimeSendMessage(payload) {
       reject(new Error("Failed to send extension runtime message"));
     }
   });
+}
+
+// lib/auth.ts
+var THINKWRITE_API_BASE = true ? "http://localhost:3000" : "https://mirrormode.ai";
+var EXTENSION_SESSION_STORAGE_KEY = "mirrormode_ext_session";
+function isStoredSession(value) {
+  return Boolean(value) && typeof value === "object" && typeof value.token === "string";
+}
+function isExpired(expiresAt) {
+  if (!expiresAt) return true;
+  const timestamp = Date.parse(expiresAt);
+  if (Number.isNaN(timestamp)) return true;
+  return Date.now() >= timestamp;
+}
+async function getStoredSession() {
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(EXTENSION_SESSION_STORAGE_KEY, (result) => {
+        resolve(result || {});
+      });
+    });
+  }
+  return localGet(EXTENSION_SESSION_STORAGE_KEY);
+}
+async function readStoredSession() {
+  const stored = await getStoredSession();
+  const session = stored[EXTENSION_SESSION_STORAGE_KEY];
+  return isStoredSession(session) ? session : null;
+}
+async function storeSession(session) {
+  await localSet({ [EXTENSION_SESSION_STORAGE_KEY]: session });
+}
+async function clearSession() {
+  await localRemove(EXTENSION_SESSION_STORAGE_KEY);
+}
+async function getAuthState() {
+  const session = await readStoredSession();
+  const expired = isExpired(session?.expiresAt);
+  return {
+    accessToken: session?.token ?? null,
+    userId: session?.userId ?? null,
+    email: session?.email ?? null,
+    isAuthenticated: Boolean(session?.token && session?.userId && !expired),
+    isExpired: Boolean(session?.token && expired),
+    needsReconnect: Boolean(session?.token && expired),
+    expiresAt: session?.expiresAt ?? null,
+    apiBase: THINKWRITE_API_BASE
+  };
+}
+async function postExtensionAuth(path, init) {
+  const response = await fetch(`${THINKWRITE_API_BASE}${path}`, init);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data?.error || "Extension authentication request failed");
+  }
+  return data;
+}
+async function loginWithCredentials(email, password) {
+  const data = await postExtensionAuth("/api/extension/auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  if (!data.session) {
+    throw new Error("Extension session was not returned");
+  }
+  await storeSession(data.session);
+  return getAuthState();
+}
+async function refreshSession() {
+  const session = await readStoredSession();
+  if (!session?.token) {
+    return null;
+  }
+  try {
+    const data = await postExtensionAuth(
+      "/api/extension/auth/refresh",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.token}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+    if (!data.session) {
+      await clearSession();
+      return null;
+    }
+    await storeSession(data.session);
+    return getAuthState();
+  } catch {
+    await clearSession();
+    return null;
+  }
 }
 
 // lib/domainMap.ts
@@ -208,17 +310,82 @@ async function getSessionStats() {
     });
   });
 }
-async function render() {
-  const app = document.getElementById("app");
-  if (!app) return;
+function renderAuthShell(title, body) {
+  return `
+    <section class="panel">
+      <h1>Mirror Mode</h1>
+      <div class="small">${title}</div>
+      <div style="height:12px"></div>
+      ${body}
+    </section>
+  `;
+}
+async function renderLogin(app, errorMessage) {
+  app.innerHTML = renderAuthShell(
+    "Sign in to reconnect the extension to your Mirror Mode account.",
+    `
+      <form id="login-form">
+        <div class="row"><input id="email" type="email" placeholder="Email" required /></div>
+        <div class="row"><input id="password" type="password" placeholder="Password" required /></div>
+        ${errorMessage ? `<div class="small" style="color:#fca5a5">${errorMessage}</div>` : ""}
+        <div style="height:8px"></div>
+        <button type="submit">Sign in</button>
+      </form>
+    `
+  );
+  const form = app.querySelector("#login-form");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = app.querySelector("#email")?.value?.trim() || "";
+    const password = app.querySelector("#password")?.value || "";
+    try {
+      await loginWithCredentials(email, password);
+      const stored = await chrome.storage.local.get("mirrormode_ext_session");
+      console.log("[MirrorMode Popup] session after login:", JSON.stringify(stored));
+      await render();
+    } catch (error) {
+      await renderLogin(
+        app,
+        error instanceof Error ? error.message : "Could not sign in to Mirror Mode."
+      );
+    }
+  });
+}
+async function renderReconnect(app) {
+  app.innerHTML = renderAuthShell(
+    "Your extension session expired.",
+    `
+      <div class="small">Reconnect to resume Mirror Mode collection.</div>
+      <div style="height:12px"></div>
+      <button id="reconnect">Reconnect</button>
+      <div style="height:8px"></div>
+      <button id="logout">Clear session</button>
+    `
+  );
+  app.querySelector("#reconnect")?.addEventListener("click", async () => {
+    const auth = await refreshSession();
+    if (auth?.isAuthenticated) {
+      await render();
+      return;
+    }
+    await renderLogin(app, "Reconnect failed. Sign in again.");
+  });
+  app.querySelector("#logout")?.addEventListener("click", async () => {
+    await clearSession();
+    await render();
+  });
+}
+async function renderAuthenticated(app) {
   const hostname = await getActiveHostname();
   const assignment = await getDomainAssignment(hostname);
   const globalPaused = await getGlobalPause();
   const stats = await getSessionStats();
+  const auth = await getAuthState();
   app.innerHTML = `
     <section class="panel">
-      <h1>ThinkWrite Mirror Mode</h1>
+      <h1>Mirror Mode</h1>
       <div class="row"><span class="small">${globalPaused ? "Mirror Mode is paused" : "Mirror Mode is active"}</span></div>
+      <div class="small">${auth.email || "Connected"}</div>
       <button id="toggle-global">${globalPaused ? "Resume collection" : "Pause collection"}</button>
 
       <h2>This site</h2>
@@ -239,6 +406,8 @@ async function render() {
       <div class="small">${stats.capturedCount} samples captured</div>
       <div class="small">Started ${minutesSince(stats.sessionStartedAt)}</div>
       <div class="list" id="breakdown"></div>
+      <div style="height:8px"></div>
+      <button id="logout">Disconnect extension</button>
     </section>
   `;
   const breakdown = app.querySelector("#breakdown");
@@ -251,13 +420,11 @@ async function render() {
     const chamber = chamberSelect.value || "general";
     await setDomainAssignment(hostname, chamber);
   });
-  const globalBtn = app.querySelector("#toggle-global");
-  globalBtn?.addEventListener("click", async () => {
+  app.querySelector("#toggle-global")?.addEventListener("click", async () => {
     await setGlobalPause(!globalPaused);
     await render();
   });
-  const domainBtn = app.querySelector("#toggle-domain");
-  domainBtn?.addEventListener("click", async () => {
+  app.querySelector("#toggle-domain")?.addEventListener("click", async () => {
     if (assignment.isPaused) {
       await resumeDomain(hostname);
     } else {
@@ -265,6 +432,24 @@ async function render() {
     }
     await render();
   });
+  app.querySelector("#logout")?.addEventListener("click", async () => {
+    await clearSession();
+    await render();
+  });
+}
+async function render() {
+  const app = document.getElementById("app");
+  if (!app) return;
+  const auth = await getAuthState();
+  if (!auth.accessToken) {
+    await renderLogin(app);
+    return;
+  }
+  if (auth.needsReconnect) {
+    await renderReconnect(app);
+    return;
+  }
+  await renderAuthenticated(app);
 }
 void render();
 //# sourceMappingURL=popup.js.map

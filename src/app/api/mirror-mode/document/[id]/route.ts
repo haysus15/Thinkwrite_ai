@@ -55,7 +55,7 @@ export async function DELETE(
     if (deleteError) {
       console.error('Delete error:', deleteError);
       return NextResponse.json(
-        { error: 'Failed to hide document (schema upgrade required?)' },
+        { error: 'Failed to hide document', details: deleteError.message },
         { status: 500 }
       );
     }

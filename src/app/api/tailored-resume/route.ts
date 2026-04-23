@@ -6,7 +6,7 @@ import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import { checkRateLimit } from '@/lib/api/rateLimiter';
 import { TailoredResumeEngine } from '@/lib/tailored-resume-engine';
-import { VoiceProfileService } from '@/services/voice-profile';
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 import {
   transformTailoredResumeFromDB,
   type TailoredResumeDB,
@@ -28,7 +28,12 @@ export async function POST(request: NextRequest) {
       return Errors.rateLimited(Math.ceil(resetIn / 1000));
     }
 
-    const voiceContext = await VoiceProfileService.getGenerationContext(userId, "career");
+    const voiceContext = {
+      hasVoiceProfile: false,
+      promptInjection: "",
+      readiness: { isReady: false, tier: "none", score: 0, shouldWarn: false, lexMessage: "" },
+      gatekeeper: { sufficientData: true, warnings: [] as string[], counts: null, thresholds: null },
+    };
     const systemPrompt = `You are Lex, a career advisor with deep HR expertise. You help users craft authentic, compelling career documents that showcase their real experience and value.
 
 Your approach:

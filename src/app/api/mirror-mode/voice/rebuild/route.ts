@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/auth/getAuthUser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { Errors } from "@/lib/api/errors";
-import { extractVoiceFingerprint, type VoiceFingerprint } from "@/lib/mirror-mode/voiceAnalysis";
-import { aggregateFingerprints, type VoiceProfile } from "@/lib/mirror-mode/voiceAggregation";
-import { mapWritingTypeToChamber } from "@/lib/mirror-mode/writingTypes";
-import { MINIMUM_WORD_COUNT } from "@/lib/mirror-mode/ingestionPolicy";
+import { extractVoiceFingerprint, type VoiceFingerprint } from "@/lib/mirror-core/voiceAnalysis";
+import { aggregateFingerprints, type VoiceProfile } from "@/lib/mirror-core/voiceAggregation";
+import { mapWritingTypeToChamber } from "@/lib/mirror-core/writingTypes";
+import { MINIMUM_WORD_COUNT } from "@/lib/mirror-core/ingestionPolicy";
 
 export const runtime = "nodejs";
 

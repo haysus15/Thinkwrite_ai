@@ -23,8 +23,7 @@ import {
   toPersistedMode,
 } from "@/lib/academic/victorContextBuilder";
 import { handleMathMode, readAnthropicText } from "@/lib/academic/victorModeHandler";
-import { ingestStudioWriting } from "@/lib/mirror-mode/studioIngestion";
-import { SOURCE_AUTHORITY } from "@/lib/mirror-mode/sourceAuthority";
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 import { detectSubject, shouldUseTeachingMode } from "@/lib/academic/subjectDetection";
 import {
   formatHandoffForVictor,
@@ -758,7 +757,8 @@ async function createTeachingCompletion(input: {
   );
 }
 
-async function captureVictorMessageForMirror(input: {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function captureVictorMessageForMirror(_input: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   userId: string;
   text: string;
@@ -766,31 +766,7 @@ async function captureVictorMessageForMirror(input: {
   mode: VictorMode;
   workspaceContext: string;
 }): Promise<VictorMirrorCapture> {
-  const { supabase, userId, text, sessionId, mode, workspaceContext } = input;
-  if (!text.trim()) return DEFAULT_MIRROR_CAPTURE;
-
-  try {
-    const captureResult = await ingestStudioWriting({
-      supabase,
-      userId,
-      sourceStudio: "academic",
-      sourceAuthority: SOURCE_AUTHORITY.USER_TYPED,
-      text,
-      sessionId,
-      context: workspaceContext || `victor_${mode}`,
-      writingType: "academic",
-      registerInArchive: false,
-    });
-
-    return {
-      captured: Boolean(captureResult.captured),
-      chamber: "academic",
-      wordCount: captureResult.captured ? captureResult.wordCount : 0,
-    };
-  } catch (captureError) {
-    console.warn("Victor mirror capture skipped:", captureError);
-    return DEFAULT_MIRROR_CAPTURE;
-  }
+  return DEFAULT_MIRROR_CAPTURE;
 }
 
 export async function POST(request: NextRequest) {

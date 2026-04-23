@@ -6,8 +6,7 @@ import { getAuthUser, createSupabaseAdmin } from '@/lib/auth/getAuthUser';
 import { Errors } from '@/lib/api/errors';
 import { transformResumeToDB } from '@/types/resume-builder';
 import type { ResumeBuilderData } from '@/types/resume-builder';
-import { ingestStudioWriting } from '@/lib/mirror-mode/studioIngestion';
-import { SOURCE_AUTHORITY } from '@/lib/mirror-mode/sourceAuthority';
+// VOICE DISCONNECTED — Mirror Mode ships standalone. Reconnect via API contract.
 
 // GET: List all resumes built by user
 export async function GET(request: NextRequest) {
@@ -82,35 +81,6 @@ export async function POST(request: NextRequest) {
       return Errors.databaseError(error.message);
     }
 
-    // Mirror Mode: Learn + archive user-authored builder input in career chamber
-    let mirrorResult: Awaited<ReturnType<typeof ingestStudioWriting>> | null = null;
-    try {
-      const textForCapture = [
-        body.summary,
-        ...(body.experience?.map((exp: any) =>
-          [exp.description, ...(exp.bullets || [])].filter(Boolean).join('\n')
-        ) || [])
-      ].filter(Boolean).join('\n\n');
-
-      if (textForCapture.length > 50) {
-        mirrorResult = await ingestStudioWriting({
-          supabase,
-          userId,
-          sourceStudio: 'career',
-          sourceAuthority: SOURCE_AUTHORITY.USER_TYPED,
-          text: textForCapture,
-          sessionId: data.id,
-          context: 'resume_builder_input',
-          fileName: body.title || 'Untitled Resume',
-          mimeType: 'text/plain',
-          fileSize: textForCapture.length,
-          writingType: 'professional',
-          registerInArchive: true,
-        });
-      }
-    } catch (e) {
-      // Silent fail
-    }
 
     // Mirror Mode: Register lineage (best effort)
     try {
@@ -138,7 +108,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       resume: { ...body, id: data.id, userId },
-      mirror: mirrorResult,
     });
 
   } catch (error: any) {

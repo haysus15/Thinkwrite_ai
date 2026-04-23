@@ -3,7 +3,7 @@
 'use client';
 
 import { useState } from 'react';
-import { WRITING_TYPE_OPTIONS, type WritingType } from '@/lib/mirror-mode/writingTypes';
+import { WRITING_TYPE_OPTIONS, type WritingType } from '@/lib/mirror-core/writingTypes';
 
 interface WritingTypeSelectorProps {
   value: WritingType;

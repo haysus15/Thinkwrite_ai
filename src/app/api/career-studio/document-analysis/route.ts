@@ -3,7 +3,7 @@
 
 import OpenAI from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
-import { extractTextFromFile } from '@/lib/mirror-mode/extractText';
+import { extractTextFromFile } from '@/lib/utils/extractText';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
