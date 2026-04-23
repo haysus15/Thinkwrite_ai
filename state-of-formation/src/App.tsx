@@ -291,7 +291,7 @@ export default function App() {
         transition={{ opacity: { duration: 1.5, ease: [0.43, 0.13, 0.23, 0.96] } }}
       >
         <img
-          src="/Freeyourthoughts.png"
+          src="/freeyourthoughts.png"
           alt="Free your thoughts"
           style={styles.introFullscreenImage}
         />
